@@ -74,6 +74,21 @@ Crea:
 
 Luego inicia sesión en http://localhost:5173 con el usuario admin.
 
+## Despliegue en producción (DigitalOcean)
+
+Para instalar en un droplet de DigitalOcean (accesible por IP/HTTP y listo para
+activar HTTPS con dominio después) hay un stack de producción aparte:
+`docker-compose.prod.yml` (Caddy como reverse proxy + frontend estático),
+`.env.production.example` y el script idempotente `deploy/deploy.sh`.
+
+```bash
+# en el droplet, dentro del repo
+sudo ./deploy/deploy.sh
+```
+
+El paso a paso completo (crear droplet, traer el código, operación, backups y
+activar HTTPS con dominio) está en **[DEPLOY.md](DEPLOY.md)**.
+
 ## Integración Defontana: modo mock y modo real
 
 La integración se controla con `DEFONTANA_MOCK`:

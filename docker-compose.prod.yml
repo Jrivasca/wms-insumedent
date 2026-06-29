@@ -1,0 +1,76 @@
+# Production stack for a single droplet.
+# Only the Caddy proxy publishes ports (80/443); MongoDB, backend, worker and the
+# frontend stay on the internal network and are never exposed directly.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+services:
+  mongo:
+    image: mongo:7
+    container_name: wms_mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:-wms}
+
+  backend:
+    build: ./backend
+    image: wms_backend:latest
+    container_name: wms_backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    env_file:
+      - .env
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    expose:
+      - "8000"
+
+  worker:
+    image: wms_backend:latest
+    build: ./backend
+    container_name: wms_worker
+    restart: unless-stopped
+    depends_on:
+      - mongo
+      - backend
+    env_file:
+      - .env
+    command: python -m app.workers.sync_worker
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: ""
+    image: wms_frontend:latest
+    container_name: wms_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: wms_caddy
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  mongo_data:
+  caddy_data:
+  caddy_config:

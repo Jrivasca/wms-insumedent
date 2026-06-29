@@ -1,0 +1,22 @@
+# Reverse proxy for the WMS.
+#
+# SITE_ADDRESS=":80"      -> HTTP only, reachable by the droplet IP (default).
+# SITE_ADDRESS="dominio"  -> Caddy obtains and renews a Let's Encrypt certificate
+#                            automatically (requires ports 80+443 open and DNS A
+#                            record pointing to the droplet).
+#
+# The frontend is served as static files; everything under /api, /health and the
+# Swagger docs is proxied to the backend so the SPA and API share one origin.
+
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	@backend path /api/* /health /docs /docs/* /openapi.json /redoc /redoc/*
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}
