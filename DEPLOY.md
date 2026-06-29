@@ -22,6 +22,51 @@ Solo Caddy publica puertos. MongoDB, backend, worker y frontend quedan en la red
 interna. El frontend se sirve **estático** y llama a la API en el **mismo origen**
 (`/api/v1`), por lo que añadir un dominio luego es solo un cambio de variable.
 
+## Coexistencia con otros proyectos en el droplet
+
+El stack no toca tus otros proyectos: MongoDB no expone puertos, los volúmenes y
+la red van *namespaced* por proyecto, y Docker ya instalado se reutiliza. El único
+punto de choque posible son los **puertos 80/443**.
+
+**Caso A — 80/443 están libres:** no cambies nada. El WMS toma 80/443 y queda en
+`http://IP/` (y HTTPS automático al poner un dominio en `SITE_ADDRESS`).
+
+**Caso B — ya tienes un reverse proxy (nginx/Caddy/Traefik) en 80/443:** corre el
+WMS en un puerto interno y enruta tu proxy hacia él. En `.env`:
+
+```
+WMS_HTTP_PORT=8080
+WMS_HTTPS_PORT=8443
+SITE_ADDRESS=:80
+```
+
+Luego añade a tu proxy existente una entrada para un (sub)dominio del WMS:
+
+*nginx* (tu proxy termina el TLS, p. ej. con certbot):
+```nginx
+server {
+    server_name wms.midominio.cl;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+*Caddy* (en tu Caddyfile existente — TLS automático):
+```
+wms.midominio.cl {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Como el WMS ya enruta `/api` y `/` internamente, tu proxy solo reenvía **todo** a
+un puerto. El frontend habla con la API en el mismo origen, así que funciona igual
+por IP o por dominio, con o sin TLS de tu proxy.
+
 ## 1. Crear el droplet
 
 - **Imagen:** Ubuntu 24.04 LTS (o 22.04 LTS).
