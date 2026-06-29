@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { createPicking, getOrder, listOrders } from '../api/orders';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
@@ -6,6 +7,7 @@ import StatusBadge from '../components/StatusBadge';
 import type { Order } from '../types';
 
 export default function OrdersPage() {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,12 +46,10 @@ export default function OrdersPage() {
     setNotice(null);
     try {
       const task = await createPicking(orderId);
-      setNotice(`Picking generado (tarea ${task.id})`);
-      load();
-      if (selected?.id === orderId) openDetail(orderId);
+      // Take the user straight to the picking task so the flow is obvious.
+      navigate(`/my/picking/${task.id}`);
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
       setBusy(false);
     }
   }

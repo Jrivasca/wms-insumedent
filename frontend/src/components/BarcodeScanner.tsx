@@ -173,7 +173,7 @@ export default function BarcodeScanner({
           onKeyDown={handleKeyDown}
           onBlur={refocus}
           autoFocus={autoFocus}
-          inputMode="none"
+          inputMode="text"
           placeholder="Escanee o ingrese código…"
           className={`flex-1 rounded-md border bg-white px-3 py-3 text-base outline-none ${FEEDBACK_BORDER[feedback]}`}
           aria-label="Entrada de código de barras"

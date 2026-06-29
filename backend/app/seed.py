@@ -221,43 +221,59 @@ async def run_seed() -> Dict[str, Any]:
     if movement_docs:
         await db[Collections.INVENTORY_MOVEMENTS].insert_many(movement_docs)
 
-    # --- Demo order 1001 (references the first two real catalog products) ---
-    order_items = catalog[:2]
-    order_lines = []
-    for n, item in enumerate(order_items, start=1):
-        ordered = min(5, item["stock"]) if n == 1 else min(3, item["stock"])
-        order_lines.append(
+    # --- Demo orders (varied real products so the full flow can be practiced) ---
+    def _line(n: int, item: Dict[str, Any], qty: int) -> Dict[str, Any]:
+        return {
+            "line_id": f"L{n}",
+            "product_id": product_ids[item["sku"]],
+            "sku": item["sku"],
+            "name": item["name"],
+            "unit": "UN",
+            "ordered_quantity": min(qty, item["stock"]),
+            "picked_quantity": 0,
+            "packed_quantity": 0,
+            "status": OrderLineStatus.PENDING.value,
+        }
+
+    # Order 1001 keeps the first two catalog products (consistent with the
+    # Defontana mock). The others pull products spread across the catalog so the
+    # demo shows several categories and there is always something to pick.
+    spread = [it for it in catalog[2:] if it["stock"] >= 6]
+    step = max(1, len(spread) // 12)
+    picks = [spread[i] for i in range(0, len(spread), step)]
+
+    order_specs = [
+        ("1001", "Clínica Dental Demo SPA", [(catalog[0], 5), (catalog[1], 3)]),
+    ]
+    if len(picks) >= 9:
+        order_specs += [
+            ("1002", "Centro Odontológico Los Andes", [(picks[0], 2), (picks[1], 4), (picks[2], 1)]),
+            ("1003", "Dental Norte Ltda.", [(picks[3], 6), (picks[4], 2)]),
+            ("1004", "Clínica Sonrisa Feliz", [(picks[5], 3)]),
+            ("1005", "OdontoSalud SpA", [(picks[6], 2), (picks[7], 2), (picks[8], 5)]),
+        ]
+
+    order_docs = []
+    for number, customer, lines_spec in order_specs:
+        order_docs.append(
             {
-                "line_id": f"L{n}",
-                "product_id": product_ids[item["sku"]],
-                "sku": item["sku"],
-                "name": item["name"],
-                "unit": "UN",
-                "ordered_quantity": ordered,
-                "picked_quantity": 0,
-                "packed_quantity": 0,
-                "status": OrderLineStatus.PENDING.value,
+                "tenant_id": tenant_id,
+                "erp_order_number": number,
+                "erp_document_id": f"DOC-{number}",
+                "customer": customer,
+                "status": OrderStatus.IMPORTED.value,
+                "order_date": now,
+                "delivery_date": None,
+                "warehouse_id": warehouse_id,
+                "lines": [_line(n, it, q) for n, (it, q) in enumerate(lines_spec, start=1)],
+                "raw_erp_data": None,
+                "is_active": True,
+                "created_at": now,
+                "updated_at": now,
+                "created_by": actor,
             }
         )
-
-    await db[Collections.ORDERS].insert_one(
-        {
-            "tenant_id": tenant_id,
-            "erp_order_number": "1001",
-            "erp_document_id": "DOC-1001",
-            "customer": "Clínica Dental Demo SPA",
-            "status": OrderStatus.IMPORTED.value,
-            "order_date": now,
-            "delivery_date": None,
-            "warehouse_id": warehouse_id,
-            "lines": order_lines,
-            "raw_erp_data": None,
-            "is_active": True,
-            "created_at": now,
-            "updated_at": now,
-            "created_by": actor,
-        }
-    )
+    await db[Collections.ORDERS].insert_many(order_docs)
 
     return {
         "status": "seeded",
@@ -267,5 +283,5 @@ async def run_seed() -> Dict[str, Any]:
         "warehouse_id": warehouse_id,
         "products": len(catalog),
         "total_stock_units": sum(i["stock"] for i in catalog),
-        "order": "1001",
+        "orders": [s[0] for s in order_specs],
     }
