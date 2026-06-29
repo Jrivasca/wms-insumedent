@@ -4,6 +4,7 @@ import {
   completePicking,
   getPickingTask,
   markMissing,
+  resetPickingLine,
   scanPicking,
   startPicking,
 } from '../api/picking';
@@ -144,6 +145,22 @@ export default function PickingTaskPage() {
       setFeedback('success');
       setMessage('Línea confirmada');
       setTimeout(() => setFeedback('idle'), 1200);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Undo a line so it can be scanned again (fix a mistake).
+  async function resetLine(sku: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const t = await resetPickingLine(id, { sku });
+      setTask(t);
+      setMessage(`Línea ${sku} reiniciada — vuelva a escanearla`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -327,6 +344,15 @@ export default function PickingTaskPage() {
                     {l.quantity_picked}/{l.quantity_required}
                   </div>
                   {missing && <div className="text-xs text-red-600">faltante</div>}
+                  {(l.quantity_picked > 0 || missing) && !notStarted && (
+                    <button
+                      onClick={() => resetLine(l.sku)}
+                      className="mt-1 text-xs font-medium text-brand underline disabled:opacity-50"
+                      disabled={busy}
+                    >
+                      Volver a escanear
+                    </button>
+                  )}
                 </div>
               </div>
             );

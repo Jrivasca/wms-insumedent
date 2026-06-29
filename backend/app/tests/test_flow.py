@@ -167,6 +167,35 @@ async def test_double_dispatch_blocked():
         await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
 
 
+async def test_picking_reset_line():
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order = await _order_1001()
+    order_id = str(order["_id"])
+    sku1 = order["lines"][0]["sku"]
+    bc1 = await _barcode_for(tenant_id, order["lines"][0]["product_id"])
+    qty1 = order["lines"][0]["ordered_quantity"]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    tid = task["id"]
+    await picking_service.scan(tenant_id, tid, admin, bc1, qty1, None)
+
+    t = await picking_service.get_task(tenant_id, tid)
+    line = next(l for l in t["lines"] if l["sku"] == sku1)
+    assert line["quantity_picked"] == qty1  # fully picked
+
+    # Reset the line (fix a mistake) -> back to zero / pending.
+    t = await picking_service.reset_line(tenant_id, tid, admin, sku1)
+    line = next(l for l in t["lines"] if l["sku"] == sku1)
+    assert line["quantity_picked"] == 0
+    assert line["status"] == "pending"
+
+    # It can be scanned again.
+    res = await picking_service.scan(tenant_id, tid, admin, bc1, qty1, None)
+    assert res["status"] == "ok"
+
+
 async def test_defontana_mock_sync_products():
     seed = await run_seed()
     tenant_id = seed["tenant_id"]

@@ -3,7 +3,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from app.api.deps import CurrentUser, get_current_user
-from app.schemas.picking import CompletePickingRequest, MarkMissingRequest, ScanRequest
+from app.schemas.picking import (
+    CompletePickingRequest,
+    MarkMissingRequest,
+    ResetLineRequest,
+    ScanRequest,
+)
 from app.services import picking_service
 from app.services.audit_service import log_action
 
@@ -52,6 +57,26 @@ async def mark_missing(
         entity_type="picking_task",
         entity_id=task_id,
         metadata={"sku": payload.sku, "reason": payload.reason},
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    return result
+
+
+@router.post("/tasks/{task_id}/reset-line")
+async def reset_line(
+    task_id: str, payload: ResetLineRequest, user: CurrentUser = Depends(get_current_user)
+):
+    result = await picking_service.reset_line(
+        user.tenant_id, task_id, user, payload.sku
+    )
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="picking_reset_line",
+        entity_type="picking_task",
+        entity_id=task_id,
+        metadata={"sku": payload.sku},
         ip=user.ip,
         user_agent=user.user_agent,
     )
