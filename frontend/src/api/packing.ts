@@ -34,6 +34,14 @@ export async function createPackage(
   return data;
 }
 
+export async function resetPackingLine(
+  id: string,
+  payload: { sku: string }
+): Promise<PackingTask> {
+  const { data } = await http.post<PackingTask>(`/packing/tasks/${id}/reset-line`, payload);
+  return data;
+}
+
 export async function completePacking(id: string): Promise<PackingTask> {
   const { data } = await http.post<PackingTask>(`/packing/tasks/${id}/complete`);
   return data;

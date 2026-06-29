@@ -4,6 +4,7 @@ import {
   completePacking,
   createPackage,
   getPackingTask,
+  resetPackingLine,
   scanPacking,
   startPacking,
 } from '../api/packing';
@@ -147,6 +148,22 @@ export default function PackingTaskPage() {
       setFeedback('success');
       setMessage('Línea empacada');
       setTimeout(() => setFeedback('idle'), 1200);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Undo a line so it can be packed again (fix a mistake).
+  async function resetLine(sku: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const t = await resetPackingLine(id, { sku });
+      setTask(t);
+      setMessage(`Línea ${sku} reiniciada — vuelva a empacarla`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -320,8 +337,19 @@ export default function PackingTaskPage() {
                   <div className="font-medium">{l.name}</div>
                   <div className="font-mono text-xs text-slate-500">{l.sku}</div>
                 </div>
-                <div className="font-bold">
-                  {l.quantity_packed}/{l.quantity_required}
+                <div className="text-right">
+                  <div className="font-bold">
+                    {l.quantity_packed}/{l.quantity_required}
+                  </div>
+                  {l.quantity_packed > 0 && !notStarted && (
+                    <button
+                      onClick={() => resetLine(l.sku)}
+                      className="mt-1 text-xs font-medium text-brand underline disabled:opacity-50"
+                      disabled={busy}
+                    >
+                      Volver a escanear
+                    </button>
+                  )}
                 </div>
               </div>
             );

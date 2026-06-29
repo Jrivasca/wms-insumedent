@@ -196,6 +196,39 @@ async def test_picking_reset_line():
     assert res["status"] == "ok"
 
 
+async def test_packing_reset_line():
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order, plan = await _order_scan_plan(tenant_id)
+    order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
+
+    # Drive picking to completion so a packing task exists.
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
+    await picking_service.complete(tenant_id, task["id"], admin)
+
+    pk = (await packing_service.list_tasks(tenant_id, admin))[0]
+    pid = pk["id"]
+    sku1 = pk["lines"][0]["sku"]
+    await packing_service.start_task(tenant_id, pid, admin)
+    pkg = await packing_service.create_package(tenant_id, pid, admin, None)
+    await packing_service.scan(tenant_id, pid, admin, bc1, q1, pkg["package_id"])
+
+    t = await packing_service.get_task(tenant_id, pid)
+    line = next(l for l in t["lines"] if l["sku"] == sku1)
+    assert line["quantity_packed"] == q1
+    assert any(it.get("sku") == sku1 for p in t["packages"] for it in p.get("items", []))
+
+    # Reset -> line back to 0 and its items removed from every package.
+    t = await packing_service.reset_line(tenant_id, pid, admin, sku1)
+    line = next(l for l in t["lines"] if l["sku"] == sku1)
+    assert line["quantity_packed"] == 0
+    assert all(it.get("sku") != sku1 for p in t["packages"] for it in p.get("items", []))
+
+
 async def test_defontana_mock_sync_products():
     seed = await run_seed()
     tenant_id = seed["tenant_id"]

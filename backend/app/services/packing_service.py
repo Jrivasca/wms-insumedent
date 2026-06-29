@@ -257,6 +257,51 @@ async def create_package(
     return package
 
 
+async def reset_line(
+    tenant_id: str, task_id: str, user: CurrentUser, sku: str
+) -> Dict[str, Any]:
+    """Undo a packed line: set packed back to 0 and remove its items from every
+    package, so it can be packed again (fix a mistake). Inventory is only touched
+    on complete(), so nothing to revert there."""
+    db = get_database()
+    task = await _load_task(tenant_id, task_id)
+    _assert_can_operate(task, user)
+
+    if task["status"] in (
+        PackingTaskStatus.COMPLETED.value,
+        PackingTaskStatus.CANCELLED.value,
+    ):
+        raise HTTPException(status_code=409, detail="Packing task is already closed")
+
+    found = False
+    for line in task["lines"]:
+        if line.get("sku") == sku:
+            line["quantity_packed"] = 0
+            line["status"] = PackingLineStatus.PENDING.value
+            found = True
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="Line not found for given SKU")
+
+    # Drop this SKU's items from every package.
+    for pkg in task.get("packages", []):
+        pkg["items"] = [it for it in pkg.get("items", []) if it.get("sku") != sku]
+
+    now = now_utc()
+    await db[Collections.PACKING_TASKS].update_one(
+        {"_id": task["_id"]},
+        {
+            "$set": {
+                "lines": task["lines"],
+                "packages": task.get("packages", []),
+                "updated_at": now,
+                "updated_by": user.id,
+            }
+        },
+    )
+    return serialize(await _load_task(tenant_id, task_id))
+
+
 async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
     db = get_database()
     task = await _load_task(tenant_id, task_id)
