@@ -194,7 +194,18 @@ Actions → New repository secret*:
 > usuario `root` (lo habitual en DigitalOcean) no necesitas nada más; si usas otro
 > usuario, debe tener `sudo` sin contraseña (NOPASSWD).
 
-**Ejecuta:** pestaña **Actions → "Deploy to droplet" → Run workflow**. El runner:
+**Ejecuta:** pestaña **Actions → "Deploy to droplet" → Run workflow**. El formulario
+pide puertos/bind (por defecto pensados para **coexistir con un proxy existente**):
+
+| Input | Por defecto | Para acceso directo por IP |
+|-------|-------------|----------------------------|
+| `http_port` | `8080` | `80` |
+| `https_port` | `8443` | `443` |
+| `bind_host` | `127.0.0.1` (solo tu proxy lo alcanza) | `0.0.0.0` |
+| `site_address` | `:80` | `:80` o tu dominio |
+
+Tras el deploy, enruta tu reverse proxy hacia `http://127.0.0.1:8080` (snippets de
+nginx/Caddy en la sección "Coexistencia con otros proyectos"). El runner:
 
 1. Empaqueta el repo y lo copia al droplet en `/opt/wms-insumedent` (vía SSH+tar;
    no sube `.env`, que lo gestiona el droplet).

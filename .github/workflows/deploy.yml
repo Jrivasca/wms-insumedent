@@ -4,6 +4,23 @@ name: Deploy to droplet
 # Así nada se despliega hasta que configures los secrets y lo ejecutes a propósito.
 on:
   workflow_dispatch:
+    inputs:
+      http_port:
+        description: "Puerto HOST para HTTP (8080 si ya tienes proxy en 80; 80 para acceso directo por IP)"
+        default: "8080"
+        required: false
+      https_port:
+        description: "Puerto HOST para HTTPS (8443 detrás de proxy; 443 para acceso directo)"
+        default: "8443"
+        required: false
+      bind_host:
+        description: "Bind: 127.0.0.1 (detrás de proxy, recomendado) o 0.0.0.0 (acceso directo por IP)"
+        default: "127.0.0.1"
+        required: false
+      site_address:
+        description: "Caddy SITE_ADDRESS: ':80' detrás de proxy, o tu-dominio.cl para HTTPS propio del WMS"
+        default: ":80"
+        required: false
   # Para despliegue continuo en cada push, descomenta y ajusta la rama:
   # push:
   #   branches: [ main ]
@@ -58,7 +75,11 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
           DEPLOY_USER: ${{ secrets.DROPLET_USER || 'root' }}
           DEPLOY_PORT: ${{ secrets.DROPLET_SSH_PORT || '22' }}
+          HTTP_PORT: ${{ inputs.http_port }}
+          HTTPS_PORT: ${{ inputs.https_port }}
+          BIND_HOST: ${{ inputs.bind_host }}
+          SITE_ADDRESS: ${{ inputs.site_address }}
         run: |
           ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" -o StrictHostKeyChecking=accept-new \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            'cd /opt/wms-insumedent && sudo ./deploy/deploy.sh'
+            "cd /opt/wms-insumedent && sudo WMS_HTTP_PORT='${HTTP_PORT}' WMS_HTTPS_PORT='${HTTPS_PORT}' WMS_BIND_HOST='${BIND_HOST}' SITE_ADDRESS='${SITE_ADDRESS}' ./deploy/deploy.sh"

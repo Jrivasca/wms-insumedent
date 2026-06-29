@@ -83,6 +83,15 @@ setup_env() {
   fi
 }
 
+# Apply optional published-port / bind / site overrides passed as env vars.
+# Lets the deploy run behind an existing reverse proxy without editing .env by hand.
+apply_overrides() {
+  if [ -n "${WMS_HTTP_PORT:-}" ]; then log "Set WMS_HTTP_PORT=$WMS_HTTP_PORT"; set_kv WMS_HTTP_PORT "$WMS_HTTP_PORT"; fi
+  if [ -n "${WMS_HTTPS_PORT:-}" ]; then log "Set WMS_HTTPS_PORT=$WMS_HTTPS_PORT"; set_kv WMS_HTTPS_PORT "$WMS_HTTPS_PORT"; fi
+  if [ -n "${WMS_BIND_HOST:-}" ]; then log "Set WMS_BIND_HOST=$WMS_BIND_HOST"; set_kv WMS_BIND_HOST "$WMS_BIND_HOST"; fi
+  if [ -n "${SITE_ADDRESS:-}" ]; then log "Set SITE_ADDRESS=$SITE_ADDRESS"; set_kv SITE_ADDRESS "$SITE_ADDRESS"; fi
+}
+
 open_firewall() {
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
     log "Opening firewall ports 22, 80, 443"
@@ -104,15 +113,22 @@ main() {
   install_docker
   ensure_swap
   setup_env
+  apply_overrides
   open_firewall
+
+  # Resolve the locally-reachable base URL from the configured port.
+  local_port=$(grep '^WMS_HTTP_PORT=' "$ENV_FILE" | cut -d= -f2-)
+  local_port=${local_port:-80}
+  bind_host=$(grep '^WMS_BIND_HOST=' "$ENV_FILE" | cut -d= -f2-)
+  base="http://localhost:${local_port}"
 
   log "Building images and starting the stack (this can take a few minutes the first time)..."
   docker compose -f "$COMPOSE_FILE" up -d --build
 
-  log "Waiting for the app to become healthy..."
+  log "Waiting for the app to become healthy at ${base} ..."
   healthy=false
   for _ in $(seq 1 60); do
-    if curl -fsS --max-time 3 http://localhost/health >/dev/null 2>&1; then
+    if curl -fsS --max-time 3 "${base}/health" >/dev/null 2>&1; then
       healthy=true
       break
     fi
@@ -126,7 +142,7 @@ main() {
 
   SEED_TOKEN=$(grep '^SEED_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
   log "Seeding demo data..."
-  if curl -fsS -X POST http://localhost/api/v1/seed -H "X-Seed-Token: ${SEED_TOKEN}" >/dev/null 2>&1; then
+  if curl -fsS -X POST "${base}/api/v1/seed" -H "X-Seed-Token: ${SEED_TOKEN}" >/dev/null 2>&1; then
     log "Seed OK."
   else
     log "Seed skipped (already seeded or seed disabled)."
@@ -136,14 +152,16 @@ main() {
   echo
   echo "============================================================"
   echo "  WMS Defontana desplegado"
-  echo "  App:      http://${IP}/"
-  echo "  Swagger:  http://${IP}/docs"
-  echo "  Login:    admin@demo.cl / admin123"
-  echo "------------------------------------------------------------"
-  echo "  Para activar HTTPS con dominio más adelante:"
-  echo "    1) Apunta un registro A de tu dominio a ${IP}"
-  echo "    2) En .env:  SITE_ADDRESS=tu-dominio.cl"
-  echo "    3) docker compose -f ${COMPOSE_FILE} up -d"
+  if [ "$bind_host" = "127.0.0.1" ]; then
+    echo "  El WMS escucha solo en 127.0.0.1:${local_port} (detrás de tu proxy)."
+    echo "  Enruta tu reverse proxy (un subdominio) -> http://127.0.0.1:${local_port}"
+    echo "  Login:    admin@demo.cl / admin123"
+  else
+    suffix=""; [ "$local_port" != "80" ] && suffix=":${local_port}"
+    echo "  App:      http://${IP}${suffix}/"
+    echo "  Swagger:  http://${IP}${suffix}/docs"
+    echo "  Login:    admin@demo.cl / admin123"
+  fi
   echo "============================================================"
 }
 

@@ -63,9 +63,10 @@ services:
     ports:
       # Puertos del HOST que publica el proxy del WMS. Si el droplet ya tiene un
       # reverse proxy en 80/443, define WMS_HTTP_PORT/WMS_HTTPS_PORT a puertos
-      # libres (p. ej. 8080/8443) y enruta tu proxy existente hacia 127.0.0.1:8080.
-      - "${WMS_HTTP_PORT:-80}:80"
-      - "${WMS_HTTPS_PORT:-443}:443"
+      # libres (p. ej. 8080/8443) y WMS_BIND_HOST=127.0.0.1 para que el WMS solo
+      # sea alcanzable por tu proxy; luego enruta tu proxy hacia 127.0.0.1:8080.
+      - "${WMS_BIND_HOST:-0.0.0.0}:${WMS_HTTP_PORT:-80}:80"
+      - "${WMS_BIND_HOST:-0.0.0.0}:${WMS_HTTPS_PORT:-443}:443"
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     volumes:
