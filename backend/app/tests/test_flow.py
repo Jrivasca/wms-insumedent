@@ -2,8 +2,9 @@
 import pytest
 
 from app.core.database import get_database
+from app.integrations.defontana.mock_data import MOCK_PRODUCTS
 from app.models import Collections
-from app.seed import DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, run_seed
+from app.seed import DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, _load_catalog, run_seed
 from app.services import (
     auth_service,
     dispatch_service,
@@ -18,8 +19,6 @@ from .conftest import make_user
 
 pytestmark = pytest.mark.asyncio
 
-BC_SKU001 = "780000000001"
-BC_SKU002 = "780000000002"
 BAD_BARCODE = "000000000000"
 
 
@@ -31,6 +30,28 @@ async def _admin_user():
 async def _order_1001():
     db = get_database()
     return await db[Collections.ORDERS].find_one({"erp_order_number": "1001"})
+
+
+async def _barcode_for(tenant_id, product_id):
+    db = get_database()
+    bc = await db[Collections.BARCODES].find_one(
+        {"tenant_id": tenant_id, "product_id": product_id}
+    )
+    return bc["barcode"]
+
+
+async def _order_scan_plan(tenant_id):
+    """Return (order, [(barcode, ordered_quantity), ...]) for order 1001's lines.
+
+    Derived from the seeded data so the flow stays valid regardless of which
+    catalog products back the demo order.
+    """
+    order = await _order_1001()
+    plan = []
+    for line in order["lines"]:
+        barcode = await _barcode_for(tenant_id, line["product_id"])
+        plan.append((barcode, line["ordered_quantity"]))
+    return order, plan
 
 
 async def test_seed_is_idempotent():
@@ -48,11 +69,19 @@ async def test_login_and_products():
     assert result["user"]["role"] == "admin"
 
     tenant_id = result["user"]["tenant_id"]
-    products = await product_service.list_products(tenant_id)
-    assert len(products) == 3
+    catalog = _load_catalog()
 
-    found = await product_service.get_by_barcode(tenant_id, BC_SKU001)
-    assert found["sku"] == "SKU001"
+    # The whole in-stock catalog is seeded.
+    db = get_database()
+    count = await db[Collections.PRODUCTS].count_documents({"tenant_id": tenant_id})
+    assert count == len(catalog)
+
+    products = await product_service.list_products(tenant_id)
+    assert products  # listing returns rows (capped at 500 against real Mongo)
+
+    first = catalog[0]
+    found = await product_service.get_by_barcode(tenant_id, first["barcode"])
+    assert found["sku"] == first["sku"]
 
 
 async def test_full_picking_packing_dispatch_flow():
@@ -61,8 +90,9 @@ async def test_full_picking_packing_dispatch_flow():
     admin_doc = await _admin_user()
     admin = make_user(admin_doc)
 
-    order = await _order_1001()
+    order, plan = await _order_scan_plan(tenant_id)
     order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
 
     # 1. Generate picking task from the order.
     task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
@@ -74,9 +104,9 @@ async def test_full_picking_packing_dispatch_flow():
     assert rejected["status"] == "rejected"
 
     # 3. Scan the right products in full.
-    ok1 = await picking_service.scan(tenant_id, task_id, admin, BC_SKU001, 3, None)
+    ok1 = await picking_service.scan(tenant_id, task_id, admin, bc1, q1, None)
     assert ok1["status"] == "ok"
-    ok2 = await picking_service.scan(tenant_id, task_id, admin, BC_SKU002, 2, None)
+    ok2 = await picking_service.scan(tenant_id, task_id, admin, bc2, q2, None)
     assert ok2["status"] == "ok"
 
     # 4. Complete picking -> packing task auto-created.
@@ -89,8 +119,8 @@ async def test_full_picking_packing_dispatch_flow():
 
     # 5. Packing: start, re-scan, complete -> order ready_to_dispatch.
     await packing_service.start_task(tenant_id, packing_id, admin)
-    await packing_service.scan(tenant_id, packing_id, admin, BC_SKU001, 3, None)
-    await packing_service.scan(tenant_id, packing_id, admin, BC_SKU002, 2, None)
+    await packing_service.scan(tenant_id, packing_id, admin, bc1, q1, None)
+    await packing_service.scan(tenant_id, packing_id, admin, bc2, q2, None)
     packed = await packing_service.complete(tenant_id, packing_id, admin)
     assert packed["status"] == "completed"
 
@@ -118,17 +148,18 @@ async def test_double_dispatch_blocked():
     seed = await run_seed()
     tenant_id = seed["tenant_id"]
     admin = make_user(await _admin_user())
-    order = await _order_1001()
+    order, plan = await _order_scan_plan(tenant_id)
     order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
 
     task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
-    await picking_service.scan(tenant_id, task["id"], admin, BC_SKU001, 3, None)
-    await picking_service.scan(tenant_id, task["id"], admin, BC_SKU002, 2, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
     await picking_service.complete(tenant_id, task["id"], admin)
     pk = (await packing_service.list_tasks(tenant_id, admin))[0]
     await packing_service.start_task(tenant_id, pk["id"], admin)
-    await packing_service.scan(tenant_id, pk["id"], admin, BC_SKU001, 3, None)
-    await packing_service.scan(tenant_id, pk["id"], admin, BC_SKU002, 2, None)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
     await packing_service.complete(tenant_id, pk["id"], admin)
 
     await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
@@ -142,4 +173,4 @@ async def test_defontana_mock_sync_products():
     admin = make_user(await _admin_user())
     result = await integration_service.run_sync_products(tenant_id, admin.id)
     assert result["status"] == "ok"
-    assert result["summary"]["synced"] == 3
+    assert result["summary"]["synced"] == len(MOCK_PRODUCTS)

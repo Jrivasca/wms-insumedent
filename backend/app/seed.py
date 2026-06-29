@@ -2,9 +2,15 @@
 
 Idempotent: running it again will not duplicate the demo tenant.
 Creates: Demo Company tenant, admin user, BODEGA CENTRAL warehouse with
-locations, 3 demo products with barcodes + initial stock, and demo order 1001.
+locations, and the INSUMEDENT dental catalog (real Defontana export, in-stock
+items only) with barcodes + real initial stock, plus demo order 1001.
+
+The product catalog lives in ``app/data/demo_catalog.json`` (generated from the
+depurated Defontana export) and is bulk-inserted for speed.
 """
-from typing import Any, Dict
+import json
+from pathlib import Path
+from typing import Any, Dict, List
 
 from app.core.database import get_database
 from app.core.security import hash_password
@@ -16,18 +22,19 @@ from app.models.order import OrderLineStatus, OrderStatus
 from app.models.tenant import TenantStatus
 from app.models.user import UserRole
 from app.models.warehouse import WarehouseType
-from app.services import inventory_service
 from app.services.warehouse_service import _create_default_locations
 
 DEMO_TENANT_NAME = "Demo Company"
 DEMO_ADMIN_EMAIL = "admin@demo.cl"
 DEMO_ADMIN_PASSWORD = "admin123"
 
-DEMO_PRODUCTS = [
-    {"sku": "SKU001", "name": "Polera Deportiva", "barcode": "780000000001"},
-    {"sku": "SKU002", "name": "Zapatilla Training", "barcode": "780000000002"},
-    {"sku": "SKU003", "name": "Botella Deportiva", "barcode": "780000000003"},
-]
+CATALOG_PATH = Path(__file__).parent / "data" / "demo_catalog.json"
+
+
+def _load_catalog() -> List[Dict[str, Any]]:
+    """Load the demo product catalog (in-stock INSUMEDENT items)."""
+    with CATALOG_PATH.open(encoding="utf-8") as f:
+        return json.load(f)
 
 
 async def run_seed() -> Dict[str, Any]:
@@ -77,9 +84,10 @@ async def run_seed() -> Dict[str, Any]:
     warehouse_id = str(wh_result.inserted_id)
     await _create_default_locations(tenant_id, warehouse_id, actor)
 
-    # Picking locations A-01-01 / A-01-02
+    # Picking locations A-01-01 / A-01-02 (stock is spread across both).
+    picking_codes = ("A-01-01", "A-01-02")
     picking_locations = {}
-    for code in ("A-01-01", "A-01-02"):
+    for code in picking_codes:
         loc_result = await db[Collections.LOCATIONS].insert_one(
             {
                 "tenant_id": tenant_id,
@@ -117,34 +125,50 @@ async def run_seed() -> Dict[str, Any]:
         }
     )
 
-    # --- Products + barcodes + initial stock ---
-    product_ids = {}
-    default_location = picking_locations["A-01-01"]
-    for item in DEMO_PRODUCTS:
-        p_result = await db[Collections.PRODUCTS].insert_one(
+    # --- Products + barcodes + initial stock (bulk) ---
+    catalog = _load_catalog()
+
+    product_docs = []
+    for item in catalog:
+        product_docs.append(
             {
                 "tenant_id": tenant_id,
                 "erp_product_id": f"ERP-{item['sku']}",
                 "sku": item["sku"],
                 "name": item["name"],
-                "description": item["name"],
+                "description": item.get("description") or item["name"],
                 "unit": "UN",
-                "brand": "GenericSport",
-                "category": "Demo",
+                "brand": None,
+                "category": item["category"],
                 "uses_lots": False,
                 "uses_serials": False,
                 "is_service": False,
                 "is_active": True,
+                # Pricing from the Defontana export (kept as metadata).
+                "cost": item.get("cost"),
+                "sale_price": item.get("sale_price"),
                 "raw_erp_data": None,
                 "created_at": now,
                 "updated_at": now,
                 "created_by": actor,
             }
         )
-        product_id = str(p_result.inserted_id)
-        product_ids[item["sku"]] = product_id
+    product_result = await db[Collections.PRODUCTS].insert_many(product_docs)
+    product_ids = {
+        item["sku"]: str(oid)
+        for item, oid in zip(catalog, product_result.inserted_ids)
+    }
 
-        await db[Collections.BARCODES].insert_one(
+    barcode_docs = []
+    balance_docs = []
+    movement_docs = []
+    for idx, item in enumerate(catalog):
+        product_id = product_ids[item["sku"]]
+        # Spread stock across the two picking locations round-robin.
+        location_id = picking_locations[picking_codes[idx % len(picking_codes)]]
+        qty = item["stock"]
+
+        barcode_docs.append(
             {
                 "tenant_id": tenant_id,
                 "product_id": product_id,
@@ -156,63 +180,77 @@ async def run_seed() -> Dict[str, Any]:
                 "updated_at": now,
             }
         )
-
-        # Initial stock via a traceable receipt movement.
-        await inventory_service.change_location_stock(
-            tenant_id=tenant_id,
-            product_id=product_id,
-            warehouse_id=warehouse_id,
-            location_id=default_location,
-            delta=100,
-            allow_negative=True,
+        balance_docs.append(
+            {
+                "tenant_id": tenant_id,
+                "product_id": product_id,
+                "warehouse_id": warehouse_id,
+                "location_id": location_id,
+                "lot_number": None,
+                "serial_number": None,
+                "quantity_on_hand": qty,
+                "quantity_reserved": 0,
+                "quantity_blocked": 0,
+                "quantity_available": qty,
+                "updated_at": now,
+            }
         )
-        await inventory_service.record_movement(
-            tenant_id=tenant_id,
-            movement_type=MovementType.RECEIPT.value,
-            product_id=product_id,
-            warehouse_id=warehouse_id,
-            to_location_id=default_location,
-            quantity=100,
-            reference_type=ReferenceType.MANUAL.value,
-            reason="Seed inicial",
-            created_by=actor,
+        movement_docs.append(
+            {
+                "tenant_id": tenant_id,
+                "movement_type": MovementType.RECEIPT.value,
+                "product_id": product_id,
+                "warehouse_id": warehouse_id,
+                "from_location_id": None,
+                "to_location_id": location_id,
+                "quantity": qty,
+                "lot_number": None,
+                "serial_number": None,
+                "reference_type": ReferenceType.MANUAL.value,
+                "reference_id": None,
+                "reason": "Carga inicial catálogo",
+                "created_by": actor,
+                "created_at": now,
+            }
         )
 
-    # --- Demo order 1001 ---
+    if barcode_docs:
+        await db[Collections.BARCODES].insert_many(barcode_docs)
+    if balance_docs:
+        await db[Collections.INVENTORY_BALANCES].insert_many(balance_docs)
+    if movement_docs:
+        await db[Collections.INVENTORY_MOVEMENTS].insert_many(movement_docs)
+
+    # --- Demo order 1001 (references the first two real catalog products) ---
+    order_items = catalog[:2]
+    order_lines = []
+    for n, item in enumerate(order_items, start=1):
+        ordered = min(5, item["stock"]) if n == 1 else min(3, item["stock"])
+        order_lines.append(
+            {
+                "line_id": f"L{n}",
+                "product_id": product_ids[item["sku"]],
+                "sku": item["sku"],
+                "name": item["name"],
+                "unit": "UN",
+                "ordered_quantity": ordered,
+                "picked_quantity": 0,
+                "packed_quantity": 0,
+                "status": OrderLineStatus.PENDING.value,
+            }
+        )
+
     await db[Collections.ORDERS].insert_one(
         {
             "tenant_id": tenant_id,
             "erp_order_number": "1001",
             "erp_document_id": "DOC-1001",
-            "customer": "Cliente Demo SPA",
+            "customer": "Clínica Dental Demo SPA",
             "status": OrderStatus.IMPORTED.value,
             "order_date": now,
             "delivery_date": None,
             "warehouse_id": warehouse_id,
-            "lines": [
-                {
-                    "line_id": "L1",
-                    "product_id": product_ids["SKU001"],
-                    "sku": "SKU001",
-                    "name": "Polera Deportiva",
-                    "unit": "UN",
-                    "ordered_quantity": 3,
-                    "picked_quantity": 0,
-                    "packed_quantity": 0,
-                    "status": OrderLineStatus.PENDING.value,
-                },
-                {
-                    "line_id": "L2",
-                    "product_id": product_ids["SKU002"],
-                    "sku": "SKU002",
-                    "name": "Zapatilla Training",
-                    "unit": "UN",
-                    "ordered_quantity": 2,
-                    "picked_quantity": 0,
-                    "packed_quantity": 0,
-                    "status": OrderLineStatus.PENDING.value,
-                },
-            ],
+            "lines": order_lines,
             "raw_erp_data": None,
             "is_active": True,
             "created_at": now,
@@ -227,6 +265,7 @@ async def run_seed() -> Dict[str, Any]:
         "admin_email": DEMO_ADMIN_EMAIL,
         "admin_password": DEMO_ADMIN_PASSWORD,
         "warehouse_id": warehouse_id,
-        "products": list(product_ids.keys()),
+        "products": len(catalog),
+        "total_stock_units": sum(i["stock"] for i in catalog),
         "order": "1001",
     }
