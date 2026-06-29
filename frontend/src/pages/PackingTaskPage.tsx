@@ -262,6 +262,14 @@ export default function PackingTaskPage() {
             + Bulto
           </button>
         </div>
+        {task.packages.length > 0 && (
+          <button
+            onClick={() => navigate(`/my/packing/${id}/labels`)}
+            className="btn-secondary mt-3 w-full"
+          >
+            🏷️ Imprimir etiquetas de bultos
+          </button>
+        )}
       </div>
 
       {/* Current line */}

@@ -24,6 +24,7 @@ import MyPickingTasksPage from './pages/MyPickingTasksPage';
 import PickingTaskPage from './pages/PickingTaskPage';
 import MyPackingTasksPage from './pages/MyPackingTasksPage';
 import PackingTaskPage from './pages/PackingTaskPage';
+import PackingLabelsPage from './pages/PackingLabelsPage';
 
 /** Wraps a page in ProtectedRoute + Layout. */
 function Shell({ children }: { children: ReactElement }) {
@@ -234,6 +235,14 @@ export default function App() {
         element={
           <Shell>
             <PackingTaskPage />
+          </Shell>
+        }
+      />
+      <Route
+        path="/my/packing/:id/labels"
+        element={
+          <Shell>
+            <PackingLabelsPage />
           </Shell>
         }
       />

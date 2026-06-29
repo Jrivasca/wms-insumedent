@@ -4,6 +4,7 @@ import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field } from '../components/Form';
 import Pager from '../components/Pager';
+import { ERP_CREATE_ENABLED } from '../config';
 import type { Product } from '../types';
 
 const PAGE = 50;
@@ -121,13 +122,15 @@ export default function ProductsPage() {
         title="Productos"
         subtitle="Catálogo y códigos de barras"
         actions={
-          <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
-            {showCreate ? 'Cerrar' : '+ Nuevo producto'}
-          </button>
+          ERP_CREATE_ENABLED ? (
+            <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
+              {showCreate ? 'Cerrar' : '+ Nuevo producto'}
+            </button>
+          ) : undefined
         }
       />
 
-      {showCreate && (
+      {ERP_CREATE_ENABLED && showCreate && (
         <form onSubmit={handleCreate} className="card mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="SKU *" value={np.sku} onChange={(v) => setNp({ ...np, sku: v })} required />
           <Field label="Nombre *" value={np.name} onChange={(v) => setNp({ ...np, name: v })} required />

@@ -6,6 +6,7 @@ import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, ProductPicker } from '../components/Form';
 import StatusBadge from '../components/StatusBadge';
+import { ERP_CREATE_ENABLED } from '../config';
 import type { Order, PickingTask, Product } from '../types';
 
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
@@ -119,9 +120,11 @@ export default function OrdersPage() {
         title="Pedidos"
         subtitle="Gestión de pedidos y generación de picking"
         actions={
-          <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
-            {showCreate ? 'Cerrar' : '+ Nuevo pedido'}
-          </button>
+          ERP_CREATE_ENABLED ? (
+            <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
+              {showCreate ? 'Cerrar' : '+ Nuevo pedido'}
+            </button>
+          ) : undefined
         }
       />
 
@@ -130,7 +133,7 @@ export default function OrdersPage() {
       )}
       {error && <ErrorBox message={error} />}
 
-      {showCreate && (
+      {ERP_CREATE_ENABLED && showCreate && (
         <form onSubmit={handleCreateOrder} className="card mb-4 space-y-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <Field label="N° de pedido *" value={orderNum} onChange={setOrderNum} required />
