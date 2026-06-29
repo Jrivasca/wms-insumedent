@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { listPickingTasks } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
@@ -6,6 +7,7 @@ import StatusBadge from '../components/StatusBadge';
 import type { PickingTask } from '../types';
 
 export default function PickingPage() {
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<PickingTask[]>([]);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
@@ -30,7 +32,7 @@ export default function PickingPage() {
 
   return (
     <div>
-      <PageHeader title="Picking" subtitle="Todas las tareas de picking" />
+      <PageHeader title="Picking" subtitle="Todas las tareas de picking · toca una tarea para abrirla o continuarla" />
 
       <div className="mb-4 flex items-end gap-2">
         <div>
@@ -65,6 +67,7 @@ export default function PickingPage() {
                 <th>Líneas</th>
                 <th>Progreso</th>
                 <th>Estado</th>
+                <th></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -72,7 +75,11 @@ export default function PickingPage() {
                 const total = t.lines.reduce((a, l) => a + l.quantity_required, 0);
                 const picked = t.lines.reduce((a, l) => a + l.quantity_picked, 0);
                 return (
-                  <tr key={t.id}>
+                  <tr
+                    key={t.id}
+                    onClick={() => navigate(`/my/picking/${t.id}`)}
+                    className="cursor-pointer hover:bg-blue-50"
+                  >
                     <td className="font-mono text-xs">{t.id}</td>
                     <td>{t.erp_order_number ?? t.order_id}</td>
                     <td>{t.assigned_to ?? '—'}</td>
@@ -83,6 +90,7 @@ export default function PickingPage() {
                     <td>
                       <StatusBadge status={t.status} />
                     </td>
+                    <td className="text-right font-semibold text-brand">Abrir ›</td>
                   </tr>
                 );
               })}

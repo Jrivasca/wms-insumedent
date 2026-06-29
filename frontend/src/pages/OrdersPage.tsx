@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPicking, getOrder, listOrders } from '../api/orders';
+import { listPickingTasks } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import StatusBadge from '../components/StatusBadge';
-import type { Order } from '../types';
+import type { Order, PickingTask } from '../types';
+
+const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
 
 export default function OrdersPage() {
   const navigate = useNavigate();
@@ -14,12 +17,23 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // order_id -> active (non-closed) picking task, to offer "Continuar picking".
+  const [pickingByOrder, setPickingByOrder] = useState<Record<string, PickingTask>>({});
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      setOrders(await listOrders());
+      const [ords, tasks] = await Promise.all([
+        listOrders(),
+        listPickingTasks().catch(() => [] as PickingTask[]),
+      ]);
+      setOrders(ords);
+      const map: Record<string, PickingTask> = {};
+      for (const t of tasks) {
+        if (!CLOSED_PICKING.includes(t.status)) map[t.order_id] = t;
+      }
+      setPickingByOrder(map);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -143,13 +157,22 @@ export default function OrdersPage() {
               </table>
 
               <div className="mt-4">
-                <button
-                  onClick={() => handleGeneratePicking(selected.id)}
-                  className="btn-primary"
-                  disabled={busy}
-                >
-                  {busy ? 'Generando…' : 'Generar picking'}
-                </button>
+                {pickingByOrder[selected.id] ? (
+                  <button
+                    onClick={() => navigate(`/my/picking/${pickingByOrder[selected.id].id}`)}
+                    className="btn-primary"
+                  >
+                    Continuar picking →
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleGeneratePicking(selected.id)}
+                    className="btn-primary"
+                    disabled={busy}
+                  >
+                    {busy ? 'Generando…' : 'Generar picking'}
+                  </button>
+                )}
               </div>
             </div>
           ) : (
