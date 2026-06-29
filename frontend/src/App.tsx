@@ -7,6 +7,7 @@ import { isOperario, isSupervisor, useAuth } from './store/auth';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ProductsPage from './pages/ProductsPage';
+import LabelsPage from './pages/LabelsPage';
 import WarehousesPage from './pages/WarehousesPage';
 import LocationsPage from './pages/LocationsPage';
 import InventoryPage from './pages/InventoryPage';
@@ -65,6 +66,16 @@ export default function App() {
           <Shell>
             <SupervisorOnly>
               <ProductsPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
+        path="/labels"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <LabelsPage />
             </SupervisorOnly>
           </Shell>
         }
