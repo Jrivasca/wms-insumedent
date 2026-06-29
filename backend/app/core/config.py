@@ -1,8 +1,8 @@
 from functools import lru_cache
-from typing import List
+from typing import Annotated, List
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -35,8 +35,11 @@ class Settings(BaseSettings):
     # Inventory
     allow_negative_stock: bool = False
 
-    # CORS
-    cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # CORS — orígenes separados por coma (p. ej. "https://a.cl,https://b.cl").
+    # NoDecode evita que pydantic-settings intente JSON-decodificar el valor del
+    # env antes de correr el validador de abajo; sin esto, un valor como "*" o un
+    # dominio suelto crashea el arranque con SettingsError.
+    cors_origins: Annotated[List[str], NoDecode] = ["http://localhost:5173", "http://localhost:3000"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -1,0 +1,25 @@
+# El repo se despliega a Linux. Forzamos LF en la working tree (independiente de
+# core.autocrlf) para que los scripts no lleguen con CRLF al droplet — un \r en el
+# shebang rompe la ejecución (p. ej. "/usr/bin/env: 'bash\r': No such file...").
+* text=auto eol=lf
+
+# Scripts / configuración que SÍ o SÍ deben ser LF.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.Dockerfile text eol=lf
+Caddyfile   text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Binarios: nunca normalizar.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.pdf   binary

@@ -78,3 +78,13 @@ volumes:
   mongo_data:
   caddy_data:
   caddy_config:
+
+networks:
+  # Subred explícita del stack. Necesaria en droplets donde el pool por defecto de
+  # Docker está agotado (error "all predefined address pools have been fully
+  # subnetted" al crear la red). Override con WMS_SUBNET en .env si 10.125.0.0/24
+  # colisiona con otra red de tu host.
+  default:
+    ipam:
+      config:
+        - subnet: ${WMS_SUBNET:-10.125.0.0/24}
