@@ -1,0 +1,64 @@
+name: Deploy to droplet
+
+# Disparo MANUAL (Actions -> "Deploy to droplet" -> Run workflow).
+# Así nada se despliega hasta que configures los secrets y lo ejecutes a propósito.
+on:
+  workflow_dispatch:
+  # Para despliegue continuo en cada push, descomenta y ajusta la rama:
+  # push:
+  #   branches: [ main ]
+
+concurrency:
+  group: deploy-droplet
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar clave SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
+          DEPLOY_PORT: ${{ secrets.DROPLET_SSH_PORT || '22' }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_HOST" ]; then
+            echo "::error::Faltan los secrets DROPLET_SSH_KEY y/o DROPLET_HOST."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Subir el proyecto al droplet
+        env:
+          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
+          DEPLOY_USER: ${{ secrets.DROPLET_USER || 'root' }}
+          DEPLOY_PORT: ${{ secrets.DROPLET_SSH_PORT || '22' }}
+        run: |
+          # Empaqueta y transfiere por SSH (sin depender de rsync en el droplet).
+          # .env se excluye a propósito: lo gestiona deploy.sh en el droplet.
+          tar czf - \
+              --exclude=.git \
+              --exclude=node_modules \
+              --exclude=dist \
+              --exclude=.env \
+              . \
+            | ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" -o StrictHostKeyChecking=accept-new \
+                "$DEPLOY_USER@$DEPLOY_HOST" \
+                'mkdir -p /opt/wms-insumedent && tar xzf - -C /opt/wms-insumedent'
+
+      - name: Ejecutar deploy.sh en el droplet
+        env:
+          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
+          DEPLOY_USER: ${{ secrets.DROPLET_USER || 'root' }}
+          DEPLOY_PORT: ${{ secrets.DROPLET_SSH_PORT || '22' }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" -o StrictHostKeyChecking=accept-new \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            'cd /opt/wms-insumedent && sudo ./deploy/deploy.sh'

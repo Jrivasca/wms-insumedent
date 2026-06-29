@@ -127,7 +127,40 @@ docker cp wms_mongo:/tmp/wms.dump ./wms-$(date +%F).dump
    80 y 443 abiertos y el DNS ya propagado). **No hace falta reconstruir el
    frontend**: sigue sirviéndose en el mismo origen, ahora bajo HTTPS.
 
-## 6. Configurar Defontana real
+## 6. Deploy automático con GitHub Actions (recomendado)
+
+En vez de entrar tú por SSH, un runner de GitHub puede entrar al droplet y correr
+`deploy.sh`. El workflow ya está en `.github/workflows/deploy.yml`.
+
+**Requisitos en el droplet:** que exista, con Ubuntu y los puertos 22/80/443
+abiertos (deploy.sh instala Docker la primera vez).
+
+**Configura los secrets** en GitHub → repo → *Settings → Secrets and variables →
+Actions → New repository secret*:
+
+| Secret | Valor |
+|--------|-------|
+| `DROPLET_HOST` | IP pública del droplet (o dominio) |
+| `DROPLET_SSH_KEY` | Llave **privada** SSH (contenido completo, formato OpenSSH/PEM) cuya pública está en el droplet (`~/.ssh/authorized_keys`) |
+| `DROPLET_USER` | *(opcional)* usuario SSH; por defecto `root` |
+| `DROPLET_SSH_PORT` | *(opcional)* puerto SSH; por defecto `22` |
+
+> La llave pública correspondiente debe estar autorizada en el droplet. Si usas el
+> usuario `root` (lo habitual en DigitalOcean) no necesitas nada más; si usas otro
+> usuario, debe tener `sudo` sin contraseña (NOPASSWD).
+
+**Ejecuta:** pestaña **Actions → "Deploy to droplet" → Run workflow**. El runner:
+
+1. Empaqueta el repo y lo copia al droplet en `/opt/wms-insumedent` (vía SSH+tar;
+   no sube `.env`, que lo gestiona el droplet).
+2. Corre `sudo ./deploy/deploy.sh` (instala Docker si falta, genera secretos,
+   levanta el stack, espera el health y carga el seed).
+
+Es idempotente: vuelve a ejecutarlo para actualizar; conserva el `.env` y los
+datos de Mongo del droplet. Para **deploy continuo** en cada push, descomenta el
+bloque `push:` del workflow.
+
+## 7. Configurar Defontana real
 
 El sistema arranca con `DEFONTANA_MOCK=true`. Para usar Defontana real:
 
