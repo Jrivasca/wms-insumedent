@@ -1,0 +1,55 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: wms_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: wms
+
+  backend:
+    build: ./backend
+    container_name: wms_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: ./backend
+    container_name: wms_worker
+    restart: unless-stopped
+    depends_on:
+      - mongo
+      - backend
+    env_file:
+      - .env
+    command: python -m app.workers.sync_worker
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build: ./frontend
+    container_name: wms_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  mongo_data:

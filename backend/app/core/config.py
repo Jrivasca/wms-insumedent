@@ -1,0 +1,60 @@
+from functools import lru_cache
+from typing import List
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Application configuration loaded from environment variables / .env."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # Application
+    app_name: str = "WMS Defontana"
+    environment: str = "development"
+    api_port: int = 8000
+
+    # MongoDB
+    mongodb_uri: str = "mongodb://mongo:27017"
+    mongodb_db: str = "wms"
+
+    # Auth / Security
+    jwt_secret: str = "change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 720
+    encryption_key: str = ""
+    seed_token: str = "seed-me"
+
+    # Defontana
+    defontana_mock: bool = True
+    defontana_env: str = "test"
+    defontana_test_base_url: str = "https://replapi.defontana.com/api"
+    defontana_prod_base_url: str = "https://api.defontana.com/api"
+
+    # Inventory
+    allow_negative_stock: bool = False
+
+    # CORS
+    cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def split_cors(cls, value):
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @property
+    def defontana_base_url(self) -> str:
+        if self.defontana_env.lower() in ("production", "prod"):
+            return self.defontana_prod_base_url
+        return self.defontana_test_base_url
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
