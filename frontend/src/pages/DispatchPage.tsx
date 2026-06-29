@@ -14,9 +14,12 @@ export default function DispatchPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [activeOrder, setActiveOrder] = useState<string | null>(null);
-  const [carrier, setCarrier] = useState('');
+  const [carrierChoice, setCarrierChoice] = useState('Bluexpress');
+  const [carrierOther, setCarrierOther] = useState('');
   const [tracking, setTracking] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const carrierValue = carrierChoice === 'Otro' ? carrierOther.trim() : carrierChoice;
 
   async function load() {
     setLoading(true);
@@ -45,12 +48,13 @@ export default function DispatchPage() {
     setNotice(null);
     try {
       await dispatchOrder(orderId, {
-        carrier: carrier.trim() || undefined,
+        carrier: carrierValue || undefined,
         tracking_number: tracking.trim() || undefined,
       });
       setNotice('Despacho confirmado');
       setActiveOrder(null);
-      setCarrier('');
+      setCarrierChoice('Bluexpress');
+      setCarrierOther('');
       setTracking('');
       load();
     } catch (err) {
@@ -94,7 +98,23 @@ export default function DispatchPage() {
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div>
                     <label className="label">Transportista</label>
-                    <input value={carrier} onChange={(e) => setCarrier(e.target.value)} className="input" />
+                    <select
+                      value={carrierChoice}
+                      onChange={(e) => setCarrierChoice(e.target.value)}
+                      className="input"
+                    >
+                      <option value="Bluexpress">Bluexpress</option>
+                      <option value="NewTrans">NewTrans</option>
+                      <option value="Otro">Otro…</option>
+                    </select>
+                    {carrierChoice === 'Otro' && (
+                      <input
+                        value={carrierOther}
+                        onChange={(e) => setCarrierOther(e.target.value)}
+                        placeholder="Nombre del transportista"
+                        className="input mt-2"
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="label">N° seguimiento</label>

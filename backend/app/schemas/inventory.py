@@ -22,3 +22,16 @@ class TransferRequest(BaseModel):
     quantity: float = Field(gt=0)
     lot_number: Optional[str] = None
     serial_number: Optional[str] = None
+
+
+class ReceptionRequest(BaseModel):
+    product_id: str
+    warehouse_id: str
+    location_id: str
+    quantity: float = Field(gt=0)
+    # Optional reference to the inbound document (PO / guía de despacho proveedor).
+    reference: Optional[str] = None
+    lot_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    # Whether to push an inventory-entry document to the ERP (default yes).
+    sync_erp: bool = True

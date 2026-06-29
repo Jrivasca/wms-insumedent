@@ -127,6 +127,33 @@ class DefontanaConnector(ERPConnector):
             )
         return await self._request("PUT", "/Inventory/Insert", json=payload)
 
+    async def create_product(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Push a new product to Defontana.
+
+        La integración actual sólo LEE productos desde Defontana; su API no expone
+        (o no se ha confirmado) un endpoint de creación de productos. En mock se
+        simula el alta; en modo real queda pendiente de conectar el endpoint real.
+        """
+        if self.mock:
+            return mock_data.mock_create_product_response(payload.get("Code", "unknown"))
+        raise NotImplementedError(
+            "Crear producto en Defontana no está implementado: falta confirmar el "
+            "endpoint real de la API. Conectar aquí cuando esté disponible."
+        )
+
+    async def create_order(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Push a new sales order to Defontana.
+
+        Igual que create_product: hoy los pedidos sólo se LEEN desde Defontana.
+        En mock se simula; en real queda pendiente del endpoint real.
+        """
+        if self.mock:
+            return mock_data.mock_create_order_response(payload.get("Number", "unknown"))
+        raise NotImplementedError(
+            "Crear pedido en Defontana no está implementado: falta confirmar el "
+            "endpoint real de la API. Conectar aquí cuando esté disponible."
+        )
+
     async def get_inventory_document_by_external_id(
         self, external_document_id: str
     ) -> Optional[Dict[str, Any]]:

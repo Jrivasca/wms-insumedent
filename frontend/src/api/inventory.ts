@@ -5,6 +5,8 @@ export async function listBalances(params?: {
   product_id?: string;
   warehouse_id?: string;
   location_id?: string;
+  limit?: number;
+  offset?: number;
 }): Promise<InventoryBalance[]> {
   const { data } = await http.get<InventoryBalance[]>('/inventory/balances', { params });
   return data;
@@ -12,8 +14,24 @@ export async function listBalances(params?: {
 
 export async function listMovements(params?: {
   product_id?: string;
+  limit?: number;
+  offset?: number;
 }): Promise<InventoryMovement[]> {
   const { data } = await http.get<InventoryMovement[]>('/inventory/movements', { params });
+  return data;
+}
+
+export async function createReception(payload: {
+  product_id: string;
+  warehouse_id: string;
+  location_id: string;
+  quantity: number;
+  reference?: string;
+  lot_number?: string;
+  serial_number?: string;
+  sync_erp?: boolean;
+}): Promise<{ balance: InventoryBalance | null; movement: InventoryMovement; sync_job_id?: string | null }> {
+  const { data } = await http.post('/inventory/receptions', payload);
   return data;
 }
 

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPicking, getOrder, listOrders } from '../api/orders';
+import { createOrder, createPicking, getOrder, listOrders } from '../api/orders';
 import { listPickingTasks } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
+import { Field, ProductPicker } from '../components/Form';
 import StatusBadge from '../components/StatusBadge';
-import type { Order, PickingTask } from '../types';
+import type { Order, PickingTask, Product } from '../types';
 
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
 
@@ -19,6 +20,15 @@ export default function OrdersPage() {
   const [busy, setBusy] = useState(false);
   // order_id -> active (non-closed) picking task, to offer "Continuar picking".
   const [pickingByOrder, setPickingByOrder] = useState<Record<string, PickingTask>>({});
+
+  // create-order state
+  const [showCreate, setShowCreate] = useState(false);
+  const [orderNum, setOrderNum] = useState('');
+  const [customer, setCustomer] = useState('');
+  const [orderLines, setOrderLines] = useState<{ product: Product | null; qty: string }[]>([
+    { product: null, qty: '1' },
+  ]);
+  const [creating, setCreating] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -68,14 +78,105 @@ export default function OrdersPage() {
     }
   }
 
+  function setLine(i: number, patch: Partial<{ product: Product | null; qty: string }>) {
+    setOrderLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+
+  async function handleCreateOrder(e: React.FormEvent) {
+    e.preventDefault();
+    const lines = orderLines
+      .filter((l) => l.product && Number(l.qty) > 0)
+      .map((l) => ({ sku: l.product!.sku, name: l.product!.name, ordered_quantity: Number(l.qty) }));
+    if (!orderNum.trim() || lines.length === 0) {
+      setError('Ingrese el N° de pedido y al menos una línea con producto y cantidad.');
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const created = await createOrder({
+        erp_order_number: orderNum.trim(),
+        customer: customer.trim() || undefined,
+        lines,
+      });
+      setNotice(`Pedido ${created.erp_order_number} creado · sincronización con ERP encolada`);
+      setShowCreate(false);
+      setOrderNum('');
+      setCustomer('');
+      setOrderLines([{ product: null, qty: '1' }]);
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div>
-      <PageHeader title="Pedidos" subtitle="Gestión de pedidos y generación de picking" />
+      <PageHeader
+        title="Pedidos"
+        subtitle="Gestión de pedidos y generación de picking"
+        actions={
+          <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
+            {showCreate ? 'Cerrar' : '+ Nuevo pedido'}
+          </button>
+        }
+      />
 
       {notice && (
         <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
       )}
       {error && <ErrorBox message={error} />}
+
+      {showCreate && (
+        <form onSubmit={handleCreateOrder} className="card mb-4 space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <Field label="N° de pedido *" value={orderNum} onChange={setOrderNum} required />
+            <Field label="Cliente" value={customer} onChange={setCustomer} />
+          </div>
+          <div className="space-y-2">
+            <label className="label">Líneas</label>
+            {orderLines.map((l, i) => (
+              <div key={i} className="flex items-end gap-2">
+                <div className="flex-1">
+                  <ProductPicker value={l.product} onChange={(p) => setLine(i, { product: p })} />
+                </div>
+                <div className="w-24">
+                  <label className="label">Cantidad</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={l.qty}
+                    onChange={(e) => setLine(i, { qty: e.target.value })}
+                    className="input"
+                  />
+                </div>
+                {orderLines.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setOrderLines((ls) => ls.filter((_, idx) => idx !== i))}
+                    className="btn-danger mb-0.5"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setOrderLines((ls) => [...ls, { product: null, qty: '1' }])}
+              className="text-sm font-medium text-brand underline"
+            >
+              + Agregar línea
+            </button>
+          </div>
+          <button type="submit" className="btn-success" disabled={creating}>
+            {creating ? 'Creando…' : 'Crear pedido y sincronizar'}
+          </button>
+        </form>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div>

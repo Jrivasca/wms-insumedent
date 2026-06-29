@@ -7,8 +7,9 @@ from app.core.database import get_database
 from app.core.utils import now_utc, serialize
 from app.models import Collections
 from app.models.order import OrderLineStatus, OrderStatus
+from app.models.sync_job import SyncJobType
 from app.schemas.order import OrderCreate
-from app.services import order_service
+from app.services import order_service, sync_job_service
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -68,6 +69,32 @@ async def create_order(payload: OrderCreate, user: CurrentUser = Depends(require
     }
     result = await db[Collections.ORDERS].insert_one(doc)
     doc["_id"] = result.inserted_id
+
+    # Enqueue ERP sync (push the order to Defontana). Best-effort + async.
+    await sync_job_service.enqueue(
+        tenant_id=user.tenant_id,
+        job_type=SyncJobType.CREATE_ORDER.value,
+        payload={
+            "order_id": str(doc["_id"]),
+            "Number": payload.erp_order_number,
+            "Client": {"Name": payload.customer},
+            "Detail": [
+                {"Code": ln["sku"], "Name": ln["name"], "Unit": ln["unit"], "Quantity": ln["ordered_quantity"]}
+                for ln in lines
+            ],
+        },
+        created_by=user.id,
+    )
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="order_create",
+        entity_type="order",
+        entity_id=str(doc["_id"]),
+        metadata={"erp_order_number": payload.erp_order_number},
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
     return serialize(doc)
 
 

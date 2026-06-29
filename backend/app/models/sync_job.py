@@ -7,6 +7,8 @@ class SyncJobType(str, Enum):
     SYNC_ORDERS = "sync_orders"
     CREATE_INVENTORY_DOCUMENT = "create_inventory_document"
     DISPATCH_ORDER = "dispatch_order"
+    CREATE_PRODUCT = "create_product"
+    CREATE_ORDER = "create_order"
 
 
 class SyncJobStatus(str, Enum):

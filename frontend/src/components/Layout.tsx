@@ -4,8 +4,9 @@ import type { ReactNode } from 'react';
 import { isOperario, useAuth } from '../store/auth';
 
 interface NavItem {
-  to: string;
+  to?: string;
   label: string;
+  children?: NavItem[];
 }
 
 const SUPERVISOR_NAV: NavItem[] = [
@@ -14,7 +15,15 @@ const SUPERVISOR_NAV: NavItem[] = [
   { to: '/labels', label: 'Etiquetas' },
   { to: '/warehouses', label: 'Bodegas' },
   { to: '/locations', label: 'Ubicaciones' },
-  { to: '/inventory', label: 'Inventario' },
+  {
+    label: 'Inventario',
+    children: [
+      { to: '/inventory', label: 'Saldos' },
+      { to: '/inventory/recepcion', label: 'Recepción' },
+      { to: '/inventory/transferencia', label: 'Transferencia' },
+      { to: '/inventory/ajuste', label: 'Ajuste' },
+    ],
+  },
   { to: '/orders', label: 'Pedidos' },
   { to: '/picking', label: 'Picking' },
   { to: '/packing', label: 'Packing' },
@@ -72,11 +81,36 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="space-y-1">
-          {items.map((it) => (
-            <NavLink key={it.to} to={it.to} end={it.to === '/'} className={linkClass} onClick={() => setOpen(false)}>
-              {it.label}
-            </NavLink>
-          ))}
+          {items.map((it) =>
+            it.children ? (
+              <div key={it.label} className="pt-1">
+                <div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {it.label}
+                </div>
+                <div className="space-y-1">
+                  {it.children.map((c) => (
+                    <NavLink
+                      key={c.to}
+                      to={c.to!}
+                      end
+                      className={({ isActive }) =>
+                        `block rounded-md px-3 py-2 pl-6 text-sm font-medium ${
+                          isActive ? 'bg-brand text-white' : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                        }`
+                      }
+                      onClick={() => setOpen(false)}
+                    >
+                      {c.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <NavLink key={it.to} to={it.to!} end={it.to === '/'} className={linkClass} onClick={() => setOpen(false)}>
+                {it.label}
+              </NavLink>
+            )
+          )}
         </nav>
 
         <div className="mt-6 border-t border-slate-700 pt-4">

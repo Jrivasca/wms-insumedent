@@ -9,6 +9,7 @@ from app.services import (
     auth_service,
     dispatch_service,
     integration_service,
+    inventory_service,
     order_service,
     packing_service,
     picking_service,
@@ -227,6 +228,76 @@ async def test_packing_reset_line():
     line = next(l for l in t["lines"] if l["sku"] == sku1)
     assert line["quantity_packed"] == 0
     assert all(it.get("sku") != sku1 for p in t["packages"] for it in p.get("items", []))
+
+
+async def test_create_product_and_sync_job():
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+
+    p = await product_service.create_product(
+        tenant_id,
+        {"sku": "NEW-001", "name": "Producto Nuevo Demo", "category": "Test", "barcode": "1234567890123"},
+        admin.id,
+    )
+    assert p["sku"] == "NEW-001"
+    assert any(b["barcode"] == "1234567890123" for b in p["barcodes"])
+
+    db = get_database()
+    job = await db[Collections.SYNC_JOBS].find_one({"job_type": "create_product"})
+    assert job is not None
+    await sync_worker.process_job(job)
+    job_after = await db[Collections.SYNC_JOBS].find_one({"_id": job["_id"]})
+    assert job_after["status"] == "success"
+
+    # Duplicate SKU is rejected.
+    with pytest.raises(Exception):
+        await product_service.create_product(tenant_id, {"sku": "NEW-001", "name": "x"}, admin.id)
+
+
+async def test_create_reception_adds_stock_and_syncs():
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+
+    db = get_database()
+    bal = await db[Collections.INVENTORY_BALANCES].find_one({"tenant_id": tenant_id})
+    product_id = bal["product_id"]
+    warehouse_id = bal["warehouse_id"]
+    location_id = bal["location_id"]
+    before = bal["quantity_on_hand"]
+
+    result = await inventory_service.create_reception(
+        tenant_id=tenant_id,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        location_id=location_id,
+        quantity=7,
+        created_by=admin.id,
+        reference="PO-DEMO-1",
+    )
+    assert result["movement"]["movement_type"] == "receipt"
+
+    after_doc = await inventory_service.get_balance_doc(
+        tenant_id, product_id, warehouse_id, location_id
+    )
+    assert after_doc["quantity_on_hand"] == before + 7
+
+    job = await db[Collections.SYNC_JOBS].find_one({"job_type": "create_inventory_document"})
+    assert job is not None
+    await sync_worker.process_job(job)
+    job_after = await db[Collections.SYNC_JOBS].find_one({"_id": job["_id"]})
+    assert job_after["status"] == "success"
+
+
+async def test_products_pagination():
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    page1 = await product_service.list_products(tenant_id, limit=10, offset=0)
+    page2 = await product_service.list_products(tenant_id, limit=10, offset=10)
+    assert len(page1) == 10
+    assert len(page2) == 10
+    assert {p["id"] for p in page1}.isdisjoint({p["id"] for p in page2})
 
 
 async def test_defontana_mock_sync_products():

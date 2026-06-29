@@ -115,3 +115,21 @@ def mock_inventory_response(external_document_id: str) -> dict:
         "DocumentId": f"MOCK-INV-{external_document_id}",
         "Message": "Documento de inventario simulado (DEFONTANA_MOCK=true)",
     }
+
+
+def mock_create_product_response(sku: str) -> dict:
+    return {
+        "success": True,
+        "mock": True,
+        "Code": sku,
+        "Message": "Producto creado en Defontana (simulado, DEFONTANA_MOCK=true)",
+    }
+
+
+def mock_create_order_response(order_number: str) -> dict:
+    return {
+        "success": True,
+        "mock": True,
+        "Number": order_number,
+        "Message": "Pedido creado en Defontana (simulado, DEFONTANA_MOCK=true)",
+    }

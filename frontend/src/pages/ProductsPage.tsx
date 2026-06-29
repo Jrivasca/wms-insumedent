@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
-import { addBarcode, getProductByBarcode, listProducts } from '../api/products';
+import { addBarcode, createProduct, getProductByBarcode, listProducts } from '../api/products';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
+import { Field } from '../components/Form';
+import Pager from '../components/Pager';
 import type { Product } from '../types';
+
+const PAGE = 50;
+const EMPTY_NEW = { sku: '', name: '', category: '', unit: 'UN', brand: '', barcode: '', sale_price: '' };
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [barcodeSearch, setBarcodeSearch] = useState('');
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -17,12 +23,17 @@ export default function ProductsPage() {
   const [newBarcode, setNewBarcode] = useState('');
   const [newBarcodeType, setNewBarcodeType] = useState('');
 
-  async function load(searchTerm?: string) {
+  // create-product state
+  const [showCreate, setShowCreate] = useState(false);
+  const [np, setNp] = useState({ ...EMPTY_NEW });
+  const [creating, setCreating] = useState(false);
+
+  async function load(searchTerm?: string, off = 0) {
     setLoading(true);
     setError(null);
     try {
-      const data = await listProducts(searchTerm);
-      setProducts(data);
+      setProducts(await listProducts(searchTerm, PAGE, off));
+      setOffset(off);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -37,7 +48,7 @@ export default function ProductsPage() {
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     setNotice(null);
-    load(search.trim() || undefined);
+    load(search.trim() || undefined, 0);
   }
 
   async function handleBarcodeLookup(e: React.FormEvent) {
@@ -72,15 +83,66 @@ export default function ProductsPage() {
       setNewBarcodeType('');
       setAddingFor(null);
       setNotice('Código de barras agregado');
-      load(search.trim() || undefined);
+      load(search.trim() || undefined, offset);
     } catch (err) {
       setError(errorMessage(err));
     }
   }
 
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+    setCreating(true);
+    try {
+      const created = await createProduct({
+        sku: np.sku.trim(),
+        name: np.name.trim(),
+        category: np.category.trim() || undefined,
+        unit: np.unit.trim() || 'UN',
+        brand: np.brand.trim() || undefined,
+        barcode: np.barcode.trim() || undefined,
+        sale_price: np.sale_price ? Number(np.sale_price) : undefined,
+      });
+      setNotice(`Producto creado: ${created.sku} · sincronización con ERP encolada`);
+      setNp({ ...EMPTY_NEW });
+      setShowCreate(false);
+      load(undefined, 0);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div>
-      <PageHeader title="Productos" subtitle="Catálogo y códigos de barras" />
+      <PageHeader
+        title="Productos"
+        subtitle="Catálogo y códigos de barras"
+        actions={
+          <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
+            {showCreate ? 'Cerrar' : '+ Nuevo producto'}
+          </button>
+        }
+      />
+
+      {showCreate && (
+        <form onSubmit={handleCreate} className="card mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Field label="SKU *" value={np.sku} onChange={(v) => setNp({ ...np, sku: v })} required />
+          <Field label="Nombre *" value={np.name} onChange={(v) => setNp({ ...np, name: v })} required />
+          <Field label="Categoría" value={np.category} onChange={(v) => setNp({ ...np, category: v })} />
+          <Field label="Marca" value={np.brand} onChange={(v) => setNp({ ...np, brand: v })} />
+          <Field label="Unidad" value={np.unit} onChange={(v) => setNp({ ...np, unit: v })} />
+          <Field label="Código de barras (opc.)" value={np.barcode} onChange={(v) => setNp({ ...np, barcode: v })} />
+          <Field label="Precio venta (opc.)" type="number" value={np.sale_price} onChange={(v) => setNp({ ...np, sale_price: v })} />
+          <div className="flex items-end">
+            <button type="submit" className="btn-success w-full" disabled={creating}>
+              {creating ? 'Creando…' : 'Crear y sincronizar'}
+            </button>
+          </div>
+        </form>
+      )}
 
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
         <form onSubmit={handleSearch} className="flex gap-2">
@@ -204,6 +266,16 @@ export default function ProductsPage() {
           </table>
         </div>
       )}
+
+      <div className="mt-2">
+        <Pager
+          offset={offset}
+          pageSize={PAGE}
+          count={products.length}
+          onPrev={() => load(search.trim() || undefined, Math.max(0, offset - PAGE))}
+          onNext={() => load(search.trim() || undefined, offset + PAGE)}
+        />
+      </div>
     </div>
   );
 }

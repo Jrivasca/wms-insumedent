@@ -5,7 +5,9 @@ from fastapi import HTTPException
 from app.core.database import get_database
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
-from app.models.product import BarcodeSource
+from app.models.product import BarcodeSource, BarcodeType
+from app.models.sync_job import SyncJobType
+from app.services import sync_job_service
 
 
 async def _barcodes_for(tenant_id: str, product_id: str) -> List[Dict[str, Any]]:
@@ -19,7 +21,12 @@ async def _barcodes_for(tenant_id: str, product_id: str) -> List[Dict[str, Any]]
     ]
 
 
-async def list_products(tenant_id: str, search: Optional[str] = None) -> List[Dict[str, Any]]:
+async def list_products(
+    tenant_id: str,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if search:
@@ -27,9 +34,13 @@ async def list_products(tenant_id: str, search: Optional[str] = None) -> List[Di
             {"sku": {"$regex": search, "$options": "i"}},
             {"name": {"$regex": search, "$options": "i"}},
         ]
-    products = await db[Collections.PRODUCTS].find(query).sort("name", 1).to_list(length=500)
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    cursor = (
+        db[Collections.PRODUCTS].find(query).sort("name", 1).skip(offset).limit(limit)
+    )
     result = []
-    for p in products:
+    for p in await cursor.to_list(length=limit):
         data = serialize(p)
         data["barcodes"] = await _barcodes_for(tenant_id, data["id"])
         result.append(data)
@@ -104,3 +115,67 @@ async def add_barcode(
     result = await db[Collections.BARCODES].insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
+
+
+async def create_product(
+    tenant_id: str, data: Dict[str, Any], actor: str, sync_erp: bool = True
+) -> Dict[str, Any]:
+    """Create a product in the WMS and (optionally) enqueue an ERP sync job.
+
+    SKU is unique per tenant. If a ``barcode`` is provided it is attached. The ERP
+    sync is best-effort and asynchronous (see SyncJobType.CREATE_PRODUCT).
+    """
+    db = get_database()
+    sku = (data.get("sku") or "").strip()
+    if not sku:
+        raise HTTPException(status_code=400, detail="SKU es obligatorio")
+
+    existing = await db[Collections.PRODUCTS].find_one({"tenant_id": tenant_id, "sku": sku})
+    if existing:
+        raise HTTPException(status_code=409, detail="Ya existe un producto con ese SKU")
+
+    now = now_utc()
+    doc = {
+        "tenant_id": tenant_id,
+        "erp_product_id": f"WMS-{sku}",
+        "sku": sku,
+        "name": data.get("name") or sku,
+        "description": data.get("description") or data.get("name") or sku,
+        "unit": data.get("unit") or "UN",
+        "brand": data.get("brand"),
+        "category": data.get("category") or "Sin categoría",
+        "uses_lots": bool(data.get("uses_lots")),
+        "uses_serials": bool(data.get("uses_serials")),
+        "is_service": bool(data.get("is_service")),
+        "is_active": True,
+        "cost": data.get("cost"),
+        "sale_price": data.get("sale_price"),
+        "raw_erp_data": None,
+        "created_at": now,
+        "updated_at": now,
+        "created_by": actor,
+    }
+    result = await db[Collections.PRODUCTS].insert_one(doc)
+    product_id = str(result.inserted_id)
+
+    barcode = (data.get("barcode") or "").strip()
+    if barcode:
+        bc_type = BarcodeType.EAN13.value if barcode.isdigit() and len(barcode) == 13 else BarcodeType.INTERNAL.value
+        await add_barcode(tenant_id, product_id, barcode, bc_type, actor)
+
+    if sync_erp:
+        await sync_job_service.enqueue(
+            tenant_id=tenant_id,
+            job_type=SyncJobType.CREATE_PRODUCT.value,
+            payload={
+                "product_id": product_id,
+                "Code": sku,
+                "Name": doc["name"],
+                "Unit": doc["unit"],
+                "Family": doc["category"],
+                "BarCode": barcode or None,
+            },
+            created_by=actor,
+        )
+
+    return await get_product(tenant_id, product_id)
