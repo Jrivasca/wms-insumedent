@@ -45,6 +45,38 @@ modelo de datos es **multi-tenant** (`tenant_id` en todo, JWT que lo lleva), est
 11. **Seguridad / compliance**: rotación de secretos, política de datos (Ley 19.628
     CL), y SOC2 cuando se venda a enterprise.
 
+### Cómo funcionará en la práctica (tenants, usuarios, admin, dominios)
+
+**Creación de tenant + usuarios** (la base ya existe: `users` tienen `tenant_id` +
+`role`, el JWT lleva el `tenant_id`, y el `seed` ya crea tenant + admin + datos base):
+1. **Provisionar el tenant**: crear el registro (nombre, plan, estado) + su primer
+   **usuario admin** + seed base (bodega, ubicaciones). Generalizar el `seed` en una
+   función `create_tenant`.
+2. El **admin del cliente** entra y crea/invita a su equipo (operarios, supervisores),
+   cada uno con su rol; solo ven los datos de SU empresa.
+
+**Dos niveles de admin (no confundir):**
+- **Admin del cliente** (gestiona SUS usuarios/bodegas/config) → es **producto**;
+  construir la UI "Equipo" cuando un cliente la necesite.
+- **Admin de la plataforma** (crear/suspender empresas, plan/módulos, uso, cobro) →
+  es el **control plane**, separado del app del tenant.
+
+**Estrategia: a medida, no un módulo grande de entrada.**
+- Primeros clientes (1–10): provisionar con **script/endpoint protegido** (el `seed`
+  ya es casi eso); crear usuarios por script si hace falta.
+- Después: UI de gestión de usuarios del cliente (producto).
+- Cuando el volumen lo justifique: **control plane** real + onboarding self-service + Stripe.
+
+**Dominios / subdominios:**
+- **DNS comodín**: `*.midominio.app` → IP del servidor, configurado UNA vez; cubre
+  todos los tenants (`acme.midominio.app`, etc.) sin crear un DNS por cliente.
+- El subdominio **identifica** al tenant (el backend lee el `Host`), pero la
+  **seguridad real** es el login + `tenant_id` en la base. Los usuarios se autentican
+  normal; el subdominio solo da contexto/branding. TLS automático con Caddy.
+- **Se puede partir SIN subdominios** (un solo `app.midominio.app`; el tenant sale del
+  JWT). Agregar subdominios (branding) y **dominios propios del cliente** (CNAME →
+  upsell) más adelante.
+
 ### Escalamiento (cuando toque)
 - **Etapa 1 (1–20 clientes):** 1 droplet + Atlas + BD compartida. ~US$30–60/mes.
 - **Etapa 2 (20–200):** backend con réplicas, Atlas con backups/réplica, Spaces/S3,
