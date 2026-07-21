@@ -1,7 +1,7 @@
 // Feature flags.
 //
-// Crear producto / pedido encola una sincronización al ERP, pero Defontana aún
-// no expone (o no se ha confirmado) los endpoints de creación, así que el push
-// real no es factible todavía (ver ROADMAP.md). Mantenemos las acciones de alta
-// ocultas hasta conectar los endpoints reales — cambiar a true para reactivarlas.
-export const ERP_CREATE_ENABLED = false;
+// Operación stand-alone (sin Defontana): el alta de productos y pedidos se hace
+// a mano en el WMS, porque no hay ERP del cual importarlos. El push al ERP queda
+// apagado en el backend (ERP_SYNC_ENABLED=false), así que crear no encola nada.
+// Cuando Defontana esté conectado de verdad, se prende esa variable en el backend.
+export const ERP_CREATE_ENABLED = true;

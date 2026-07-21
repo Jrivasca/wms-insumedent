@@ -101,7 +101,7 @@ export default function OrdersPage() {
         customer: customer.trim() || undefined,
         lines,
       });
-      setNotice(`Pedido ${created.erp_order_number} creado · sincronización con ERP encolada`);
+      setNotice(`Pedido ${created.erp_order_number} creado`);
       setShowCreate(false);
       setOrderNum('');
       setCustomer('');
@@ -176,7 +176,7 @@ export default function OrdersPage() {
             </button>
           </div>
           <button type="submit" className="btn-success" disabled={creating}>
-            {creating ? 'Creando…' : 'Crear pedido y sincronizar'}
+            {creating ? 'Creando…' : 'Crear pedido'}
           </button>
         </form>
       )}

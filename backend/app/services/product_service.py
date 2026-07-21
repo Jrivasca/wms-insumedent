@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from app.core.config import settings
 from app.core.database import get_database
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
@@ -163,7 +164,7 @@ async def create_product(
         bc_type = BarcodeType.EAN13.value if barcode.isdigit() and len(barcode) == 13 else BarcodeType.INTERNAL.value
         await add_barcode(tenant_id, product_id, barcode, bc_type, actor)
 
-    if sync_erp:
+    if sync_erp and settings.erp_sync_enabled:
         await sync_job_service.enqueue(
             tenant_id=tenant_id,
             job_type=SyncJobType.CREATE_PRODUCT.value,

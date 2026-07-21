@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import CurrentUser, get_current_user, require_supervisor
+from app.core.config import settings
 from app.core.database import get_database
 from app.core.utils import now_utc, serialize
 from app.models import Collections
@@ -71,20 +72,22 @@ async def create_order(payload: OrderCreate, user: CurrentUser = Depends(require
     doc["_id"] = result.inserted_id
 
     # Enqueue ERP sync (push the order to Defontana). Best-effort + async.
-    await sync_job_service.enqueue(
-        tenant_id=user.tenant_id,
-        job_type=SyncJobType.CREATE_ORDER.value,
-        payload={
-            "order_id": str(doc["_id"]),
-            "Number": payload.erp_order_number,
-            "Client": {"Name": payload.customer},
-            "Detail": [
-                {"Code": ln["sku"], "Name": ln["name"], "Unit": ln["unit"], "Quantity": ln["ordered_quantity"]}
-                for ln in lines
-            ],
-        },
-        created_by=user.id,
-    )
+    # En operación stand-alone (ERP_SYNC_ENABLED=false) no se encola nada.
+    if settings.erp_sync_enabled:
+        await sync_job_service.enqueue(
+            tenant_id=user.tenant_id,
+            job_type=SyncJobType.CREATE_ORDER.value,
+            payload={
+                "order_id": str(doc["_id"]),
+                "Number": payload.erp_order_number,
+                "Client": {"Name": payload.customer},
+                "Detail": [
+                    {"Code": ln["sku"], "Name": ln["name"], "Unit": ln["unit"], "Quantity": ln["ordered_quantity"]}
+                    for ln in lines
+                ],
+            },
+            created_by=user.id,
+        )
     await log_action(
         tenant_id=user.tenant_id,
         user_id=user.id,

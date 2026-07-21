@@ -22,7 +22,16 @@ export async function createUser(payload: {
   return data;
 }
 
-export async function updateUser(id: string, payload: Partial<User>): Promise<User> {
+export async function updateUser(
+  id: string,
+  payload: {
+    name?: string;
+    password?: string;
+    role?: string;
+    is_active?: boolean;
+    allowed_warehouse_ids?: string[];
+  }
+): Promise<User> {
   const { data } = await http.patch<User>(`/users/${id}`, payload);
   return data;
 }

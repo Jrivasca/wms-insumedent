@@ -7,6 +7,7 @@ export interface User {
   role: Role;
   tenant_id?: string;
   allowed_warehouse_ids?: string[];
+  is_active?: boolean;
 }
 
 export interface Barcode {

@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     defontana_test_base_url: str = "https://replapi.defontana.com/api"
     defontana_prod_base_url: str = "https://api.defontana.com/api"
 
+    # Push de altas hacia el ERP (crear producto / pedido / documento de entrada).
+    # En operación stand-alone (sin Defontana) va en false: el WMS opera solo y no
+    # encola trabajos de sincronización que no tienen a dónde ir.
+    erp_sync_enabled: bool = False
+
     # Inventory
     allow_negative_stock: bool = False
 

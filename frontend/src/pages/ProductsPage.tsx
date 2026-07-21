@@ -105,7 +105,7 @@ export default function ProductsPage() {
         barcode: np.barcode.trim() || undefined,
         sale_price: np.sale_price ? Number(np.sale_price) : undefined,
       });
-      setNotice(`Producto creado: ${created.sku} · sincronización con ERP encolada`);
+      setNotice(`Producto creado: ${created.sku}`);
       setNp({ ...EMPTY_NEW });
       setShowCreate(false);
       load(undefined, 0);
@@ -141,7 +141,7 @@ export default function ProductsPage() {
           <Field label="Precio venta (opc.)" type="number" value={np.sale_price} onChange={(v) => setNp({ ...np, sale_price: v })} />
           <div className="flex items-end">
             <button type="submit" className="btn-success w-full" disabled={creating}>
-              {creating ? 'Creando…' : 'Crear y sincronizar'}
+              {creating ? 'Creando…' : 'Crear producto'}
             </button>
           </div>
         </form>

@@ -272,7 +272,7 @@ async def create_reception(
     )
 
     job = None
-    if sync_erp:
+    if sync_erp and settings.erp_sync_enabled:
         db = get_database()
         product = await db[Collections.PRODUCTS].find_one(
             {"_id": to_object_id(product_id), "tenant_id": tenant_id}

@@ -28,6 +28,7 @@ const SUPERVISOR_NAV: NavItem[] = [
   { to: '/picking', label: 'Picking' },
   { to: '/packing', label: 'Packing' },
   { to: '/dispatch', label: 'Despachos' },
+  { to: '/usuarios', label: 'Usuarios' },
   { to: '/settings/defontana', label: 'Config. Defontana' },
   { to: '/sync-jobs', label: 'Cola de Sincronización' },
 ];

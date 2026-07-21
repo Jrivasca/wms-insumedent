@@ -18,6 +18,7 @@ import OrdersPage from './pages/OrdersPage';
 import PickingPage from './pages/PickingPage';
 import PackingPage from './pages/PackingPage';
 import DispatchPage from './pages/DispatchPage';
+import UsersPage from './pages/UsersPage';
 import SettingsDefontanaPage from './pages/SettingsDefontanaPage';
 import SyncJobsPage from './pages/SyncJobsPage';
 import MyPickingTasksPage from './pages/MyPickingTasksPage';
@@ -180,6 +181,16 @@ export default function App() {
           <Shell>
             <SupervisorOnly>
               <DispatchPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
+        path="/usuarios"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <UsersPage />
             </SupervisorOnly>
           </Shell>
         }

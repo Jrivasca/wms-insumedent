@@ -1,6 +1,7 @@
 """End-to-end backend flow test against an in-memory Mongo (DEFONTANA_MOCK)."""
 import pytest
 
+from app.core.config import settings
 from app.core.database import get_database
 from app.integrations.defontana.mock_data import MOCK_PRODUCTS
 from app.models import Collections
@@ -230,7 +231,23 @@ async def test_packing_reset_line():
     assert all(it.get("sku") != sku1 for p in t["packages"] for it in p.get("items", []))
 
 
-async def test_create_product_and_sync_job():
+async def test_create_product_without_erp_sync():
+    """Stand-alone: con ERP_SYNC_ENABLED=false no se encola nada al ERP."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+
+    p = await product_service.create_product(
+        tenant_id, {"sku": "LOCAL-001", "name": "Producto local"}, admin.id
+    )
+    assert p["sku"] == "LOCAL-001"
+
+    db = get_database()
+    assert await db[Collections.SYNC_JOBS].find_one({"job_type": "create_product"}) is None
+
+
+async def test_create_product_and_sync_job(monkeypatch):
+    monkeypatch.setattr(settings, "erp_sync_enabled", True)
     seed = await run_seed()
     tenant_id = seed["tenant_id"]
     admin = make_user(await _admin_user())
@@ -255,7 +272,8 @@ async def test_create_product_and_sync_job():
         await product_service.create_product(tenant_id, {"sku": "NEW-001", "name": "x"}, admin.id)
 
 
-async def test_create_reception_adds_stock_and_syncs():
+async def test_create_reception_adds_stock_and_syncs(monkeypatch):
+    monkeypatch.setattr(settings, "erp_sync_enabled", True)
     seed = await run_seed()
     tenant_id = seed["tenant_id"]
     admin = make_user(await _admin_user())
