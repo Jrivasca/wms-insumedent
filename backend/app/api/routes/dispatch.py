@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import CurrentUser, get_current_user, require_supervisor
+from app.api.deps import CurrentUser, get_current_user, require_roles
 from app.schemas.dispatch import DispatchRequest
 from app.services import dispatch_service
 from app.services.audit_service import log_action
@@ -12,7 +12,7 @@ router = APIRouter(tags=["dispatch"])
 async def dispatch_order(
     order_id: str,
     payload: DispatchRequest = DispatchRequest(),
-    user: CurrentUser = Depends(require_supervisor),
+    user: CurrentUser = Depends(require_roles("supervisor", "dispatcher")),
 ):
     dispatch = await dispatch_service.confirm_dispatch(
         user.tenant_id, order_id, user, payload.carrier, payload.tracking_number

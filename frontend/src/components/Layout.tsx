@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { isOperario, useAuth } from '../store/auth';
+import { useAuth } from '../store/auth';
+import { FLOOR_ROLES, ROLE_LABEL, can } from '../permissions';
 
 interface NavItem {
   to?: string;
   label: string;
   children?: NavItem[];
+  /** Roles extra que ven esta sección (admin/supervisor siempre la ven). */
+  roles?: string[];
 }
 
-const SUPERVISOR_NAV: NavItem[] = [
+const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard' },
   { to: '/products', label: 'Productos' },
   { to: '/labels', label: 'Etiquetas' },
@@ -24,18 +27,18 @@ const SUPERVISOR_NAV: NavItem[] = [
       { to: '/inventory/ajuste', label: 'Ajuste' },
     ],
   },
-  { to: '/orders', label: 'Pedidos' },
+  { to: '/orders', label: 'Pedidos', roles: ['sales'] },
   { to: '/picking', label: 'Picking' },
   { to: '/packing', label: 'Packing' },
-  { to: '/dispatch', label: 'Despachos' },
+  { to: '/dispatch', label: 'Despachos', roles: ['dispatcher'] },
   { to: '/usuarios', label: 'Usuarios' },
   { to: '/settings/defontana', label: 'Config. Defontana' },
   { to: '/sync-jobs', label: 'Cola de Sincronización' },
 ];
 
-const OPERARIO_NAV: NavItem[] = [
-  { to: '/my/picking', label: 'Mis tareas de picking' },
-  { to: '/my/packing', label: 'Mis tareas de packing' },
+const MY_TASKS_NAV: NavItem[] = [
+  { to: '/my/picking', label: 'Mis tareas de picking', roles: FLOOR_ROLES },
+  { to: '/my/packing', label: 'Mis tareas de packing', roles: FLOOR_ROLES },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -43,8 +46,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
-  const operario = isOperario(currentUser?.role);
-  const items = operario ? OPERARIO_NAV : SUPERVISOR_NAV;
+  const role = currentUser?.role;
+  const items = [...NAV, ...MY_TASKS_NAV].filter((it) => can(role, it.roles));
 
   async function handleLogout() {
     await logout();
@@ -78,7 +81,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       >
         <div className="mb-6 hidden md:block">
           <h1 className="text-lg font-bold">WMS Insumedent</h1>
-          <p className="text-xs text-slate-400">{operario ? 'Operario' : 'Supervisión'}</p>
+          <p className="text-xs text-slate-400">{ROLE_LABEL[role ?? ''] ?? role ?? ''}</p>
         </div>
 
         <nav className="space-y-1">

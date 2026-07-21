@@ -3,20 +3,10 @@ import { createUser, listUsers, updateUser } from '../api/users';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, SelectField } from '../components/Form';
+import { ROLE_OPTIONS } from '../permissions';
 import type { User } from '../types';
 
-const ROLES = [
-  { value: 'admin', label: 'Administrador' },
-  { value: 'supervisor', label: 'Supervisor' },
-  { value: 'picker', label: 'Picking' },
-  { value: 'packer', label: 'Packing' },
-  { value: 'receiver', label: 'Recepción' },
-  { value: 'auditor', label: 'Auditor' },
-];
-
-const ROLE_LABEL: Record<string, string> = Object.fromEntries(
-  ROLES.map((r) => [r.value, r.label])
-);
+const ROLES = ROLE_OPTIONS;
 
 const EMPTY = { name: '', email: '', password: '', role: 'picker' };
 
@@ -213,10 +203,16 @@ export default function UsersPage() {
         </div>
       )}
 
-      <p className="mt-3 text-xs text-slate-500">
-        {ROLE_LABEL.admin} y {ROLE_LABEL.supervisor} pueden aprobar ajustes, picking parcial y
-        diferencias de packing. Los demás roles operan en piso.
-      </p>
+      <div className="mt-3 space-y-1 text-xs text-slate-500">
+        <p>
+          <strong>Administrador / Supervisor:</strong> acceso completo y aprobaciones (ajustes,
+          picking parcial, diferencias de packing).
+        </p>
+        <p>
+          <strong>Ventas:</strong> crea y ve pedidos. · <strong>Bodega:</strong> hace picking y
+          packing de sus tareas. · <strong>Despacho:</strong> confirma los envíos.
+        </p>
+      </div>
 
       {resetFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

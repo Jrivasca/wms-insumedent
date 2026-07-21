@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import CurrentUser, get_current_user, require_supervisor
+from app.api.deps import CurrentUser, get_current_user, require_roles
 from app.core.config import settings
 from app.core.database import get_database
 from app.core.utils import now_utc, serialize
@@ -24,7 +24,10 @@ async def list_orders(
 
 
 @router.post("", status_code=201)
-async def create_order(payload: OrderCreate, user: CurrentUser = Depends(require_supervisor)):
+async def create_order(
+    payload: OrderCreate,
+    user: CurrentUser = Depends(require_roles("supervisor", "sales")),
+):
     """Manually create / simulate an order (acceptance: import or simulate orders)."""
     db = get_database()
     existing = await db[Collections.ORDERS].find_one(

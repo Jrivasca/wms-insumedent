@@ -4,8 +4,11 @@ from enum import Enum
 class UserRole(str, Enum):
     ADMIN = "admin"
     SUPERVISOR = "supervisor"
-    PICKER = "picker"
+    # Roles operativos acotados: cada uno cubre un tramo del flujo.
+    SALES = "sales"           # crea pedidos
+    PICKER = "picker"         # picking y packing (piso)
     PACKER = "packer"
+    DISPATCHER = "dispatcher"  # confirma despachos
     RECEIVER = "receiver"
     AUDITOR = "auditor"
 

@@ -2,7 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
-import { isOperario, isSupervisor, useAuth } from './store/auth';
+import { useAuth } from './store/auth';
+import { FULL_ACCESS, can, homeFor } from './permissions';
 
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -36,20 +37,25 @@ function Shell({ children }: { children: ReactElement }) {
   );
 }
 
-/** Restricts a route to supervisor/admin; operarios get redirected to their tasks. */
-function SupervisorOnly({ children }: { children: ReactElement }) {
+/** Restricts a route to admin/supervisor plus any extra roles allowed. */
+function Require({ roles, children }: { roles?: string[]; children: ReactElement }) {
   const { currentUser } = useAuth();
-  if (currentUser && !isSupervisor(currentUser.role)) {
-    return <Navigate to="/my/picking" replace />;
+  if (currentUser && !can(currentUser.role, roles)) {
+    return <Navigate to={homeFor(currentUser.role)} replace />;
   }
   return children;
+}
+
+/** Only admin/supervisor. */
+function SupervisorOnly({ children }: { children: ReactElement }) {
+  return <Require>{children}</Require>;
 }
 
 /** Redirect root according to role. */
 function HomeRedirect() {
   const { currentUser } = useAuth();
-  if (currentUser && isOperario(currentUser.role)) {
-    return <Navigate to="/my/picking" replace />;
+  if (currentUser && !FULL_ACCESS.includes(currentUser.role)) {
+    return <Navigate to={homeFor(currentUser.role)} replace />;
   }
   return (
     <Shell>
@@ -149,9 +155,9 @@ export default function App() {
         path="/orders"
         element={
           <Shell>
-            <SupervisorOnly>
+            <Require roles={['sales']}>
               <OrdersPage />
-            </SupervisorOnly>
+            </Require>
           </Shell>
         }
       />
@@ -179,9 +185,9 @@ export default function App() {
         path="/dispatch"
         element={
           <Shell>
-            <SupervisorOnly>
+            <Require roles={['dispatcher']}>
               <DispatchPage />
-            </SupervisorOnly>
+            </Require>
           </Shell>
         }
       />
