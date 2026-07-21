@@ -4,6 +4,7 @@ import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, SelectField } from '../components/Form';
 import { ROLE_OPTIONS } from '../permissions';
+import { useAuth } from '../store/auth';
 import type { User } from '../types';
 
 const ROLES = ROLE_OPTIONS;
@@ -11,6 +12,7 @@ const ROLES = ROLE_OPTIONS;
 const EMPTY = { name: '', email: '', password: '', role: 'picker' };
 
 export default function UsersPage() {
+  const { currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,15 +158,22 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {users.map((u) => (
+              {users.map((u) => {
+                const isSelf = u.id === currentUser?.id;
+                return (
                 <tr key={u.id}>
-                  <td className="font-medium">{u.name}</td>
+                  <td className="font-medium">
+                    {u.name}
+                    {isSelf && <span className="ml-2 badge bg-blue-100 text-blue-800">tú</span>}
+                  </td>
                   <td className="text-sm text-slate-600">{u.email}</td>
                   <td>
                     <select
                       value={u.role}
                       onChange={(e) => changeRole(u, e.target.value)}
-                      className="input max-w-[10rem]"
+                      disabled={isSelf}
+                      title={isSelf ? 'No puedes cambiar tu propio rol' : undefined}
+                      className="input max-w-[10rem] disabled:opacity-60"
                     >
                       {ROLES.map((r) => (
                         <option key={r.value} value={r.value}>
@@ -191,13 +200,19 @@ export default function UsersPage() {
                       >
                         Cambiar clave
                       </button>
-                      <button onClick={() => toggleActive(u)} className="btn-secondary whitespace-nowrap">
+                      <button
+                        onClick={() => toggleActive(u)}
+                        disabled={isSelf}
+                        title={isSelf ? 'No puedes desactivar tu propia cuenta' : undefined}
+                        className="btn-secondary whitespace-nowrap disabled:opacity-40"
+                      >
                         {u.is_active === false ? 'Activar' : 'Desactivar'}
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

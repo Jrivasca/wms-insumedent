@@ -318,6 +318,32 @@ async def test_products_pagination():
     assert {p["id"] for p in page1}.isdisjoint({p["id"] for p in page2})
 
 
+async def test_user_cannot_lock_himself_out():
+    """Nadie puede desactivarse ni bajarse el rol a sí mismo (te deja fuera al instante)."""
+    from app.models.user import UserRole
+    from app.schemas.auth import UserUpdate
+    from app.services import user_service
+
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin_doc = await _admin_user()
+    admin_id = str(admin_doc["_id"])
+
+    with pytest.raises(Exception):
+        await user_service.update_user(
+            tenant_id, admin_id, UserUpdate(is_active=False), admin_id
+        )
+    with pytest.raises(Exception):
+        await user_service.update_user(
+            tenant_id, admin_id, UserUpdate(role=UserRole.PICKER), admin_id
+        )
+
+    # Sigue activo y siendo admin.
+    still = await user_service.get_user(tenant_id, admin_id)
+    assert still["is_active"] is True
+    assert still["role"] == "admin"
+
+
 async def test_defontana_mock_sync_products():
     seed = await run_seed()
     tenant_id = seed["tenant_id"]

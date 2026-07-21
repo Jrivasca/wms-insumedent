@@ -63,6 +63,41 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # --- Salvaguardas anti-bloqueo -------------------------------------------
+    # get_current_user valida contra la base en cada request: desactivarte o
+    # bajarte el rol a ti mismo te deja fuera de inmediato.
+    if user_id == actor:
+        if data.is_active is False:
+            raise HTTPException(
+                status_code=400,
+                detail="No puedes desactivar tu propia cuenta",
+            )
+        if data.role is not None and data.role.value != user.get("role"):
+            raise HTTPException(
+                status_code=400,
+                detail="No puedes cambiar tu propio rol",
+            )
+
+    # El tenant nunca puede quedarse sin alguien con acceso completo.
+    full_access = ["admin", "supervisor"]
+    loses_access = data.is_active is False or (
+        data.role is not None and data.role.value not in full_access
+    )
+    if user.get("role") in full_access and loses_access:
+        others = await db[Collections.USERS].count_documents(
+            {
+                "tenant_id": tenant_id,
+                "role": {"$in": full_access},
+                "is_active": True,
+                "_id": {"$ne": user["_id"]},
+            }
+        )
+        if others == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe quedar al menos un administrador o supervisor activo",
+            )
+
     update: Dict[str, Any] = {"updated_at": now_utc(), "updated_by": actor}
     if data.name is not None:
         update["name"] = data.name
