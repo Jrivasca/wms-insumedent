@@ -35,6 +35,14 @@ export async function markMissing(
   return data;
 }
 
+export async function resetPickingLine(
+  id: string,
+  payload: { sku: string }
+): Promise<PickingTask> {
+  const { data } = await http.post<PickingTask>(`/picking/tasks/${id}/reset-line`, payload);
+  return data;
+}
+
 export async function completePicking(
   id: string,
   allowPartial = false

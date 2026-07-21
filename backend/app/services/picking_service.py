@@ -210,6 +210,41 @@ async def mark_missing(
     return serialize(await _load_task(tenant_id, task_id))
 
 
+async def reset_line(
+    tenant_id: str, task_id: str, user: CurrentUser, sku: str
+) -> Dict[str, Any]:
+    """Undo a line: set picked back to 0 so it can be scanned again (fix a mistake)."""
+    db = get_database()
+    task = await _load_task(tenant_id, task_id)
+    _assert_can_operate(task, user)
+
+    if task["status"] in (
+        PickingTaskStatus.COMPLETED.value,
+        PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
+        PickingTaskStatus.CANCELLED.value,
+    ):
+        raise HTTPException(status_code=409, detail="Picking task is already closed")
+
+    found = False
+    for line in task["lines"]:
+        if line.get("sku") == sku:
+            line["quantity_picked"] = 0
+            line["status"] = PickingLineStatus.PENDING.value
+            line["scans"] = []
+            line.pop("missing_reason", None)
+            found = True
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="Line not found for given SKU")
+
+    now = now_utc()
+    await db[Collections.PICKING_TASKS].update_one(
+        {"_id": task["_id"]},
+        {"$set": {"lines": task["lines"], "updated_at": now, "updated_by": user.id}},
+    )
+    return serialize(await _load_task(tenant_id, task_id))
+
+
 async def complete(
     tenant_id: str, task_id: str, user: CurrentUser, allow_partial: bool = False
 ) -> Dict[str, Any]:

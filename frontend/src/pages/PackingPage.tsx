@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
@@ -6,6 +7,7 @@ import StatusBadge from '../components/StatusBadge';
 import type { PackingTask } from '../types';
 
 export default function PackingPage() {
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<PackingTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export default function PackingPage() {
     <div>
       <PageHeader
         title="Packing"
-        subtitle="Todas las tareas de packing"
+        subtitle="Todas las tareas de packing · toca una tarea para abrirla o continuarla"
         actions={
           <button onClick={load} className="btn-secondary">
             Refrescar
@@ -56,6 +58,7 @@ export default function PackingPage() {
                 <th>Líneas</th>
                 <th>Progreso</th>
                 <th>Estado</th>
+                <th></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -63,7 +66,11 @@ export default function PackingPage() {
                 const total = t.lines.reduce((a, l) => a + l.quantity_required, 0);
                 const packed = t.lines.reduce((a, l) => a + l.quantity_packed, 0);
                 return (
-                  <tr key={t.id}>
+                  <tr
+                    key={t.id}
+                    onClick={() => navigate(`/my/packing/${t.id}`)}
+                    className="cursor-pointer hover:bg-blue-50"
+                  >
                     <td className="font-mono text-xs">{t.id}</td>
                     <td>{t.order_id}</td>
                     <td>{t.assigned_to ?? '—'}</td>
@@ -75,6 +82,7 @@ export default function PackingPage() {
                     <td>
                       <StatusBadge status={t.status} />
                     </td>
+                    <td className="text-right font-semibold text-brand">Abrir ›</td>
                   </tr>
                 );
               })}

@@ -4,6 +4,7 @@ import {
   completePicking,
   getPickingTask,
   markMissing,
+  resetPickingLine,
   scanPicking,
   startPicking,
 } from '../api/picking';
@@ -118,6 +119,55 @@ export default function PickingTaskPage() {
     }
   }
 
+  // Demo helper: pick the current line in full without a physical scanner.
+  async function pickWithoutScanner() {
+    if (!currentLine) return;
+    const bc = currentLine.barcode_expected?.[0];
+    const remaining = currentLine.quantity_required - currentLine.quantity_picked;
+    if (!bc || remaining <= 0) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      if (task && (task.status === 'pending' || task.status === 'assigned')) {
+        await startPicking(id);
+      }
+      const res = await scanPicking(id, {
+        barcode: bc,
+        quantity: remaining,
+        location_id: currentLine.suggested_location_id,
+      });
+      const refreshed =
+        res.task && typeof res.task === 'object'
+          ? (res.task as PickingTask)
+          : await getPickingTask(id);
+      setTask(refreshed);
+      setFeedback('success');
+      setMessage('Línea confirmada');
+      setTimeout(() => setFeedback('idle'), 1200);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Undo a line so it can be scanned again (fix a mistake).
+  async function resetLine(sku: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const t = await resetPickingLine(id, { sku });
+      setTask(t);
+      setMessage(`Línea ${sku} reiniciada — vuelva a escanearla`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitMissing() {
     if (!missingFor || !missingReason.trim()) return;
     setBusy(true);
@@ -142,8 +192,8 @@ export default function PickingTaskPage() {
     try {
       const t = await completePicking(id, allowPartial);
       setTask(t);
-      setMessage('Picking completado');
-      setTimeout(() => navigate('/my/picking'), 800);
+      setMessage('Picking completado. Continúe en Packing.');
+      setTimeout(() => navigate('/my/packing'), 900);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 409) {
@@ -213,6 +263,13 @@ export default function PickingTaskPage() {
                 : ''}
             </span>
           </div>
+          <button
+            onClick={pickWithoutScanner}
+            className="btn mt-3 w-full bg-brand text-white"
+            disabled={busy}
+          >
+            Confirmar línea sin escáner (demo)
+          </button>
         </div>
       ) : (
         <div className="card mb-4 border-2 border-emerald-400 bg-emerald-50 text-center font-semibold text-emerald-700">
@@ -287,6 +344,15 @@ export default function PickingTaskPage() {
                     {l.quantity_picked}/{l.quantity_required}
                   </div>
                   {missing && <div className="text-xs text-red-600">faltante</div>}
+                  {(l.quantity_picked > 0 || missing) && !notStarted && (
+                    <button
+                      onClick={() => resetLine(l.sku)}
+                      className="mt-1 text-xs font-medium text-brand underline disabled:opacity-50"
+                      disabled={busy}
+                    >
+                      Volver a escanear
+                    </button>
+                  )}
                 </div>
               </div>
             );

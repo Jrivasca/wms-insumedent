@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import CurrentUser, get_current_user, require_supervisor
 from app.core.utils import serialize
-from app.schemas.inventory import AdjustmentRequest, TransferRequest
+from app.schemas.inventory import AdjustmentRequest, ReceptionRequest, TransferRequest
 from app.services import inventory_service
 from app.services.audit_service import log_action
 
@@ -16,18 +16,56 @@ async def balances(
     product_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
     location_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
     user: CurrentUser = Depends(get_current_user),
 ):
     return await inventory_service.list_balances(
-        user.tenant_id, product_id, warehouse_id, location_id
+        user.tenant_id, product_id, warehouse_id, location_id, limit, offset
     )
 
 
 @router.get("/movements")
 async def movements(
-    product_id: Optional[str] = None, user: CurrentUser = Depends(get_current_user)
+    product_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    user: CurrentUser = Depends(get_current_user),
 ):
-    return await inventory_service.list_movements(user.tenant_id, product_id)
+    return await inventory_service.list_movements(user.tenant_id, product_id, limit, offset)
+
+
+@router.post("/receptions", status_code=201)
+async def create_reception(
+    payload: ReceptionRequest, user: CurrentUser = Depends(get_current_user)
+):
+    result = await inventory_service.create_reception(
+        tenant_id=user.tenant_id,
+        product_id=payload.product_id,
+        warehouse_id=payload.warehouse_id,
+        location_id=payload.location_id,
+        quantity=payload.quantity,
+        created_by=user.id,
+        reference=payload.reference,
+        lot_number=payload.lot_number,
+        serial_number=payload.serial_number,
+        sync_erp=payload.sync_erp,
+    )
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="inventory_reception",
+        entity_type="inventory_balance",
+        entity_id=payload.product_id,
+        after={
+            "location_id": payload.location_id,
+            "quantity": payload.quantity,
+            "reference": payload.reference,
+        },
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    return result
 
 
 @router.post("/adjustments")

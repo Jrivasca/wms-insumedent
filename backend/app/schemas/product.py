@@ -15,6 +15,10 @@ class ProductCreate(BaseModel):
     uses_lots: bool = False
     uses_serials: bool = False
     is_service: bool = False
+    # Optional extras created together with the product.
+    barcode: Optional[str] = None
+    cost: Optional[float] = None
+    sale_price: Optional[float] = None
 
 
 class BarcodeCreate(BaseModel):

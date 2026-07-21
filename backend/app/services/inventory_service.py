@@ -13,6 +13,8 @@ from app.core.database import get_database
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
+from app.models.sync_job import SyncJobType
+from app.services import sync_job_service
 
 
 def _available(balance: Dict[str, Any]) -> float:
@@ -223,6 +225,88 @@ async def create_transfer(
     return movement
 
 
+async def create_reception(
+    *,
+    tenant_id: str,
+    product_id: str,
+    warehouse_id: str,
+    location_id: str,
+    quantity: float,
+    created_by: str,
+    reference: Optional[str] = None,
+    lot_number: Optional[str] = None,
+    serial_number: Optional[str] = None,
+    sync_erp: bool = True,
+) -> Dict[str, Any]:
+    """Receive inbound stock into a location (entrada de mercadería).
+
+    Adds stock + records a RECEIPT movement, and (optionally) enqueues an ERP
+    inventory-entry document (Defontana ``PUT /Inventory/Insert``, real-supported).
+    """
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="La cantidad debe ser positiva")
+
+    balance = await change_location_stock(
+        tenant_id=tenant_id,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        location_id=location_id,
+        delta=quantity,
+        lot_number=lot_number,
+        serial_number=serial_number,
+        allow_negative=True,
+    )
+    movement = await record_movement(
+        tenant_id=tenant_id,
+        movement_type=MovementType.RECEIPT.value,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        to_location_id=location_id,
+        quantity=quantity,
+        lot_number=lot_number,
+        serial_number=serial_number,
+        reference_type=ReferenceType.MANUAL.value,
+        reference_id=reference,
+        reason="Recepción de mercadería",
+        created_by=created_by,
+    )
+
+    job = None
+    if sync_erp:
+        db = get_database()
+        product = await db[Collections.PRODUCTS].find_one(
+            {"_id": to_object_id(product_id), "tenant_id": tenant_id}
+        )
+        warehouse = await db[Collections.WAREHOUSES].find_one(
+            {"_id": to_object_id(warehouse_id), "tenant_id": tenant_id}
+        )
+        payload = {
+            "externalDocumentID": f"WMS-REC-{movement['_id']}",
+            "storageCode": (warehouse or {}).get("erp_storage_code"),
+            "type": "entrada",
+            "detail": [
+                {
+                    "code": (product or {}).get("sku"),
+                    "quantity": quantity,
+                    "lotNumber": lot_number,
+                    "serialNumber": serial_number,
+                }
+            ],
+        }
+        job = await sync_job_service.enqueue(
+            tenant_id=tenant_id,
+            job_type=SyncJobType.CREATE_INVENTORY_DOCUMENT.value,
+            payload=payload,
+            created_by=created_by,
+        )
+
+    return {
+        "balance": serialize(balance) if balance else None,
+        "movement": serialize(movement),
+        "sync_job_id": job["id"] if job else None,
+    }
+
+
 async def register_operational_move(
     *,
     tenant_id: str,
@@ -281,6 +365,8 @@ async def list_balances(
     product_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
     location_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
@@ -291,7 +377,15 @@ async def list_balances(
     if location_id:
         query["location_id"] = location_id
 
-    balances = await db[Collections.INVENTORY_BALANCES].find(query).to_list(length=1000)
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+    balances = (
+        await db[Collections.INVENTORY_BALANCES]
+        .find(query)
+        .skip(offset)
+        .limit(limit)
+        .to_list(length=limit)
+    )
 
     # Enrich with product / location names for the UI.
     product_ids = {to_object_id(b["product_id"]) for b in balances if b.get("product_id")}
@@ -318,14 +412,23 @@ async def list_balances(
 
 
 async def list_movements(
-    tenant_id: str, product_id: Optional[str] = None, limit: int = 200
+    tenant_id: str,
+    product_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if product_id:
         query["product_id"] = product_id
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     cursor = (
-        db[Collections.INVENTORY_MOVEMENTS].find(query).sort("created_at", -1).limit(limit)
+        db[Collections.INVENTORY_MOVEMENTS]
+        .find(query)
+        .sort("created_at", -1)
+        .skip(offset)
+        .limit(limit)
     )
     movements = await cursor.to_list(length=limit)
     product_ids = {to_object_id(m["product_id"]) for m in movements if m.get("product_id")}

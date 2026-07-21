@@ -22,6 +22,7 @@ from app.integrations.defontana import (
     product_sync,
     warehouse_sync,
 )
+from app.integrations.defontana.client import DefontanaConnector
 
 logger = get_logger("app.workers.sync_worker")
 
@@ -82,6 +83,20 @@ async def _handle_create_inventory_document(job: Dict[str, Any]) -> Dict[str, An
     }
 
 
+async def _handle_create_product(job: Dict[str, Any]) -> Dict[str, Any]:
+    connector = DefontanaConnector(job["tenant_id"])
+    payload = job.get("payload", {})
+    response = await connector.create_product(payload)
+    return {"external_document_id": str(response.get("Code") or payload.get("Code")), "response": response}
+
+
+async def _handle_create_order(job: Dict[str, Any]) -> Dict[str, Any]:
+    connector = DefontanaConnector(job["tenant_id"])
+    payload = job.get("payload", {})
+    response = await connector.create_order(payload)
+    return {"external_document_id": str(response.get("Number") or payload.get("Number")), "response": response}
+
+
 async def _handle_sync_products(job: Dict[str, Any]) -> Dict[str, Any]:
     return await product_sync.sync_products(job["tenant_id"])
 
@@ -97,6 +112,8 @@ async def _handle_sync_orders(job: Dict[str, Any]) -> Dict[str, Any]:
 HANDLERS = {
     SyncJobType.DISPATCH_ORDER.value: _handle_dispatch_order,
     SyncJobType.CREATE_INVENTORY_DOCUMENT.value: _handle_create_inventory_document,
+    SyncJobType.CREATE_PRODUCT.value: _handle_create_product,
+    SyncJobType.CREATE_ORDER.value: _handle_create_order,
     SyncJobType.SYNC_PRODUCTS.value: _handle_sync_products,
     SyncJobType.SYNC_WAREHOUSES.value: _handle_sync_warehouses,
     SyncJobType.SYNC_ORDERS.value: _handle_sync_orders,

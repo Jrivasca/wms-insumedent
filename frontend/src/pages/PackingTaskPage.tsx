@@ -4,6 +4,7 @@ import {
   completePacking,
   createPackage,
   getPackingTask,
+  resetPackingLine,
   scanPacking,
   startPacking,
 } from '../api/packing';
@@ -119,6 +120,57 @@ export default function PackingTaskPage() {
     }
   }
 
+  // Demo helper: pack the current line in full without a physical scanner.
+  async function packWithoutScanner() {
+    if (!currentLine) return;
+    const bc = currentLine.barcode_expected?.[0];
+    const remaining = currentLine.quantity_required - currentLine.quantity_packed;
+    if (!bc || remaining <= 0) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      if (task && (task.status === 'pending' || task.status === 'assigned')) {
+        await startPacking(id);
+      }
+      let pkg = activePackage;
+      if (!pkg) {
+        const created = await createPackage(id, undefined);
+        pkg = created.package_id;
+        setActivePackage(pkg);
+      }
+      const res = await scanPacking(id, { barcode: bc, quantity: remaining, package_id: pkg });
+      const refreshed =
+        res.task && typeof res.task === 'object'
+          ? (res.task as PackingTask)
+          : await getPackingTask(id);
+      setTask(refreshed);
+      setFeedback('success');
+      setMessage('Línea empacada');
+      setTimeout(() => setFeedback('idle'), 1200);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Undo a line so it can be packed again (fix a mistake).
+  async function resetLine(sku: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const t = await resetPackingLine(id, { sku });
+      setTask(t);
+      setMessage(`Línea ${sku} reiniciada — vuelva a empacarla`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleComplete() {
     setBusy(true);
     setError(null);
@@ -126,8 +178,8 @@ export default function PackingTaskPage() {
     try {
       const t = await completePacking(id);
       setTask(t);
-      setMessage('Packing finalizado');
-      setTimeout(() => navigate('/my/packing'), 800);
+      setMessage('Packing finalizado. Continúe en Despacho.');
+      setTimeout(() => navigate('/dispatch'), 900);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 409) {
@@ -210,6 +262,14 @@ export default function PackingTaskPage() {
             + Bulto
           </button>
         </div>
+        {task.packages.length > 0 && (
+          <button
+            onClick={() => navigate(`/my/packing/${id}/labels`)}
+            className="btn-secondary mt-3 w-full"
+          >
+            🏷️ Imprimir etiquetas de bultos
+          </button>
+        )}
       </div>
 
       {/* Current line */}
@@ -222,6 +282,13 @@ export default function PackingTaskPage() {
             {currentLine.quantity_packed}
             <span className="text-lg text-slate-400"> / {currentLine.quantity_required}</span>
           </div>
+          <button
+            onClick={packWithoutScanner}
+            className="btn mt-3 w-full bg-brand text-white"
+            disabled={busy}
+          >
+            Confirmar línea sin escáner (demo)
+          </button>
         </div>
       ) : (
         <div className="card mb-4 border-2 border-emerald-400 bg-emerald-50 text-center font-semibold text-emerald-700">
@@ -278,8 +345,19 @@ export default function PackingTaskPage() {
                   <div className="font-medium">{l.name}</div>
                   <div className="font-mono text-xs text-slate-500">{l.sku}</div>
                 </div>
-                <div className="font-bold">
-                  {l.quantity_packed}/{l.quantity_required}
+                <div className="text-right">
+                  <div className="font-bold">
+                    {l.quantity_packed}/{l.quantity_required}
+                  </div>
+                  {l.quantity_packed > 0 && !notStarted && (
+                    <button
+                      onClick={() => resetLine(l.sku)}
+                      className="mt-1 text-xs font-medium text-brand underline disabled:opacity-50"
+                      disabled={busy}
+                    >
+                      Volver a escanear
+                    </button>
+                  )}
                 </div>
               </div>
             );

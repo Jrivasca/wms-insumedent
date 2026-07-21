@@ -11,3 +11,7 @@ class PackScanRequest(BaseModel):
 
 class CreatePackageRequest(BaseModel):
     label: Optional[str] = None
+
+
+class ResetLineRequest(BaseModel):
+    sku: str

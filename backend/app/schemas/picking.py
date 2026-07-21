@@ -14,5 +14,9 @@ class MarkMissingRequest(BaseModel):
     reason: str = Field(min_length=1)
 
 
+class ResetLineRequest(BaseModel):
+    sku: str
+
+
 class CompletePickingRequest(BaseModel):
     allow_partial: bool = False

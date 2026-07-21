@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from app.api.deps import CurrentUser, get_current_user
-from app.schemas.packing import CreatePackageRequest, PackScanRequest
+from app.schemas.packing import CreatePackageRequest, PackScanRequest, ResetLineRequest
 from app.services import packing_service
 from app.services.audit_service import log_action
 
@@ -43,6 +43,24 @@ async def create_package(
     user: CurrentUser = Depends(get_current_user),
 ):
     return await packing_service.create_package(user.tenant_id, task_id, user, payload.label)
+
+
+@router.post("/tasks/{task_id}/reset-line")
+async def reset_line(
+    task_id: str, payload: ResetLineRequest, user: CurrentUser = Depends(get_current_user)
+):
+    result = await packing_service.reset_line(user.tenant_id, task_id, user, payload.sku)
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="packing_reset_line",
+        entity_type="packing_task",
+        entity_id=task_id,
+        metadata={"sku": payload.sku},
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    return result
 
 
 @router.post("/tasks/{task_id}/complete")

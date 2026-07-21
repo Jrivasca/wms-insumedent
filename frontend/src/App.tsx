@@ -7,9 +7,13 @@ import { isOperario, isSupervisor, useAuth } from './store/auth';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ProductsPage from './pages/ProductsPage';
+import LabelsPage from './pages/LabelsPage';
 import WarehousesPage from './pages/WarehousesPage';
 import LocationsPage from './pages/LocationsPage';
 import InventoryPage from './pages/InventoryPage';
+import ReceptionPage from './pages/ReceptionPage';
+import InventoryTransferPage from './pages/InventoryTransferPage';
+import InventoryAdjustmentPage from './pages/InventoryAdjustmentPage';
 import OrdersPage from './pages/OrdersPage';
 import PickingPage from './pages/PickingPage';
 import PackingPage from './pages/PackingPage';
@@ -20,6 +24,7 @@ import MyPickingTasksPage from './pages/MyPickingTasksPage';
 import PickingTaskPage from './pages/PickingTaskPage';
 import MyPackingTasksPage from './pages/MyPackingTasksPage';
 import PackingTaskPage from './pages/PackingTaskPage';
+import PackingLabelsPage from './pages/PackingLabelsPage';
 
 /** Wraps a page in ProtectedRoute + Layout. */
 function Shell({ children }: { children: ReactElement }) {
@@ -70,6 +75,16 @@ export default function App() {
         }
       />
       <Route
+        path="/labels"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <LabelsPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
         path="/warehouses"
         element={
           <Shell>
@@ -95,6 +110,36 @@ export default function App() {
           <Shell>
             <SupervisorOnly>
               <InventoryPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
+        path="/inventory/recepcion"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <ReceptionPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
+        path="/inventory/transferencia"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <InventoryTransferPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
+        path="/inventory/ajuste"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <InventoryAdjustmentPage />
             </SupervisorOnly>
           </Shell>
         }
@@ -190,6 +235,14 @@ export default function App() {
         element={
           <Shell>
             <PackingTaskPage />
+          </Shell>
+        }
+      />
+      <Route
+        path="/my/packing/:id/labels"
+        element={
+          <Shell>
+            <PackingLabelsPage />
           </Shell>
         }
       />

@@ -149,6 +149,7 @@ export interface PackingLine {
   product_id: string;
   sku: string;
   name: string;
+  barcode_expected?: string[];
   quantity_required: number;
   quantity_packed: number;
   status?: string;

@@ -65,6 +65,13 @@ export default function BarcodeScanner({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [value, setValue] = useState('');
 
+  // Phones/tablets (coarse primary pointer): the field must be tap-to-type so the
+  // on-screen keyboard opens. Desktops keep the hardware-scanner auto-focus.
+  const isTouchDevice =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+
   const fire = useCallback(
     (code: string, isError = false) => {
       const trimmed = code.trim();
@@ -82,13 +89,15 @@ export default function BarcodeScanner({
     [onScan]
   );
 
-  // Keep HID input focused.
+  // Keep HID input focused (desktop only). On touch devices never steal focus:
+  // iOS won't open the keyboard from a programmatic focus, and re-focusing
+  // blocks the tap-to-type gesture.
   const refocus = useCallback(() => {
-    if (autoFocus && !cameraOn) {
+    if (autoFocus && !cameraOn && !isTouchDevice) {
       // small timeout so it survives blur events
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [autoFocus, cameraOn]);
+  }, [autoFocus, cameraOn, isTouchDevice]);
 
   useEffect(() => {
     refocus();
@@ -172,9 +181,10 @@ export default function BarcodeScanner({
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onBlur={refocus}
-          autoFocus={autoFocus}
-          inputMode="none"
-          placeholder="Escanee o ingrese código…"
+          autoFocus={autoFocus && !isTouchDevice}
+          inputMode="text"
+          enterKeyHint="done"
+          placeholder={isTouchDevice ? 'Toque aquí para escribir el código' : 'Escanee o ingrese código…'}
           className={`flex-1 rounded-md border bg-white px-3 py-3 text-base outline-none ${FEEDBACK_BORDER[feedback]}`}
           aria-label="Entrada de código de barras"
         />
@@ -183,9 +193,15 @@ export default function BarcodeScanner({
           onClick={() => setCameraOn((v) => !v)}
           className={`btn ${cameraOn ? 'btn-danger' : 'btn-secondary'} whitespace-nowrap`}
         >
-          {cameraOn ? 'Apagar cámara' : 'Cámara'}
+          {cameraOn ? 'Apagar cámara' : '📷 Cámara'}
         </button>
       </div>
+
+      {isTouchDevice && !cameraOn && (
+        <p className="text-xs text-slate-400">
+          Toque el campo para escribir con el teclado, o use la cámara para escanear.
+        </p>
+      )}
 
       {cameraError && <p className="text-sm text-red-600">{cameraError}</p>}
 
