@@ -10,6 +10,9 @@ Dockerfile  text eol=lf
 Caddyfile   text eol=lf
 *.yml       text eol=lf
 *.yaml      text eol=lf
+# SVG es texto (XML): marcarlo binario dejaba el archivo eternamente "modificado"
+# en checkouts Windows por el CRLF.
+*.svg       text eol=lf
 
 # Binarios: nunca normalizar.
 *.png  binary
@@ -17,7 +20,6 @@ Caddyfile   text eol=lf
 *.jpeg binary
 *.gif  binary
 *.ico  binary
-*.svg  binary
 *.woff  binary
 *.woff2 binary
 *.ttf   binary
