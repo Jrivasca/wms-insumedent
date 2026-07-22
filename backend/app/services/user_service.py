@@ -101,6 +101,16 @@ async def update_user(
     update: Dict[str, Any] = {"updated_at": now_utc(), "updated_by": actor}
     if data.name is not None:
         update["name"] = data.name
+    if data.email is not None and data.email != user.get("email"):
+        # El email es la credencial de acceso y es único por tenant.
+        taken = await db[Collections.USERS].find_one(
+            {"tenant_id": tenant_id, "email": data.email, "_id": {"$ne": user["_id"]}}
+        )
+        if taken:
+            raise HTTPException(
+                status_code=409, detail="Ya existe otro usuario con ese email"
+            )
+        update["email"] = data.email
     if data.password is not None:
         update["password_hash"] = hash_password(data.password)
     if data.role is not None:

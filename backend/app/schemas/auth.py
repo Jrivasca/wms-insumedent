@@ -36,6 +36,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    email: Optional[EmailStr] = None
     password: Optional[str] = Field(default=None, min_length=4)
     role: Optional[UserRole] = None
     allowed_warehouse_ids: Optional[List[str]] = None

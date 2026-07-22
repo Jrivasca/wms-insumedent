@@ -344,6 +344,38 @@ async def test_user_cannot_lock_himself_out():
     assert still["role"] == "admin"
 
 
+async def test_update_user_name_and_email():
+    """Se puede editar nombre y correo; el correo duplicado se rechaza."""
+    from app.models.user import UserRole
+    from app.schemas.auth import UserCreate, UserUpdate
+    from app.services import user_service
+
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin_doc = await _admin_user()
+    actor = str(admin_doc["_id"])
+
+    creado = await user_service.create_user(
+        tenant_id,
+        UserCreate(name="Operario Uno", email="op1@demo.cl", password="clave123", role=UserRole.PICKER),
+        actor,
+    )
+    uid = creado["id"]
+
+    # Editar nombre y correo.
+    upd = await user_service.update_user(
+        tenant_id, uid, UserUpdate(name="Operario Editado", email="nuevo@demo.cl"), actor
+    )
+    assert upd["name"] == "Operario Editado"
+    assert upd["email"] == "nuevo@demo.cl"
+
+    # Un correo ya usado por otro usuario se rechaza.
+    with pytest.raises(Exception):
+        await user_service.update_user(
+            tenant_id, uid, UserUpdate(email=DEMO_ADMIN_EMAIL), actor
+        )
+
+
 async def test_defontana_mock_sync_products():
     seed = await run_seed()
     tenant_id = seed["tenant_id"]

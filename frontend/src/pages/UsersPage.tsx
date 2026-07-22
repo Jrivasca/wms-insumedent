@@ -25,6 +25,11 @@ export default function UsersPage() {
   const [resetFor, setResetFor] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
 
+  // editar nombre / correo
+  const [editFor, setEditFor] = useState<User | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -85,6 +90,22 @@ export default function UsersPage() {
       load();
     } catch (err) {
       setError(errorMessage(err));
+    }
+  }
+
+  async function submitEdit() {
+    if (!editFor || !editName.trim() || !editEmail.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateUser(editFor.id, { name: editName.trim(), email: editEmail.trim() });
+      setNotice(`Datos actualizados: ${editEmail.trim()}`);
+      setEditFor(null);
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -193,6 +214,16 @@ export default function UsersPage() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => {
+                          setEditFor(u);
+                          setEditName(u.name);
+                          setEditEmail(u.email);
+                        }}
+                        className="btn-secondary whitespace-nowrap"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => {
                           setResetFor(u);
                           setNewPassword('');
                         }}
@@ -228,6 +259,46 @@ export default function UsersPage() {
           packing de sus tareas. · <strong>Despacho:</strong> confirma los envíos.
         </p>
       </div>
+
+      {editFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-4">
+            <h3 className="text-lg font-bold">Editar usuario</h3>
+            <p className="mb-3 text-sm text-slate-500">{editFor.email}</p>
+            <label className="label">Nombre</label>
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="input mb-3"
+            />
+            <label className="label">Correo (con este inicia sesión)</label>
+            <input
+              type="email"
+              value={editEmail}
+              onChange={(e) => setEditEmail(e.target.value)}
+              className="input mb-3"
+            />
+            {editFor.id === currentUser?.id && (
+              <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Estás editando tu propia cuenta: si cambias el correo, la próxima vez deberás
+                iniciar sesión con el nuevo.
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={submitEdit}
+                className="btn-success flex-1"
+                disabled={!editName.trim() || !editEmail.trim() || busy}
+              >
+                Guardar
+              </button>
+              <button onClick={() => setEditFor(null)} className="btn-secondary flex-1">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {resetFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

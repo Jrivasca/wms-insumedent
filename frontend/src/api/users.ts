@@ -26,6 +26,7 @@ export async function updateUser(
   id: string,
   payload: {
     name?: string;
+    email?: string;
     password?: string;
     role?: string;
     is_active?: boolean;
