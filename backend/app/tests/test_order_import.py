@@ -9,7 +9,7 @@ from app.core.database import get_database
 from app.models import Collections
 from app.schemas.order_import import ConfirmLine, ParsedOrderDraft, ParsedOrderLine
 from app.services import order_service
-from app.services.pdf_order_parser import parse_pdf, resolve_draft
+from app.services.pdf_order_parser import _ocr_available, parse_document, parse_pdf, resolve_draft
 
 pytestmark = pytest.mark.asyncio
 
@@ -171,3 +171,22 @@ async def test_confirm_standalone_does_not_enqueue():
 async def test_parse_rejects_non_pdf():
     with pytest.raises(ValueError):
         parse_pdf(b"esto no es un pdf")
+
+
+@pytest.mark.skipif(not _ocr_available(), reason="OCR/Tesseract no disponible en este entorno")
+async def test_ocr_pipeline_on_rendered_image():
+    # Render the digital fixture to a clean PNG and run the OCR path end to end.
+    import io
+
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(_pdf_bytes())
+    pil = doc[0].render(scale=3).to_pil()
+    doc.close()
+    buf = io.BytesIO()
+    pil.save(buf, format="PNG")
+
+    draft = parse_document(buf.getvalue(), content_type="image/png", filename="cotizacion.png")
+    assert draft.source == "ocr"
+    assert draft.erp_order_number == "7889"
+    assert len(draft.lines) >= 8  # OCR of a clean render should recover most of the 11 lines

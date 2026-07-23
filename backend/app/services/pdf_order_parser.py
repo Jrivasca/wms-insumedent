@@ -24,6 +24,14 @@ from typing import List, Optional
 
 import pdfplumber
 
+try:  # OCR stack (phase 2). pypdfium2 + Pillow ship with pdfplumber; pytesseract is new.
+    import pypdfium2 as pdfium
+    import pytesseract
+    from PIL import Image
+    _OCR_LIBS = True
+except Exception:  # pragma: no cover
+    _OCR_LIBS = False
+
 from app.core.database import get_database
 from app.core.utils import to_object_id
 from app.models import Collections
@@ -41,11 +49,13 @@ from app.schemas.order_import import (
 # issuer's, which is printed at the top of every document.
 EMISOR_RUT = "76.712.267-5"
 
-_FOLIO_RE = re.compile(r"Folio\s*N[°ºo]?\s*:?\s*(\d+)", re.IGNORECASE)
+# Tolerant to OCR noise between "Folio" and the number (e.g. "N°" read as "N*").
+_FOLIO_RE = re.compile(r"Folio[^\d\n]{0,8}(\d{3,6})", re.IGNORECASE)
 _RUT_RE = re.compile(r"\d{1,2}\.\d{3}\.\d{3}-[\dkK]")
 _DATE_RE = re.compile(r"\b(\d{1,2}-\d{1,2}-\d{4})\b")
 
-_MONEY = r"\$\s*[\d.,\-]+"
+# The "$" is optional: OCR frequently drops it on the first money columns.
+_MONEY = r"\$?\s*[\d.,\-]+"
 _LINE_RE = re.compile(
     r"^\s*(?P<item>\d{1,3})\s+"
     r"(?P<code>\S+)\s+"
@@ -151,8 +161,106 @@ def _parse_lines(text: str) -> List[ParsedOrderLine]:
     return lines
 
 
-def parse_pdf(file_bytes: bytes) -> ParsedOrderDraft:
-    """Parse the PDF into a draft (no DB access). Raises ``ValueError`` if unreadable."""
+OCR_LANG = "spa"
+
+
+def _ocr_available() -> bool:
+    """True if pytesseract and the Tesseract binary are usable."""
+    if not _OCR_LIBS:
+        return False
+    try:
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+def _ocr_image_bytes(image_bytes: bytes) -> str:
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img.load()
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("No se pudo abrir la imagen.") from exc
+    return pytesseract.image_to_string(img, lang=OCR_LANG)
+
+
+def _ocr_pdf_bytes(pdf_bytes: bytes) -> str:
+    """Render each PDF page to a bitmap and OCR it (scanned PDFs)."""
+    doc = pdfium.PdfDocument(pdf_bytes)
+    try:
+        out = []
+        for i in range(len(doc)):
+            pil = doc[i].render(scale=3).to_pil()  # ~216 DPI
+            out.append(pytesseract.image_to_string(pil, lang=OCR_LANG))
+        return "\n".join(out)
+    finally:
+        doc.close()
+
+
+def _customer_from_text(text: str) -> Optional[str]:
+    """Best-effort customer from a flat text blob (OCR path, no word geometry).
+
+    The value is on the line following the "Señor (es) | Ciudad | Giro | R.U.T"
+    label row. We strip any RUT that bled in and cap the length; the exact name is
+    hard to isolate from the city/giro on the same OCR line, so the operator edits it.
+    """
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for i, ln in enumerate(lines):
+        if re.match(r"(?i)se[nñ]or", ln):
+            after = re.sub(r"(?i)^se[nñ]or\s*\(?\s*e?s?\s*\)?\.?\s*", "", ln).strip()
+            if not after or re.search(r"(?i)\b(ciudad|giro|r\.?u\.?t)\b", after):
+                after = lines[i + 1] if i + 1 < len(lines) else ""
+            after = _RUT_RE.sub("", after).strip()
+            after = re.sub(r"\s+", " ", after)[:60].strip()
+            return after or None
+    return None
+
+
+def _build_draft_from_text(full_text: str, customer: Optional[str], source: str) -> ParsedOrderDraft:
+    """Header + lines extraction shared by the digital and OCR paths."""
+    draft = ParsedOrderDraft(source=source)
+    m = _FOLIO_RE.search(full_text)
+    draft.erp_order_number = m.group(1) if m else None
+    draft.customer = customer
+    draft.customer_rut = next((r for r in _RUT_RE.findall(full_text) if r != EMISOR_RUT), None)
+    dm = _DATE_RE.search(full_text)  # first date printed = "Fecha Documento"
+    draft.order_date = dm.group(1) if dm else None
+    draft.lines = _parse_lines(full_text)
+
+    if source == "ocr":
+        draft.document_warnings.append(
+            "Documento leído por OCR (foto/escaneo): revisa con cuidado folio, cliente y cada línea."
+        )
+    if not draft.erp_order_number:
+        draft.document_warnings.append("No se detectó el Folio; ingrésalo manualmente.")
+    if not draft.customer:
+        draft.document_warnings.append("No se detectó el cliente; ingrésalo manualmente.")
+    if not draft.lines:
+        draft.document_warnings.append(
+            "No se detectaron líneas de producto. Revisa el documento o ingrésalas a mano."
+        )
+    return draft
+
+
+def _looks_like_pdf(file_bytes: bytes) -> bool:
+    return file_bytes[:1024].lstrip()[:4] == b"%PDF"
+
+
+def _looks_like_image(file_bytes: bytes, content_type: Optional[str], filename: Optional[str]) -> bool:
+    if (content_type or "").lower().startswith("image/"):
+        return True
+    ext = (filename or "").lower().rsplit(".", 1)[-1]
+    if ext in {"jpg", "jpeg", "png", "webp", "bmp", "tif", "tiff", "heic"}:
+        return True
+    sig = file_bytes[:12]
+    return (
+        sig[:3] == b"\xff\xd8\xff"                       # JPEG
+        or sig[:8] == b"\x89PNG\r\n\x1a\n"               # PNG
+        or (sig[:4] == b"RIFF" and b"WEBP" in sig)       # WEBP
+    )
+
+
+def _parse_pdf_document(file_bytes: bytes) -> ParsedOrderDraft:
     try:
         pdf = pdfplumber.open(io.BytesIO(file_bytes))
     except Exception as exc:  # noqa: BLE001
@@ -163,33 +271,40 @@ def parse_pdf(file_bytes: bytes) -> ParsedOrderDraft:
         full_text = "\n".join((p.extract_text() or "") for p in pages)
         customer = _customer_from_page(pages[0]) if pages else None
 
-    draft = ParsedOrderDraft(source="pdf_digital")
+    if full_text.strip():
+        return _build_draft_from_text(full_text, customer, source="pdf_digital")
 
-    if not full_text.strip():
-        # No embedded text: almost certainly a scan or phone photo (OCR is phase 2).
+    # No embedded text -> scanned PDF. OCR the rendered pages when possible.
+    if not _ocr_available():
+        draft = ParsedOrderDraft(source="pdf_digital")
         draft.document_warnings.append(
-            "No se detectó texto en el PDF (posible imagen/escaneo). "
-            "Ingresa las líneas manualmente o sube el PDF digital."
+            "No se detectó texto en el PDF (posible escaneo) y el OCR no está disponible. "
+            "Sube el PDF digital o ingresa las líneas a mano."
         )
         return draft
+    text = _ocr_pdf_bytes(file_bytes)
+    return _build_draft_from_text(text, _customer_from_text(text), source="ocr")
 
-    m = _FOLIO_RE.search(full_text)
-    draft.erp_order_number = m.group(1) if m else None
-    draft.customer = customer
-    draft.customer_rut = next((r for r in _RUT_RE.findall(full_text) if r != EMISOR_RUT), None)
-    dm = _DATE_RE.search(full_text)  # first date printed = "Fecha Documento"
-    draft.order_date = dm.group(1) if dm else None
-    draft.lines = _parse_lines(full_text)
 
-    if not draft.erp_order_number:
-        draft.document_warnings.append("No se detectó el Folio; ingrésalo manualmente.")
-    if not draft.customer:
-        draft.document_warnings.append("No se detectó el cliente; ingrésalo manualmente.")
-    if not draft.lines:
-        draft.document_warnings.append(
-            "No se detectaron líneas de producto. Revisa que sea una cotización INSUMEDENT."
-        )
-    return draft
+def parse_pdf(file_bytes: bytes) -> ParsedOrderDraft:
+    """Backwards-compatible entry for PDFs (digital, or scanned via OCR)."""
+    return _parse_pdf_document(file_bytes)
+
+
+def parse_document(
+    file_bytes: bytes, content_type: Optional[str] = None, filename: Optional[str] = None
+) -> ParsedOrderDraft:
+    """Parse a PDF (digital or scanned) or an image (phone photo) into a draft."""
+    if not file_bytes:
+        raise ValueError("El archivo está vacío.")
+    if _looks_like_image(file_bytes, content_type, filename) and not _looks_like_pdf(file_bytes):
+        if not _ocr_available():
+            raise ValueError(
+                "La lectura de fotos/imágenes requiere OCR y no está disponible en el servidor."
+            )
+        text = _ocr_image_bytes(file_bytes)
+        return _build_draft_from_text(text, _customer_from_text(text), source="ocr")
+    return _parse_pdf_document(file_bytes)
 
 
 async def resolve_draft(draft: ParsedOrderDraft, tenant_id: str) -> ParsedOrderDraft:

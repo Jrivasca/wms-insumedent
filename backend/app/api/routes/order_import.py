@@ -14,8 +14,10 @@ from app.services.audit_service import log_action
 router = APIRouter(prefix="/orders/import", tags=["orders"])
 
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-# Some browsers send a PDF as application/octet-stream; we also accept by extension.
-PDF_CONTENT_TYPES = {"application/pdf", "application/octet-stream", "binary/octet-stream"}
+# Accept PDFs (digital or scanned) and images (phone photos). Some browsers send a
+# PDF as application/octet-stream, so we also accept by extension / magic bytes.
+ALLOWED_CONTENT_TYPES = {"application/pdf", "application/octet-stream", "binary/octet-stream"}
+ALLOWED_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic")
 
 
 @router.post("/parse", response_model=ParsedOrderDraft)
@@ -24,10 +26,15 @@ async def parse_order_pdf(
 ) -> ParsedOrderDraft:
     ctype = (file.content_type or "").lower()
     fname = (file.filename or "").lower()
-    if ctype not in PDF_CONTENT_TYPES and not fname.endswith(".pdf"):
+    allowed = (
+        ctype in ALLOWED_CONTENT_TYPES
+        or ctype.startswith("image/")
+        or fname.endswith(ALLOWED_EXTENSIONS)
+    )
+    if not allowed:
         raise HTTPException(
             status_code=415,
-            detail="Sube un archivo PDF. (La lectura de fotos/imágenes llega en la próxima etapa.)",
+            detail="Sube una cotización en PDF o una foto/escaneo (JPG/PNG).",
         )
 
     data = await file.read()
@@ -37,7 +44,7 @@ async def parse_order_pdf(
         raise HTTPException(status_code=413, detail="El archivo supera el tamaño máximo (10 MB).")
 
     try:
-        draft = pdf_order_parser.parse_pdf(data)
+        draft = pdf_order_parser.parse_document(data, file.content_type, file.filename)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

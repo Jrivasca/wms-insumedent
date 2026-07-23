@@ -186,13 +186,13 @@ export default function OrderImportPage() {
 
       {/* Upload */}
       <div className="card mb-4">
-        <label className="label">Archivo PDF de cotización</label>
+        <label className="label">Cotización (PDF o foto)</label>
         <div className="flex flex-wrap items-center gap-3">
           <label className="btn-primary cursor-pointer">
-            {parsing ? 'Leyendo…' : 'Seleccionar PDF'}
+            {parsing ? 'Leyendo…' : 'Seleccionar PDF o foto'}
             <input
               type="file"
-              accept="application/pdf,.pdf"
+              accept="application/pdf,.pdf,image/*"
               onChange={onFile}
               disabled={parsing}
               className="hidden"
@@ -201,8 +201,8 @@ export default function OrderImportPage() {
           {fileName && <span className="text-sm text-slate-500">{fileName}</span>}
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Formato esperado: cotización INSUMEDENT (PDF digital). La lectura de fotos/escaneos llega
-          en la próxima etapa.
+          Cotización INSUMEDENT en PDF (ideal) o una foto/escaneo (JPG/PNG). Las fotos se leen por
+          OCR: revisa bien el folio, el cliente y cada línea antes de crear.
         </p>
       </div>
 
