@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { createOrder, createPicking, getOrder, listOrders, updateOrder } from '../api/orders';
 import { listPickingTasks } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, ProductPicker } from '../components/Form';
 import StatusBadge from '../components/StatusBadge';
-import { ERP_CREATE_ENABLED } from '../config';
+import { ERP_CREATE_ENABLED, PDF_IMPORT_ENABLED } from '../config';
 import { can } from '../permissions';
 import { useAuth } from '../store/auth';
 import type { Order, PickingTask, Product } from '../types';
@@ -15,6 +15,7 @@ const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
 
 export default function OrdersPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { currentUser } = useAuth();
   const canEdit = can(currentUser?.role); // admin / supervisor
   const [orders, setOrders] = useState<Order[]>([]);
@@ -64,6 +65,13 @@ export default function OrdersPage() {
 
   useEffect(() => {
     load();
+    // Aviso de éxito traído desde el flujo de importación por PDF.
+    const st = location.state as { notice?: string } | null;
+    if (st?.notice) {
+      setNotice(st.notice);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function openDetail(id: string) {
@@ -172,11 +180,18 @@ export default function OrdersPage() {
         title="Pedidos"
         subtitle="Gestión de pedidos y generación de picking"
         actions={
-          ERP_CREATE_ENABLED ? (
-            <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
-              {showCreate ? 'Cerrar' : '+ Nuevo pedido'}
-            </button>
-          ) : undefined
+          <>
+            {PDF_IMPORT_ENABLED && (
+              <button onClick={() => navigate('/orders/import')} className="btn-primary">
+                Importar desde PDF
+              </button>
+            )}
+            {ERP_CREATE_ENABLED && (
+              <button onClick={() => setShowCreate((v) => !v)} className="btn-secondary">
+                {showCreate ? 'Cerrar' : '+ Nuevo pedido'}
+              </button>
+            )}
+          </>
         }
       />
 

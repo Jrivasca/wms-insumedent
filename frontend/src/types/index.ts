@@ -112,6 +112,41 @@ export interface Order {
   lines: OrderLine[];
 }
 
+// --- Importación de pedido desde PDF (cotización INSUMEDENT) ---
+
+export type MatchStatus = 'matched' | 'ambiguous' | 'unmatched' | 'invalid';
+
+export interface LineCandidate {
+  product_id: string;
+  sku: string;
+  name: string;
+}
+
+export interface ParsedOrderLine {
+  raw_text?: string | null;
+  item?: number | null;
+  sku?: string | null;
+  name?: string | null;
+  unit: string;
+  ordered_quantity?: number | null;
+  match_status: MatchStatus;
+  match_by?: string | null;
+  product_id?: string | null;
+  candidates: LineCandidate[];
+  comments: string[];
+  warnings: string[];
+}
+
+export interface ParsedOrderDraft {
+  erp_order_number?: string | null;
+  customer?: string | null;
+  customer_rut?: string | null;
+  order_date?: string | null;
+  source: string;
+  lines: ParsedOrderLine[];
+  document_warnings: string[];
+}
+
 export interface PickingLine {
   product_id: string;
   sku: string;

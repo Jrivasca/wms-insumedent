@@ -16,6 +16,7 @@ import ReceptionPage from './pages/ReceptionPage';
 import InventoryTransferPage from './pages/InventoryTransferPage';
 import InventoryAdjustmentPage from './pages/InventoryAdjustmentPage';
 import OrdersPage from './pages/OrdersPage';
+import OrderImportPage from './pages/OrderImportPage';
 import PickingPage from './pages/PickingPage';
 import PackingPage from './pages/PackingPage';
 import DispatchPage from './pages/DispatchPage';
@@ -157,6 +158,16 @@ export default function App() {
           <Shell>
             <Require roles={['sales']}>
               <OrdersPage />
+            </Require>
+          </Shell>
+        }
+      />
+      <Route
+        path="/orders/import"
+        element={
+          <Shell>
+            <Require roles={['sales']}>
+              <OrderImportPage />
             </Require>
           </Shell>
         }
