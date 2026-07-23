@@ -376,6 +376,42 @@ async def test_update_user_name_and_email():
         )
 
 
+async def test_edit_order_only_before_picking():
+    """El pedido se puede editar en 'imported'; una vez con picking, se bloquea."""
+    from app.core.database import get_database as _gdb
+    from app.models.order import OrderStatus
+    from app.schemas.order import OrderLineInput, OrderUpdate
+
+    # importar el handler de la ruta directamente
+    from app.api.routes.orders import update_order
+
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order = await _order_1001()
+    order_id = str(order["_id"])
+    sku0 = order["lines"][0]["sku"]
+
+    # Editar: cambiar cliente y dejar una sola línea con cantidad nueva.
+    upd = await update_order(
+        order_id,
+        OrderUpdate(customer="Cliente Editado", lines=[OrderLineInput(sku=sku0, ordered_quantity=9)]),
+        admin,
+    )
+    assert upd["customer"] == "Cliente Editado"
+    assert len(upd["lines"]) == 1
+    assert upd["lines"][0]["ordered_quantity"] == 9
+
+    # Generar picking -> el pedido deja de estar 'imported'.
+    await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    o2 = await order_service.get_order(tenant_id, order_id)
+    assert o2["status"] != OrderStatus.IMPORTED.value
+
+    # Ahora editar debe fallar.
+    with pytest.raises(Exception):
+        await update_order(order_id, OrderUpdate(customer="x"), admin)
+
+
 async def test_defontana_mock_sync_products():
     seed = await run_seed()
     tenant_id = seed["tenant_id"]

@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createOrder, createPicking, getOrder, listOrders } from '../api/orders';
+import { createOrder, createPicking, getOrder, listOrders, updateOrder } from '../api/orders';
 import { listPickingTasks } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, ProductPicker } from '../components/Form';
 import StatusBadge from '../components/StatusBadge';
 import { ERP_CREATE_ENABLED } from '../config';
+import { can } from '../permissions';
+import { useAuth } from '../store/auth';
 import type { Order, PickingTask, Product } from '../types';
 
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
 
 export default function OrdersPage() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const canEdit = can(currentUser?.role); // admin / supervisor
   const [orders, setOrders] = useState<Order[]>([]);
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,6 +34,12 @@ export default function OrdersPage() {
     { product: null, qty: '1' },
   ]);
   const [creating, setCreating] = useState(false);
+
+  // edit-order state (solo admin/supervisor, sólo pedidos en 'imported')
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
+  const [editCustomer, setEditCustomer] = useState('');
+  const [editLines, setEditLines] = useState<{ product: Product | null; qty: string }[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -81,6 +91,48 @@ export default function OrdersPage() {
 
   function setLine(i: number, patch: Partial<{ product: Product | null; qty: string }>) {
     setOrderLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+
+  function openEdit(o: Order) {
+    setEditOrder(o);
+    setEditCustomer(o.customer ?? '');
+    setEditLines(
+      o.lines.map((l) => ({
+        product: { id: l.product_id ?? '', sku: l.sku, name: l.name, barcodes: [] } as Product,
+        qty: String(l.ordered_quantity),
+      }))
+    );
+    setError(null);
+  }
+
+  function setEditLine(i: number, patch: Partial<{ product: Product | null; qty: string }>) {
+    setEditLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+
+  async function handleSaveEdit() {
+    if (!editOrder) return;
+    const lines = editLines
+      .filter((l) => l.product && Number(l.qty) > 0)
+      .map((l) => ({ sku: l.product!.sku, name: l.product!.name, ordered_quantity: Number(l.qty) }));
+    if (lines.length === 0) {
+      setError('El pedido debe tener al menos una línea con producto y cantidad.');
+      return;
+    }
+    setSavingEdit(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await updateOrder(editOrder.id, { customer: editCustomer.trim() || undefined, lines });
+      setNotice(`Pedido ${editOrder.erp_order_number} actualizado`);
+      const oid = editOrder.id;
+      setEditOrder(null);
+      await load();
+      openDetail(oid);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSavingEdit(false);
+    }
   }
 
   async function handleCreateOrder(e: React.FormEvent) {
@@ -260,7 +312,7 @@ export default function OrdersPage() {
                 </tbody>
               </table>
 
-              <div className="mt-4">
+              <div className="mt-4 flex flex-wrap gap-2">
                 {pickingByOrder[selected.id] ? (
                   <button
                     onClick={() => navigate(`/my/picking/${pickingByOrder[selected.id].id}`)}
@@ -277,6 +329,11 @@ export default function OrdersPage() {
                     {busy ? 'Generando…' : 'Generar picking'}
                   </button>
                 )}
+                {canEdit && selected.status === 'imported' && (
+                  <button onClick={() => openEdit(selected)} className="btn-secondary">
+                    Editar pedido
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -286,6 +343,62 @@ export default function OrdersPage() {
           )}
         </div>
       </div>
+
+      {editOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-4">
+            <h3 className="text-lg font-bold">Editar pedido {editOrder.erp_order_number}</h3>
+            <p className="mb-3 text-xs text-slate-500">
+              Solo se puede editar antes de generar el picking.
+            </p>
+            <Field label="Cliente" value={editCustomer} onChange={setEditCustomer} />
+            <div className="mt-3 space-y-2">
+              <label className="label">Líneas</label>
+              {editLines.map((l, i) => (
+                <div key={i} className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <ProductPicker value={l.product} onChange={(p) => setEditLine(i, { product: p })} />
+                  </div>
+                  <div className="w-24">
+                    <label className="label">Cantidad</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={l.qty}
+                      onChange={(e) => setEditLine(i, { qty: e.target.value })}
+                      className="input"
+                    />
+                  </div>
+                  {editLines.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setEditLines((ls) => ls.filter((_, idx) => idx !== i))}
+                      className="btn-danger mb-0.5"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setEditLines((ls) => [...ls, { product: null, qty: '1' }])}
+                className="text-sm font-medium text-brand underline"
+              >
+                + Agregar línea
+              </button>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button onClick={handleSaveEdit} className="btn-success flex-1" disabled={savingEdit}>
+                {savingEdit ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+              <button onClick={() => setEditOrder(null)} className="btn-secondary flex-1">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

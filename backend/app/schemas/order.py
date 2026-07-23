@@ -14,3 +14,8 @@ class OrderCreate(BaseModel):
     erp_order_number: str
     customer: Optional[str] = None
     lines: List[OrderLineInput]
+
+
+class OrderUpdate(BaseModel):
+    customer: Optional[str] = None
+    lines: Optional[List[OrderLineInput]] = None
