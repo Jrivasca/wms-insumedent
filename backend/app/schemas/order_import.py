@@ -48,6 +48,7 @@ class ParsedOrderDraft(BaseModel):
     customer: Optional[str] = None           # from "Señor (es)"
     customer_rut: Optional[str] = None
     order_date: Optional[str] = None         # raw string as printed (d-m-Y)
+    doc_type: Optional[str] = None           # "cotizacion" | "pedido" | ... (from the PDF header)
     source: str = "pdf_digital"              # pdf_digital | ocr
     lines: List[ParsedOrderLine] = []
     document_warnings: List[str] = []
@@ -70,4 +71,5 @@ class OrderImportConfirm(BaseModel):
     customer: Optional[str] = None
     customer_rut: Optional[str] = None
     order_date: Optional[str] = None
+    doc_type: Optional[str] = None
     lines: List[ConfirmLine]

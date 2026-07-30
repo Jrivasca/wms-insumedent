@@ -25,6 +25,7 @@ export async function confirmOrderImport(payload: {
   customer?: string;
   customer_rut?: string;
   order_date?: string;
+  doc_type?: string;
   lines: ConfirmLine[];
 }): Promise<Order> {
   const { data } = await http.post<Order>('/orders/import/confirm', payload);

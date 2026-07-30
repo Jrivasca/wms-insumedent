@@ -53,6 +53,10 @@ EMISOR_RUT = "76.712.267-5"
 _FOLIO_RE = re.compile(r"Folio[^\d\n]{0,8}(\d{3,6})", re.IGNORECASE)
 _RUT_RE = re.compile(r"\d{1,2}\.\d{3}\.\d{3}-[\dkK]")
 _DATE_RE = re.compile(r"\b(\d{1,2}-\d{1,2}-\d{4})\b")
+# Defontana prints the document type ("Cotización", "Pedido", ...) in the header box.
+_DOCTYPE_RE = re.compile(
+    r"(?i)\b(cotizaci[oó]n|pedido|nota de venta|factura|gu[ií]a de despacho|orden de compra)\b"
+)
 
 # The "$" is optional: OCR frequently drops it on the first money columns.
 _MONEY = r"\$?\s*[\d.,\-]+"
@@ -225,6 +229,8 @@ def _build_draft_from_text(full_text: str, customer: Optional[str], source: str)
     draft.customer_rut = next((r for r in _RUT_RE.findall(full_text) if r != EMISOR_RUT), None)
     dm = _DATE_RE.search(full_text)  # first date printed = "Fecha Documento"
     draft.order_date = dm.group(1) if dm else None
+    dt = _DOCTYPE_RE.search(full_text)  # "Cotización" / "Pedido" / ...
+    draft.doc_type = _norm(dt.group(1)).lower() if dt else None
     draft.lines = _parse_lines(full_text)
 
     if source == "ocr":

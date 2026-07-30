@@ -45,6 +45,7 @@ export default function OrderImportPage() {
   const [customer, setCustomer] = useState('');
   const [rut, setRut] = useState('');
   const [docDate, setDocDate] = useState('');
+  const [docType, setDocType] = useState<string | null>(null);
   const [lines, setLines] = useState<EditLine[] | null>(null);
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -61,6 +62,7 @@ export default function OrderImportPage() {
       setCustomer(draft.customer ?? '');
       setRut(draft.customer_rut ?? '');
       setDocDate(draft.order_date ?? '');
+      setDocType(draft.doc_type ?? null);
       setDocWarnings(draft.document_warnings ?? []);
       setLines(
         (draft.lines ?? []).map((l) => ({
@@ -156,6 +158,7 @@ export default function OrderImportPage() {
         customer: customer.trim() || undefined,
         customer_rut: rut.trim() || undefined,
         order_date: docDate.trim() || undefined,
+        doc_type: docType || undefined,
         lines: payloadLines,
       });
       navigate('/orders', {
@@ -174,7 +177,7 @@ export default function OrderImportPage() {
     <div>
       <PageHeader
         title="Importar pedido desde PDF"
-        subtitle="Sube una cotización INSUMEDENT, revisa las líneas detectadas y crea el pedido"
+        subtitle="Sube una cotización o pedido INSUMEDENT (PDF o foto), revisa las líneas y crea el pedido"
         actions={
           <button onClick={() => navigate('/orders')} className="btn-secondary">
             ← Pedidos
@@ -186,7 +189,7 @@ export default function OrderImportPage() {
 
       {/* Upload */}
       <div className="card mb-4">
-        <label className="label">Cotización (PDF o foto)</label>
+        <label className="label">Cotización o pedido (PDF o foto)</label>
         <div className="flex flex-wrap items-center gap-3">
           <label className="btn-primary cursor-pointer">
             {parsing ? 'Leyendo…' : 'Seleccionar PDF o foto'}
@@ -201,8 +204,8 @@ export default function OrderImportPage() {
           {fileName && <span className="text-sm text-slate-500">{fileName}</span>}
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Cotización INSUMEDENT en PDF (ideal) o una foto/escaneo (JPG/PNG). Las fotos se leen por
-          OCR: revisa bien el folio, el cliente y cada línea antes de crear.
+          Cotización o pedido INSUMEDENT en PDF (ideal) o una foto/escaneo (JPG/PNG). Las fotos se
+          leen por OCR: revisa bien el folio, el cliente y cada línea antes de crear.
         </p>
       </div>
 
@@ -218,6 +221,12 @@ export default function OrderImportPage() {
 
       {lines && (
         <>
+          {docType && (
+            <div className="mb-3 text-sm text-slate-600">
+              Documento detectado: <span className="font-medium capitalize">{docType}</span>
+              {folio && <span> · N° {folio}</span>}
+            </div>
+          )}
           {/* Header fields */}
           <div className="card mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
             <Field label="N° de pedido (folio) *" value={folio} onChange={setFolio} required />

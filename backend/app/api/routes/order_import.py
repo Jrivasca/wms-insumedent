@@ -62,7 +62,8 @@ async def confirm_order_import(
         lines=payload.lines,
         created_by=user.id,
         source_document={
-            "type": "cotizacion_pdf",
+            "type": "pdf_import",
+            "doc_type": payload.doc_type,  # cotizacion | pedido | ...
             "folio": payload.erp_order_number,
             "customer_rut": payload.customer_rut,
             "doc_date": payload.order_date,

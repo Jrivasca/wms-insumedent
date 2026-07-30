@@ -142,6 +142,7 @@ export interface ParsedOrderDraft {
   customer?: string | null;
   customer_rut?: string | null;
   order_date?: string | null;
+  doc_type?: string | null; // "cotizacion" | "pedido" | ...
   source: string;
   lines: ParsedOrderLine[];
   document_warnings: string[];

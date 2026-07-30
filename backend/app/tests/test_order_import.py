@@ -14,6 +14,7 @@ from app.services.pdf_order_parser import _ocr_available, parse_document, parse_
 pytestmark = pytest.mark.asyncio
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cotizacion_7889.pdf"
+PEDIDO_FIXTURE = Path(__file__).parent / "fixtures" / "pedido_2856.pdf"
 
 
 def _pdf_bytes() -> bytes:
@@ -24,6 +25,7 @@ async def test_parse_fixture_header_and_lines():
     draft = parse_pdf(_pdf_bytes())
 
     assert draft.source == "pdf_digital"
+    assert draft.doc_type == "cotizacion"
     assert draft.erp_order_number == "7889"
     assert "villarrica" in (draft.customer or "").lower()
     assert draft.customer_rut == "61.602.248-2"
@@ -41,6 +43,25 @@ async def test_parse_fixture_header_and_lines():
     eighth = draft.lines[7]
     assert eighth.sku == "3MDS4930C"
     assert eighth.comments == ["medida a eleccion"]
+
+
+async def test_parse_pedido_format():
+    # A "Pedido" uses the same Defontana template as a "Cotización"; only the
+    # document-type word (and a couple of header labels) differ.
+    draft = parse_pdf(PEDIDO_FIXTURE.read_bytes())
+
+    assert draft.source == "pdf_digital"
+    assert draft.doc_type == "pedido"
+    assert draft.erp_order_number == "2856"
+    assert "gendarmeria" in (draft.customer or "").lower()
+    assert draft.customer_rut == "61.004.000-4"
+    assert draft.order_date == "10-7-2026"
+    assert draft.document_warnings == []
+
+    assert len(draft.lines) == 1
+    assert draft.lines[0].sku == "ANES008"
+    assert draft.lines[0].ordered_quantity == 40
+    assert draft.lines[0].unit == "UN"
 
 
 async def test_parse_then_resolve_against_catalog():
