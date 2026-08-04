@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Inventory
     allow_negative_stock: bool = False
 
+    # Consulta pública de bultos por QR: días de validez del enlace (token) del bulto.
+    public_bulto_ttl_days: int = 90
+
     # CORS — orígenes separados por coma (p. ej. "https://a.cl,https://b.cl").
     # NoDecode evita que pydantic-settings intente JSON-decodificar el valor del
     # env antes de correr el validador de abajo; sin esto, un valor como "*" o un

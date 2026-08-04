@@ -1,8 +1,11 @@
+import secrets
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
+from app.core.config import settings
 from app.core.database import get_database
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
@@ -11,6 +14,31 @@ from app.models.order import OrderStatus
 from app.models.packing import PackingLineStatus, PackingTaskStatus
 from app.services import inventory_service
 from app.services.order_service import _expected_barcodes
+
+
+def _new_public_token() -> str:
+    """Unguessable capability token for a bulto's public QR page (128 bits)."""
+    return secrets.token_urlsafe(16)
+
+
+def _public_expiry():
+    return now_utc() + timedelta(days=settings.public_bulto_ttl_days)
+
+
+async def _ensure_public_tokens(task: Dict[str, Any]) -> None:
+    """Backfill a public token + expiry on any package that lacks one (idempotent)."""
+    packages = task.get("packages", [])
+    changed = False
+    for pkg in packages:
+        if not pkg.get("public_token"):
+            pkg["public_token"] = _new_public_token()
+            pkg["public_expires_at"] = _public_expiry()
+            changed = True
+    if changed:
+        db = get_database()
+        await db[Collections.PACKING_TASKS].update_one(
+            {"_id": task["_id"]}, {"$set": {"packages": packages}}
+        )
 
 
 async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
@@ -114,7 +142,9 @@ async def list_tasks(
 
 
 async def get_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
-    return serialize(await _load_task(tenant_id, task_id))
+    task = await _load_task(tenant_id, task_id)
+    await _ensure_public_tokens(task)  # backfill QR tokens for bultos created before this feature
+    return serialize(task)
 
 
 async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
@@ -248,6 +278,8 @@ async def create_package(
         "package_id": f"PKG-{package_number}",
         "label": label or f"Bulto {package_number}",
         "items": [],
+        "public_token": _new_public_token(),
+        "public_expires_at": _public_expiry(),
         "created_at": now_utc(),
     }
     await db[Collections.PACKING_TASKS].update_one(

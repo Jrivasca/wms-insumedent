@@ -4,6 +4,7 @@ import { getPackingTask } from '../api/packing';
 import { getOrder } from '../api/orders';
 import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
+import QrCode from '../components/QrCode';
 import type { Order, PackingTask } from '../types';
 
 export default function PackingLabelsPage() {
@@ -126,6 +127,16 @@ export default function PackingLabelsPage() {
                   <div className="mt-2 text-right text-sm font-semibold">
                     Total: {totalUnits} unidades · {rows.length} ítems
                   </div>
+
+                  {pkg.public_token && (
+                    <div className="mt-3 flex items-center gap-3 border-t border-slate-300 pt-3">
+                      <QrCode value={`${window.location.origin}/b/${pkg.public_token}`} size={96} />
+                      <div className="text-xs text-slate-600">
+                        <div className="font-semibold">Escanea para ver el detalle</div>
+                        <div className="text-slate-400">Contenido de este bulto (consulta segura)</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

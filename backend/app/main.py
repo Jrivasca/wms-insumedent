@@ -17,6 +17,7 @@ from app.api.routes import (
     packing,
     picking,
     products,
+    public,
     seed,
     sync_jobs,
     users,
@@ -79,5 +80,6 @@ for module in (
     defontana,
     sync_jobs,
     seed,
+    public,
 ):
     app.include_router(module.router, prefix=API_PREFIX)

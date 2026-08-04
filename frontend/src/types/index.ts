@@ -180,6 +180,33 @@ export interface PackageBulto {
   package_id: string;
   label?: string;
   items: PackageItem[];
+  public_token?: string;
+  public_expires_at?: string;
+}
+
+// Vista pública del bulto (página del QR).
+export interface PublicBultoItem {
+  sku: string;
+  name?: string | null;
+  quantity: number;
+}
+
+export interface PublicBultoView {
+  order_number?: string | null;
+  customer?: string | null;
+  package_label?: string | null;
+  package_number: number;
+  package_count: number;
+  items: PublicBultoItem[];
+  total_units: number;
+  item_count: number;
+  packed_at?: string | null;
+  dispatch: {
+    dispatched: boolean;
+    carrier?: string | null;
+    tracking_number?: string | null;
+    dispatch_date?: string | null;
+  };
 }
 
 export interface PackingLine {
