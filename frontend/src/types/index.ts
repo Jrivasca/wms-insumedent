@@ -259,6 +259,7 @@ export interface DefontanaStatus {
 
 export interface ScanResult {
   status: 'ok' | 'rejected' | string;
+  feedback?: 'complete' | 'partial' | 'warning' | 'error' | string;
   message?: string;
   line?: PickingLine | PackingLine | unknown;
   task?: PickingTask | PackingTask | unknown;

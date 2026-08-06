@@ -111,8 +111,10 @@ export default function BarcodeScanner({
       try {
         const reader = new BrowserMultiFormatReader();
         readerRef.current = reader;
-        const controls = await reader.decodeFromVideoDevice(
-          undefined, // let the lib pick (prefers environment/back camera)
+        // Force the back (environment) camera on phones/tablets: the default device is
+        // often the front camera, which can't focus on a barcode — the usual "no escanea".
+        const controls = await reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: 'environment' } } },
           videoRef.current ?? undefined,
           (result) => {
             if (result) {

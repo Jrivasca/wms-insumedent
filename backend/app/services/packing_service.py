@@ -221,20 +221,34 @@ async def scan(
 
     line = task["lines"][target_index]
     required = line.get("quantity_required", 0)
-    new_qty = line.get("quantity_packed", 0) + quantity
-    line["quantity_packed"] = new_qty
+    already = line.get("quantity_packed", 0)
 
-    if new_qty > required:
-        line["status"] = PackingLineStatus.PARTIAL.value
-        feedback, message = "warning", "Cantidad supera lo pickeado (diferencia)"
-    elif new_qty == required:
+    # Block over-packing: never pack more than was picked for the line. The scan is
+    # rejected (nothing is applied) so the operator is warned and cannot continue.
+    if already + quantity > required:
+        remaining = max(required - already, 0)
+        if remaining <= 0:
+            message = f"Este producto ya está completo ({already}/{required}). No escanees de más."
+        else:
+            message = f"Excede lo pickeado: sólo faltan {remaining} de {required}."
+        return {
+            "status": "rejected",
+            "feedback": "warning",
+            "message": message,
+            "line": None,
+            "task": serialize(task),
+        }
+
+    new_qty = already + quantity
+    line["quantity_packed"] = new_qty
+    if new_qty >= required:
         line["status"] = PackingLineStatus.PACKED.value
         feedback, message = "complete", "Línea completa"
     else:
         line["status"] = PackingLineStatus.PARTIAL.value
         feedback, message = "partial", f"{new_qty}/{required} unidades"
 
-    # Optionally register the unit into a package.
+    # Register the unit into a package (only for accepted scans).
     if package_id:
         for pkg in task.get("packages", []):
             if pkg.get("package_id") == package_id:

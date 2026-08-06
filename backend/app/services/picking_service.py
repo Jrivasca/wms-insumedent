@@ -136,11 +136,29 @@ async def scan(
     line = task["lines"][target_index]
     required = line.get("quantity_required", 0)
     already = line.get("quantity_picked", 0)
-    new_qty = already + quantity
-    over = new_qty > required
-    applied_qty = min(new_qty, required)
 
-    line["quantity_picked"] = applied_qty
+    # Block over-picking: never accept more than the order line requires. The scan is
+    # rejected (nothing is applied) so the operator is warned and cannot continue.
+    if already + quantity > required:
+        remaining = max(required - already, 0)
+        if remaining <= 0:
+            message = f"Este producto ya está completo ({already}/{required}). No escanees de más."
+        else:
+            name = line.get("name") or line.get("sku")
+            message = (
+                f"Excede lo pedido: para «{name}» sólo faltan {remaining} de {required}. "
+                f"Baja la «cantidad por escaneo»."
+            )
+        return {
+            "status": "rejected",
+            "feedback": "warning",
+            "message": message,
+            "line": line,
+            "task": serialize(task),
+        }
+
+    new_qty = already + quantity
+    line["quantity_picked"] = new_qty
     line.setdefault("scans", []).append(
         {
             "barcode": code,
@@ -151,17 +169,14 @@ async def scan(
             "scanned_at": now,
         }
     )
-    if applied_qty >= required:
+    if new_qty >= required:
         line["status"] = PickingLineStatus.PICKED.value
         feedback = "complete"
         message = "Línea completa"
     else:
         line["status"] = PickingLineStatus.PARTIAL.value
         feedback = "partial"
-        message = f"{applied_qty}/{required} unidades"
-    if over:
-        feedback = "warning"
-        message = "Cantidad solicitada alcanzada (escaneo excedente ignorado)"
+        message = f"{new_qty}/{required} unidades"
 
     task["lines"][target_index] = line
     await db[Collections.PICKING_TASKS].update_one(

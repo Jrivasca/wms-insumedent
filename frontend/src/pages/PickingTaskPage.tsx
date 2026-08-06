@@ -22,7 +22,13 @@ export default function PickingTaskPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageTone, setMessageTone] = useState<'info' | 'success' | 'warning' | 'error'>('info');
   const [feedback, setFeedback] = useState<ScanFeedback>('idle');
+
+  function showMessage(text: string, tone: 'info' | 'success' | 'warning' | 'error' = 'info') {
+    setMessage(text);
+    setMessageTone(tone);
+  }
   const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
 
@@ -89,33 +95,31 @@ export default function PickingTaskPage() {
         quantity: quantity || 1,
         location_id: currentLine?.suggested_location_id,
       });
-      if (res.status === 'ok') {
-        // Could still be a quantity-complete warning; check the refreshed task.
-        setFeedback('success');
-        setMessage(res.message ?? 'Código correcto');
-      } else {
-        setFeedback('error');
-        setMessage(res.message ?? 'Código incorrecto para la línea actual');
-      }
-      // Refresh task to get authoritative quantities.
-      const refreshed = res.task && typeof res.task === 'object'
-        ? (res.task as PickingTask)
-        : await getPickingTask(id);
-      setTask(refreshed);
 
-      // Yellow if a line just reached its required quantity.
+      // Over-scan and wrong-code are both rejected by the backend; distinguish by feedback.
+      let tone: 'success' | 'warning' | 'error';
       if (res.status === 'ok') {
-        const justDone = refreshed.lines.some(
-          (l) => l.quantity_picked >= l.quantity_required
-        );
-        if (justDone) setFeedback('warning');
+        tone = 'success';
+      } else if (res.feedback === 'warning') {
+        tone = 'warning'; // over-scan: line already complete / exceeds the order
+      } else {
+        tone = 'error'; // code not part of this order
       }
+      setFeedback(tone);
+      showMessage(res.message ?? (res.status === 'ok' ? 'Código correcto' : 'Escaneo no válido'), tone);
+
+      // Refresh task to get authoritative quantities.
+      const refreshed =
+        res.task && typeof res.task === 'object'
+          ? (res.task as PickingTask)
+          : await getPickingTask(id);
+      setTask(refreshed);
     } catch (err) {
       setFeedback('error');
       setError(errorMessage(err));
     } finally {
-      // reset feedback after a moment
-      setTimeout(() => setFeedback('idle'), 1500);
+      // reset the banner after a moment (the message box keeps its colour)
+      setTimeout(() => setFeedback('idle'), 2200);
     }
   }
 
@@ -143,7 +147,7 @@ export default function PickingTaskPage() {
           : await getPickingTask(id);
       setTask(refreshed);
       setFeedback('success');
-      setMessage('Línea confirmada');
+      showMessage('Línea confirmada', 'success');
       setTimeout(() => setFeedback('idle'), 1200);
     } catch (err) {
       setError(errorMessage(err));
@@ -160,7 +164,7 @@ export default function PickingTaskPage() {
     try {
       const t = await resetPickingLine(id, { sku });
       setTask(t);
-      setMessage(`Línea ${sku} reiniciada — vuelva a escanearla`);
+      showMessage(`Línea ${sku} reiniciada — vuelva a escanearla`, 'info');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -177,7 +181,7 @@ export default function PickingTaskPage() {
       setTask(t);
       setMissingFor(null);
       setMissingReason('');
-      setMessage(`Marcado como faltante: ${missingFor.sku}`);
+      showMessage(`Marcado como faltante: ${missingFor.sku}`, 'warning');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -192,7 +196,7 @@ export default function PickingTaskPage() {
     try {
       const t = await completePicking(id, allowPartial);
       setTask(t);
-      setMessage('Picking completado. Continúe en Packing.');
+      showMessage('Picking completado. Continúe en Packing.', 'success');
       setTimeout(() => navigate('/my/packing'), 900);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
@@ -242,7 +246,19 @@ export default function PickingTaskPage() {
       )}
 
       {message && (
-        <div className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>
+        <div
+          className={`mb-3 rounded-md px-3 py-2 text-sm font-medium ${
+            messageTone === 'error'
+              ? 'bg-red-100 text-red-800'
+              : messageTone === 'warning'
+              ? 'bg-amber-100 text-amber-900'
+              : messageTone === 'success'
+              ? 'bg-emerald-50 text-emerald-700'
+              : 'bg-blue-50 text-blue-700'
+          }`}
+        >
+          {message}
+        </div>
       )}
       {error && <ErrorBox message={error} />}
 

@@ -169,6 +169,33 @@ async def test_double_dispatch_blocked():
         await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
 
 
+async def test_picking_over_scan_blocked():
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order = await _order_1001()
+    order_id = str(order["_id"])
+    line0 = order["lines"][0]
+    bc1 = await _barcode_for(tenant_id, line0["product_id"])
+    qty1 = line0["ordered_quantity"]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    tid = task["id"]
+
+    ok = await picking_service.scan(tenant_id, tid, admin, bc1, qty1, None)
+    assert ok["status"] == "ok"
+
+    # One more scan of the same (already complete) product must be blocked.
+    over = await picking_service.scan(tenant_id, tid, admin, bc1, 1, None)
+    assert over["status"] == "rejected"
+    assert over["feedback"] == "warning"
+
+    # Nothing was applied: the picked quantity stays at the required amount.
+    t = await picking_service.get_task(tenant_id, tid)
+    line = next(l for l in t["lines"] if l["sku"] == line0["sku"])
+    assert line["quantity_picked"] == qty1
+
+
 async def test_picking_reset_line():
     seed = await run_seed()
     tenant_id = seed["tenant_id"]
