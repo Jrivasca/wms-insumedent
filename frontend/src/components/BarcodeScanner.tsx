@@ -1,7 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 
 export type ScanFeedback = 'idle' | 'success' | 'error' | 'warning';
+
+// Decode hints: try harder and restrict to the formats we actually use. This makes
+// real-world reads (angled/low-contrast CODE128 & EAN-13 labels) far more reliable.
+const SCAN_HINTS = new Map<DecodeHintType, unknown>();
+SCAN_HINTS.set(DecodeHintType.TRY_HARDER, true);
+SCAN_HINTS.set(DecodeHintType.POSSIBLE_FORMATS, [
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.ITF,
+  BarcodeFormat.QR_CODE,
+]);
 
 interface Props {
   onScan: (code: string) => void;
@@ -109,12 +124,19 @@ export default function BarcodeScanner({
     async function start() {
       setCameraError(null);
       try {
-        const reader = new BrowserMultiFormatReader();
+        const reader = new BrowserMultiFormatReader(SCAN_HINTS);
         readerRef.current = reader;
-        // Force the back (environment) camera on phones/tablets: the default device is
-        // often the front camera, which can't focus on a barcode — the usual "no escanea".
+        // Force the back (environment) camera and request a higher resolution so small
+        // or angled barcodes are legible. facingMode fixes the usual "no escanea" (the
+        // default device is often the front camera, which can't focus on a barcode).
         const controls = await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' } } },
+          {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
           videoRef.current ?? undefined,
           (result) => {
             if (result) {
