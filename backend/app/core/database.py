@@ -70,4 +70,19 @@ async def ensure_indexes() -> None:
     await db.erp_tokens.create_index([("tenant_id", 1), ("erp", 1)], unique=True)
     await db.erp_connections.create_index([("tenant_id", 1), ("erp", 1)], unique=True)
 
+    # Operational collections for the picking -> packing -> dispatch flow. These are
+    # listed/looked up by tenant + order (and by assignee for the operator queues), so
+    # keep tenant_id first like the rest of the compound indexes above.
+    await db.picking_tasks.create_index([("tenant_id", 1), ("order_id", 1)])
+    await db.picking_tasks.create_index([("tenant_id", 1), ("assigned_to", 1)])
+    await db.packing_tasks.create_index([("tenant_id", 1), ("order_id", 1)])
+    await db.packing_tasks.create_index([("tenant_id", 1), ("assigned_to", 1)])
+    await db.packing_tasks.create_index([("tenant_id", 1), ("picking_task_id", 1)])
+    await db.dispatches.create_index([("tenant_id", 1), ("order_id", 1)])
+
+    # The public QR page resolves a bulto by its capability token WITHOUT a tenant
+    # (unauthenticated endpoint in routes/public.py: find_one({"packages.public_token": token})).
+    # This is intentionally NOT tenant-scoped and is a multikey index over the packages array.
+    await db.packing_tasks.create_index([("packages.public_token", 1)])
+
     logger.info("MongoDB indexes ensured")

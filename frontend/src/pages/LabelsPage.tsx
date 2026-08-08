@@ -12,7 +12,9 @@ export default function LabelsPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  // Selection persists across searches: keep the full product objects by id, so a
+  // product chosen in one search stays selected while you look for others.
+  const [selectedMap, setSelectedMap] = useState<Record<string, Product>>({});
   const [copies, setCopies] = useState(1);
   const [mode, setMode] = useState<Mode>('sheet');
 
@@ -20,7 +22,7 @@ export default function LabelsPage() {
     setLoading(true);
     setError(null);
     try {
-      setProducts(await listProducts(term?.trim() || undefined));
+      setProducts((await listProducts(term?.trim() || undefined)).items);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -33,14 +35,16 @@ export default function LabelsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggle(id: string) {
-    setSelected((s) => ({ ...s, [id]: !s[id] }));
+  function toggle(p: Product) {
+    setSelectedMap((m) => {
+      const next = { ...m };
+      if (next[p.id]) delete next[p.id];
+      else next[p.id] = p;
+      return next;
+    });
   }
 
-  const selectedProducts = useMemo(
-    () => products.filter((p) => selected[p.id]),
-    [products, selected]
-  );
+  const selectedProducts = useMemo(() => Object.values(selectedMap), [selectedMap]);
 
   const labels = useMemo(() => {
     const out: { key: string; sku: string; name: string; barcode: string }[] = [];
@@ -78,6 +82,33 @@ export default function LabelsPage() {
             Buscar
           </button>
         </form>
+
+        {/* Selected products (persist across searches) */}
+        {selectedProducts.length > 0 && (
+          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-600">
+                Seleccionados ({selectedProducts.length})
+              </span>
+              <button onClick={() => setSelectedMap({})} className="text-xs font-medium text-brand underline">
+                Quitar todos
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {selectedProducts.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => toggle(p)}
+                  className="badge flex items-center gap-1 bg-blue-100 text-blue-800"
+                  title="Quitar de la selección"
+                >
+                  {p.sku}
+                  <span className="text-blue-500">✕</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Print controls */}
         <div className="card mb-4 flex flex-wrap items-end gap-4">
@@ -133,11 +164,11 @@ export default function LabelsPage() {
                 {products.map((p) => (
                   <tr
                     key={p.id}
-                    onClick={() => toggle(p.id)}
-                    className={`cursor-pointer ${selected[p.id] ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                    onClick={() => toggle(p)}
+                    className={`cursor-pointer ${selectedMap[p.id] ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
                   >
                     <td>
-                      <input type="checkbox" checked={!!selected[p.id]} readOnly />
+                      <input type="checkbox" checked={!!selectedMap[p.id]} readOnly />
                     </td>
                     <td className="font-mono text-xs">{p.sku}</td>
                     <td>{p.name}</td>

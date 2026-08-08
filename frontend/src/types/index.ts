@@ -1,5 +1,13 @@
 export type Role = 'admin' | 'supervisor' | 'picker' | 'packer' | 'operario' | string;
 
+/** Paginated list envelope returned by every `list*` endpoint. */
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -48,6 +56,31 @@ export interface Location {
   rack?: string;
   level?: string;
   bin?: string;
+  is_active?: boolean;
+}
+
+export interface DashboardStats {
+  orders: {
+    total: number;
+    por_procesar: number;
+    en_proceso: number;
+    listos_despacho: number;
+    despachados: number;
+    despachados_hoy: number;
+    error_cancelados: number;
+    por_estado: Record<string, number>;
+  };
+  inventory: {
+    productos: number;
+    sin_stock: number;
+    con_stock: number;
+    ubicaciones: number;
+  };
+  operations: {
+    picking_abiertas: number;
+    packing_abiertas: number;
+    sync_pendientes: number;
+  };
 }
 
 export interface InventoryBalance {
@@ -180,6 +213,33 @@ export interface PackageBulto {
   package_id: string;
   label?: string;
   items: PackageItem[];
+  public_token?: string;
+  public_expires_at?: string;
+}
+
+// Vista pública del bulto (página del QR).
+export interface PublicBultoItem {
+  sku: string;
+  name?: string | null;
+  quantity: number;
+}
+
+export interface PublicBultoView {
+  order_number?: string | null;
+  customer?: string | null;
+  package_label?: string | null;
+  package_number: number;
+  package_count: number;
+  items: PublicBultoItem[];
+  total_units: number;
+  item_count: number;
+  packed_at?: string | null;
+  dispatch: {
+    dispatched: boolean;
+    carrier?: string | null;
+    tracking_number?: string | null;
+    dispatch_date?: string | null;
+  };
 }
 
 export interface PackingLine {
@@ -232,6 +292,7 @@ export interface DefontanaStatus {
 
 export interface ScanResult {
   status: 'ok' | 'rejected' | string;
+  feedback?: 'complete' | 'partial' | 'warning' | 'error' | string;
   message?: string;
   line?: PickingLine | PackingLine | unknown;
   task?: PickingTask | PackingTask | unknown;

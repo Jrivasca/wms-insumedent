@@ -19,9 +19,13 @@ router = APIRouter(prefix="/picking", tags=["picking"])
 async def list_tasks(
     assigned_to: Optional[str] = None,
     status: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
     user: CurrentUser = Depends(get_current_user),
 ):
-    return await picking_service.list_tasks(user.tenant_id, user, assigned_to, status)
+    return await picking_service.list_tasks(
+        user.tenant_id, user, assigned_to, status, limit, offset
+    )
 
 
 @router.get("/tasks/{task_id}")

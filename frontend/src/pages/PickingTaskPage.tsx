@@ -22,9 +22,17 @@ export default function PickingTaskPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageTone, setMessageTone] = useState<'info' | 'success' | 'warning' | 'error'>('info');
   const [feedback, setFeedback] = useState<ScanFeedback>('idle');
+
+  function showMessage(text: string, tone: 'info' | 'success' | 'warning' | 'error' = 'info') {
+    setMessage(text);
+    setMessageTone(tone);
+  }
   const [quantity, setQuantity] = useState(1);
   const [busy, setBusy] = useState(false);
+  // The operator can tap a line to pick it; otherwise we auto-focus the first pending one.
+  const [selectedSku, setSelectedSku] = useState<string | null>(null);
 
   // missing modal
   const [missingFor, setMissingFor] = useState<PickingLine | null>(null);
@@ -48,14 +56,18 @@ export default function PickingTaskPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // First pending line is the "current" focus line.
+  // The line the operator is picking: the one they tapped (if still pending), else
+  // the first pending line.
   const currentLine = useMemo<PickingLine | null>(() => {
     if (!task) return null;
-    return (
-      task.lines.find((l) => l.quantity_picked < l.quantity_required && l.status !== 'missing') ??
-      null
-    );
-  }, [task]);
+    const pending = (l: PickingLine) =>
+      l.quantity_picked < l.quantity_required && l.status !== 'missing';
+    if (selectedSku) {
+      const sel = task.lines.find((l) => l.sku === selectedSku);
+      if (sel && pending(sel)) return sel;
+    }
+    return task.lines.find(pending) ?? null;
+  }, [task, selectedSku]);
 
   const progress = useMemo(() => {
     if (!task) return { picked: 0, total: 0, lines: 0, done: 0 };
@@ -89,42 +101,42 @@ export default function PickingTaskPage() {
         quantity: quantity || 1,
         location_id: currentLine?.suggested_location_id,
       });
-      if (res.status === 'ok') {
-        // Could still be a quantity-complete warning; check the refreshed task.
-        setFeedback('success');
-        setMessage(res.message ?? 'Código correcto');
-      } else {
-        setFeedback('error');
-        setMessage(res.message ?? 'Código incorrecto para la línea actual');
-      }
-      // Refresh task to get authoritative quantities.
-      const refreshed = res.task && typeof res.task === 'object'
-        ? (res.task as PickingTask)
-        : await getPickingTask(id);
-      setTask(refreshed);
 
-      // Yellow if a line just reached its required quantity.
+      // Over-scan and wrong-code are both rejected by the backend; distinguish by feedback.
+      let tone: 'success' | 'warning' | 'error';
       if (res.status === 'ok') {
-        const justDone = refreshed.lines.some(
-          (l) => l.quantity_picked >= l.quantity_required
-        );
-        if (justDone) setFeedback('warning');
+        tone = 'success';
+      } else if (res.feedback === 'warning') {
+        tone = 'warning'; // over-scan: line already complete / exceeds the order
+      } else {
+        tone = 'error'; // code not part of this order
       }
+      setFeedback(tone);
+      showMessage(res.message ?? (res.status === 'ok' ? 'Código correcto' : 'Escaneo no válido'), tone);
+
+      // Refresh task to get authoritative quantities.
+      const refreshed =
+        res.task && typeof res.task === 'object'
+          ? (res.task as PickingTask)
+          : await getPickingTask(id);
+      setTask(refreshed);
     } catch (err) {
       setFeedback('error');
       setError(errorMessage(err));
     } finally {
-      // reset feedback after a moment
-      setTimeout(() => setFeedback('idle'), 1500);
+      // reset the banner after a moment (the message box keeps its colour)
+      setTimeout(() => setFeedback('idle'), 2200);
     }
   }
 
-  // Demo helper: pick the current line in full without a physical scanner.
+  // Manually pick the focused line without a scanner. Respects the "cantidad por
+  // escaneo" field (capped at what's left), so you can pick a chosen amount.
   async function pickWithoutScanner() {
     if (!currentLine) return;
     const bc = currentLine.barcode_expected?.[0];
     const remaining = currentLine.quantity_required - currentLine.quantity_picked;
     if (!bc || remaining <= 0) return;
+    const qty = Math.min(quantity || 1, remaining);
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -134,7 +146,7 @@ export default function PickingTaskPage() {
       }
       const res = await scanPicking(id, {
         barcode: bc,
-        quantity: remaining,
+        quantity: qty,
         location_id: currentLine.suggested_location_id,
       });
       const refreshed =
@@ -143,7 +155,7 @@ export default function PickingTaskPage() {
           : await getPickingTask(id);
       setTask(refreshed);
       setFeedback('success');
-      setMessage('Línea confirmada');
+      showMessage('Línea confirmada', 'success');
       setTimeout(() => setFeedback('idle'), 1200);
     } catch (err) {
       setError(errorMessage(err));
@@ -160,7 +172,7 @@ export default function PickingTaskPage() {
     try {
       const t = await resetPickingLine(id, { sku });
       setTask(t);
-      setMessage(`Línea ${sku} reiniciada — vuelva a escanearla`);
+      showMessage(`Línea ${sku} reiniciada — vuelva a escanearla`, 'info');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -177,7 +189,7 @@ export default function PickingTaskPage() {
       setTask(t);
       setMissingFor(null);
       setMissingReason('');
-      setMessage(`Marcado como faltante: ${missingFor.sku}`);
+      showMessage(`Marcado como faltante: ${missingFor.sku}`, 'warning');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -192,7 +204,7 @@ export default function PickingTaskPage() {
     try {
       const t = await completePicking(id, allowPartial);
       setTask(t);
-      setMessage('Picking completado. Continúe en Packing.');
+      showMessage('Picking completado. Continúe en Packing.', 'success');
       setTimeout(() => navigate('/my/packing'), 900);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
@@ -242,7 +254,19 @@ export default function PickingTaskPage() {
       )}
 
       {message && (
-        <div className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>
+        <div
+          className={`mb-3 rounded-md px-3 py-2 text-sm font-medium ${
+            messageTone === 'error'
+              ? 'bg-red-100 text-red-800'
+              : messageTone === 'warning'
+              ? 'bg-amber-100 text-amber-900'
+              : messageTone === 'success'
+              ? 'bg-emerald-50 text-emerald-700'
+              : 'bg-blue-50 text-blue-700'
+          }`}
+        >
+          {message}
+        </div>
       )}
       {error && <ErrorBox message={error} />}
 
@@ -263,12 +287,16 @@ export default function PickingTaskPage() {
                 : ''}
             </span>
           </div>
+          <div className="mt-1 text-sm font-medium text-amber-700">
+            Faltan {Math.max(currentLine.quantity_required - currentLine.quantity_picked, 0)}
+          </div>
           <button
             onClick={pickWithoutScanner}
             className="btn mt-3 w-full bg-brand text-white"
             disabled={busy}
           >
-            Confirmar línea sin escáner (demo)
+            Confirmar sin escáner (+
+            {Math.min(quantity, currentLine.quantity_required - currentLine.quantity_picked)})
           </button>
         </div>
       ) : (
@@ -319,24 +347,37 @@ export default function PickingTaskPage() {
 
       {/* All lines */}
       <div className="card mb-4">
-        <h2 className="mb-2 font-semibold">Líneas</h2>
+        <h2 className="mb-1 font-semibold">Líneas</h2>
+        {!notStarted && hasPending && (
+          <p className="mb-2 text-xs text-slate-400">Toca una línea para pickearla.</p>
+        )}
         <div className="space-y-2">
           {task.lines.map((l) => {
             const complete = l.quantity_picked >= l.quantity_required;
             const missing = l.status === 'missing';
+            const isCurrent = !complete && !missing && currentLine?.sku === l.sku;
+            const selectable = !complete && !missing && !notStarted;
             return (
               <div
                 key={l.sku}
+                onClick={selectable ? () => setSelectedSku(l.sku) : undefined}
                 className={`flex items-center justify-between rounded-md border px-3 py-2 ${
                   missing
                     ? 'border-red-300 bg-red-50'
                     : complete
                     ? 'border-emerald-300 bg-emerald-50'
+                    : isCurrent
+                    ? 'border-brand ring-1 ring-brand'
                     : 'border-slate-200'
-                }`}
+                } ${selectable ? 'cursor-pointer' : ''}`}
               >
                 <div>
-                  <div className="font-medium">{l.name}</div>
+                  <div className="font-medium">
+                    {l.name}
+                    {isCurrent && (
+                      <span className="badge ml-2 bg-blue-100 text-blue-800">pickeando</span>
+                    )}
+                  </div>
                   <div className="font-mono text-xs text-slate-500">{l.sku}</div>
                 </div>
                 <div className="text-right">
@@ -346,7 +387,10 @@ export default function PickingTaskPage() {
                   {missing && <div className="text-xs text-red-600">faltante</div>}
                   {(l.quantity_picked > 0 || missing) && !notStarted && (
                     <button
-                      onClick={() => resetLine(l.sku)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        resetLine(l.sku);
+                      }}
                       className="mt-1 text-xs font-medium text-brand underline disabled:opacity-50"
                       disabled={busy}
                     >

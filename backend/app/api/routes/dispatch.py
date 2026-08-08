@@ -31,8 +31,12 @@ async def dispatch_order(
 
 
 @router.get("/dispatches")
-async def list_dispatches(user: CurrentUser = Depends(get_current_user)):
-    return await dispatch_service.list_dispatches(user.tenant_id)
+async def list_dispatches(
+    limit: int = 500,
+    offset: int = 0,
+    user: CurrentUser = Depends(get_current_user),
+):
+    return await dispatch_service.list_dispatches(user.tenant_id, limit, offset)
 
 
 @router.get("/dispatches/{dispatch_id}")

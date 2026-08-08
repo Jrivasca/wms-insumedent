@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { dispatchOrder, listDispatches } from '../api/dispatch';
 import { listOrders } from '../api/orders';
+import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
+import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
 import type { Dispatch, Order } from '../types';
 
+const PAGE = 50;
+
 export default function DispatchPage() {
+  const navigate = useNavigate();
   const [dispatches, setDispatches] = useState<Dispatch[]>([]);
+  const [dispOffset, setDispOffset] = useState(0);
+  const [dispTotal, setDispTotal] = useState(0);
   const [readyOrders, setReadyOrders] = useState<Order[]>([]);
+  const [taskByOrder, setTaskByOrder] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -21,16 +30,22 @@ export default function DispatchPage() {
 
   const carrierValue = carrierChoice === 'Otro' ? carrierOther.trim() : carrierChoice;
 
-  async function load() {
+  async function load(off = 0) {
     setLoading(true);
     setError(null);
     try {
-      const [d, orders] = await Promise.all([
-        listDispatches().catch(() => [] as Dispatch[]),
-        listOrders().catch(() => [] as Order[]),
+      const [d, orders, tasks] = await Promise.all([
+        listDispatches({ limit: PAGE, offset: off }).catch(() => null),
+        listOrders().catch(() => null),
+        listPackingTasks().catch(() => null),
       ]);
-      setDispatches(d);
-      setReadyOrders(orders.filter((o) => o.status === 'ready_to_dispatch'));
+      setDispatches(d?.items ?? []);
+      setDispTotal(d?.total ?? 0);
+      setDispOffset(off);
+      setReadyOrders((orders?.items ?? []).filter((o) => o.status === 'ready_to_dispatch'));
+      const map: Record<string, string> = {};
+      for (const t of tasks?.items ?? []) map[t.order_id] = t.id;
+      setTaskByOrder(map);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -39,8 +54,14 @@ export default function DispatchPage() {
   }
 
   useEffect(() => {
-    load();
+    load(0);
   }, []);
+
+  function openLabels(orderId: string) {
+    const tid = taskByOrder[orderId];
+    if (tid) navigate(`/my/packing/${tid}/labels`);
+    else setNotice('No hay etiquetas de packing para este pedido.');
+  }
 
   async function confirmDispatch(orderId: string) {
     setBusy(true);
@@ -88,9 +109,16 @@ export default function DispatchPage() {
                   <div className="text-sm text-slate-500">{o.customer}</div>
                 </div>
                 {activeOrder === o.id ? null : (
-                  <button onClick={() => setActiveOrder(o.id)} className="btn-primary">
-                    Confirmar despacho
-                  </button>
+                  <div className="flex gap-2">
+                    {taskByOrder[o.id] && (
+                      <button onClick={() => openLabels(o.id)} className="btn-secondary">
+                        Etiquetas (QR)
+                      </button>
+                    )}
+                    <button onClick={() => setActiveOrder(o.id)} className="btn-primary">
+                      Confirmar despacho
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -148,6 +176,7 @@ export default function DispatchPage() {
                 <th>Transportista</th>
                 <th>Seguimiento</th>
                 <th>Estado</th>
+                <th></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -159,6 +188,13 @@ export default function DispatchPage() {
                   <td>{d.tracking_number ?? '—'}</td>
                   <td>
                     <StatusBadge status={d.status} />
+                  </td>
+                  <td>
+                    {taskByOrder[d.order_id] && (
+                      <button onClick={() => openLabels(d.order_id)} className="btn-secondary">
+                        Etiquetas (QR)
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

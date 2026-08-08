@@ -15,7 +15,7 @@ export default function MyPackingTasksPage() {
     setLoading(true);
     setError(null);
     try {
-      setTasks(await listPackingTasks({ assigned_to: 'me' }));
+      setTasks((await listPackingTasks({ assigned_to: 'me' })).items);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

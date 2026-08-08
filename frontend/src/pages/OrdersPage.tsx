@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { createOrder, createPicking, getOrder, listOrders, updateOrder } from '../api/orders';
 import { listPickingTasks } from '../api/picking';
+import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, ProductPicker } from '../components/Form';
+import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
 import { ERP_CREATE_ENABLED, PDF_IMPORT_ENABLED } from '../config';
 import { can } from '../permissions';
@@ -12,6 +14,7 @@ import { useAuth } from '../store/auth';
 import type { Order, PickingTask, Product } from '../types';
 
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
+const PAGE = 50;
 
 export default function OrdersPage() {
   const navigate = useNavigate();
@@ -19,6 +22,8 @@ export default function OrdersPage() {
   const { currentUser } = useAuth();
   const canEdit = can(currentUser?.role); // admin / supervisor
   const [orders, setOrders] = useState<Order[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +31,8 @@ export default function OrdersPage() {
   const [busy, setBusy] = useState(false);
   // order_id -> active (non-closed) picking task, to offer "Continuar picking".
   const [pickingByOrder, setPickingByOrder] = useState<Record<string, PickingTask>>({});
+  // order_id -> packing task id, to offer "Ir a packing" once picking is done.
+  const [packingByOrder, setPackingByOrder] = useState<Record<string, string>>({});
 
   // create-order state
   const [showCreate, setShowCreate] = useState(false);
@@ -42,20 +49,28 @@ export default function OrdersPage() {
   const [editLines, setEditLines] = useState<{ product: Product | null; qty: string }[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  async function load() {
+  async function load(off = 0) {
     setLoading(true);
     setError(null);
     try {
-      const [ords, tasks] = await Promise.all([
-        listOrders(),
-        listPickingTasks().catch(() => [] as PickingTask[]),
+      const [ords, tasks, packs] = await Promise.all([
+        listOrders({ limit: PAGE, offset: off }),
+        listPickingTasks().catch(() => null),
+        listPackingTasks().catch(() => null),
       ]);
-      setOrders(ords);
+      setOrders(ords.items);
+      setTotal(ords.total);
+      setOffset(off);
       const map: Record<string, PickingTask> = {};
-      for (const t of tasks) {
+      for (const t of tasks?.items ?? []) {
         if (!CLOSED_PICKING.includes(t.status)) map[t.order_id] = t;
       }
       setPickingByOrder(map);
+      const pmap: Record<string, string> = {};
+      for (const t of packs?.items ?? []) {
+        if (t.status !== 'cancelled') pmap[t.order_id] = t.id;
+      }
+      setPackingByOrder(pmap);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -284,6 +299,16 @@ export default function OrdersPage() {
               </table>
             </div>
           )}
+          <div className="mt-2">
+            <Pager
+              offset={offset}
+              pageSize={PAGE}
+              count={orders.length}
+              total={total}
+              onPrev={() => load(Math.max(0, offset - PAGE))}
+              onNext={() => load(offset + PAGE)}
+            />
+          </div>
         </div>
 
         <div>
@@ -335,7 +360,7 @@ export default function OrdersPage() {
                   >
                     Continuar picking →
                   </button>
-                ) : (
+                ) : ['imported', 'pending_picking'].includes(selected.status) ? (
                   <button
                     onClick={() => handleGeneratePicking(selected.id)}
                     className="btn-primary"
@@ -343,7 +368,18 @@ export default function OrdersPage() {
                   >
                     {busy ? 'Generando…' : 'Generar picking'}
                   </button>
-                )}
+                ) : ['picked', 'packing', 'packed'].includes(selected.status) && packingByOrder[selected.id] ? (
+                  <button
+                    onClick={() => navigate(`/my/packing/${packingByOrder[selected.id]}`)}
+                    className="btn-primary"
+                  >
+                    Ir a packing →
+                  </button>
+                ) : selected.status === 'ready_to_dispatch' ? (
+                  <button onClick={() => navigate('/dispatch')} className="btn-primary">
+                    Ir a despacho →
+                  </button>
+                ) : null}
                 {canEdit && selected.status === 'imported' && (
                   <button onClick={() => openEdit(selected)} className="btn-secondary">
                     Editar pedido

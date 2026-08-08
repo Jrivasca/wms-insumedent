@@ -6,6 +6,7 @@ import { useAuth } from './store/auth';
 import { FULL_ACCESS, can, homeFor } from './permissions';
 
 import LoginPage from './pages/LoginPage';
+import PublicBultoPage from './pages/PublicBultoPage';
 import DashboardPage from './pages/DashboardPage';
 import ProductsPage from './pages/ProductsPage';
 import LabelsPage from './pages/LabelsPage';
@@ -69,6 +70,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* Consulta pública del bulto (QR) — sin login, fuera del Layout. */}
+      <Route path="/b/:token" element={<PublicBultoPage />} />
 
       {/* Supervisor / admin */}
       <Route path="/" element={<HomeRedirect />} />

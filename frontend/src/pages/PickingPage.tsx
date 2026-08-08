@@ -3,21 +3,29 @@ import { useNavigate } from 'react-router-dom';
 import { listPickingTasks } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
+import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
 import type { PickingTask } from '../types';
+
+const PAGE = 50;
 
 export default function PickingPage() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<PickingTask[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  async function load(off = 0) {
     setLoading(true);
     setError(null);
     try {
-      setTasks(await listPickingTasks({ status: status || undefined }));
+      const data = await listPickingTasks({ status: status || undefined, limit: PAGE, offset: off });
+      setTasks(data.items);
+      setTotal(data.total);
+      setOffset(off);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -26,7 +34,7 @@ export default function PickingPage() {
   }
 
   useEffect(() => {
-    load();
+    load(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
@@ -45,12 +53,12 @@ export default function PickingPage() {
             <option value="partial">partial</option>
           </select>
         </div>
-        <button onClick={load} className="btn-secondary">
+        <button onClick={() => load(offset)} className="btn-secondary">
           Refrescar
         </button>
       </div>
 
-      {error && <ErrorBox message={error} onRetry={load} />}
+      {error && <ErrorBox message={error} onRetry={() => load(offset)} />}
 
       {loading ? (
         <Loading />
@@ -98,6 +106,17 @@ export default function PickingPage() {
           </table>
         </div>
       )}
+
+      <div className="mt-2">
+        <Pager
+          offset={offset}
+          pageSize={PAGE}
+          count={tasks.length}
+          total={total}
+          onPrev={() => load(Math.max(0, offset - PAGE))}
+          onNext={() => load(offset + PAGE)}
+        />
+      </div>
     </div>
   );
 }

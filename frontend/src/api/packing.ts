@@ -1,10 +1,12 @@
 import { http } from './http';
-import type { PackageBulto, PackingTask, ScanResult } from '../types';
+import type { Page, PackageBulto, PackingTask, ScanResult } from '../types';
 
 export async function listPackingTasks(params?: {
   assigned_to?: string;
-}): Promise<PackingTask[]> {
-  const { data } = await http.get<PackingTask[]>('/packing/tasks', { params });
+  limit?: number;
+  offset?: number;
+}): Promise<Page<PackingTask>> {
+  const { data } = await http.get<Page<PackingTask>>('/packing/tasks', { params });
   return data;
 }
 

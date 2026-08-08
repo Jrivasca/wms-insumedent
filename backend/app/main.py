@@ -8,6 +8,7 @@ from app.core.database import close, connect, ensure_indexes
 from app.core.logging import configure_logging, get_logger
 from app.api.routes import (
     auth,
+    dashboard,
     defontana,
     dispatch,
     inventory,
@@ -17,6 +18,7 @@ from app.api.routes import (
     packing,
     picking,
     products,
+    public,
     seed,
     sync_jobs,
     users,
@@ -66,6 +68,7 @@ async def health():
 # Register routers under /api/v1
 for module in (
     auth,
+    dashboard,
     users,
     products,
     warehouses,
@@ -79,5 +82,6 @@ for module in (
     defontana,
     sync_jobs,
     seed,
+    public,
 ):
     app.include_router(module.router, prefix=API_PREFIX)

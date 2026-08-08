@@ -1,16 +1,44 @@
+import secrets
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
+from app.core.config import settings
 from app.core.database import get_database
-from app.core.utils import now_utc, serialize, to_object_id
+from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
 from app.models.packing import PackingLineStatus, PackingTaskStatus
 from app.services import inventory_service
 from app.services.order_service import _expected_barcodes
+
+
+def _new_public_token() -> str:
+    """Unguessable capability token for a bulto's public QR page (128 bits)."""
+    return secrets.token_urlsafe(16)
+
+
+def _public_expiry():
+    return now_utc() + timedelta(days=settings.public_bulto_ttl_days)
+
+
+async def _ensure_public_tokens(task: Dict[str, Any]) -> None:
+    """Backfill a public token + expiry on any package that lacks one (idempotent)."""
+    packages = task.get("packages", [])
+    changed = False
+    for pkg in packages:
+        if not pkg.get("public_token"):
+            pkg["public_token"] = _new_public_token()
+            pkg["public_expires_at"] = _public_expiry()
+            changed = True
+    if changed:
+        db = get_database()
+        await db[Collections.PACKING_TASKS].update_one(
+            {"_id": task["_id"]}, {"$set": {"packages": packages}}
+        )
 
 
 async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
@@ -101,20 +129,32 @@ async def create_packing_task_from_picking(
 
 
 async def list_tasks(
-    tenant_id: str, user: CurrentUser, assigned_to: Optional[str] = None
-) -> List[Dict[str, Any]]:
+    tenant_id: str,
+    user: CurrentUser,
+    assigned_to: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> Dict[str, Any]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if assigned_to == "me":
         query["assigned_to"] = user.id
     elif assigned_to:
         query["assigned_to"] = assigned_to
-    cursor = db[Collections.PACKING_TASKS].find(query).sort("created_at", -1)
-    return [serialize(t) for t in await cursor.to_list(length=500)]
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    total = await db[Collections.PACKING_TASKS].count_documents(query)
+    cursor = (
+        db[Collections.PACKING_TASKS].find(query).sort("created_at", -1).skip(offset).limit(limit)
+    )
+    items = [serialize(t) for t in await cursor.to_list(length=limit)]
+    return page(items, total, limit, offset)
 
 
 async def get_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
-    return serialize(await _load_task(tenant_id, task_id))
+    task = await _load_task(tenant_id, task_id)
+    await _ensure_public_tokens(task)  # backfill QR tokens for bultos created before this feature
+    return serialize(task)
 
 
 async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
@@ -191,20 +231,34 @@ async def scan(
 
     line = task["lines"][target_index]
     required = line.get("quantity_required", 0)
-    new_qty = line.get("quantity_packed", 0) + quantity
-    line["quantity_packed"] = new_qty
+    already = line.get("quantity_packed", 0)
 
-    if new_qty > required:
-        line["status"] = PackingLineStatus.PARTIAL.value
-        feedback, message = "warning", "Cantidad supera lo pickeado (diferencia)"
-    elif new_qty == required:
+    # Block over-packing: never pack more than was picked for the line. The scan is
+    # rejected (nothing is applied) so the operator is warned and cannot continue.
+    if already + quantity > required:
+        remaining = max(required - already, 0)
+        if remaining <= 0:
+            message = f"Este producto ya está completo ({already}/{required}). No escanees de más."
+        else:
+            message = f"Excede lo pickeado: sólo faltan {remaining} de {required}."
+        return {
+            "status": "rejected",
+            "feedback": "warning",
+            "message": message,
+            "line": None,
+            "task": serialize(task),
+        }
+
+    new_qty = already + quantity
+    line["quantity_packed"] = new_qty
+    if new_qty >= required:
         line["status"] = PackingLineStatus.PACKED.value
         feedback, message = "complete", "Línea completa"
     else:
         line["status"] = PackingLineStatus.PARTIAL.value
         feedback, message = "partial", f"{new_qty}/{required} unidades"
 
-    # Optionally register the unit into a package.
+    # Register the unit into a package (only for accepted scans).
     if package_id:
         for pkg in task.get("packages", []):
             if pkg.get("package_id") == package_id:
@@ -248,6 +302,8 @@ async def create_package(
         "package_id": f"PKG-{package_number}",
         "label": label or f"Bulto {package_number}",
         "items": [],
+        "public_token": _new_public_token(),
+        "public_expires_at": _public_expiry(),
         "created_at": now_utc(),
     }
     await db[Collections.PACKING_TASKS].update_one(

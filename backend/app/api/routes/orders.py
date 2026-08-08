@@ -18,9 +18,12 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 
 @router.get("")
 async def list_orders(
-    status: Optional[str] = None, user: CurrentUser = Depends(get_current_user)
+    status: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+    user: CurrentUser = Depends(get_current_user),
 ):
-    return await order_service.list_orders(user.tenant_id, status)
+    return await order_service.list_orders(user.tenant_id, status, limit, offset)
 
 
 @router.post("", status_code=201)

@@ -24,3 +24,18 @@ class LocationCreate(BaseModel):
     level: Optional[str] = None
     bin: Optional[str] = None
     type: LocationType = LocationType.STORAGE
+
+
+class LocationUpdate(BaseModel):
+    """Partial update of a location. The warehouse is intentionally not editable
+    (stock balances and picking tasks reference the location by id within it)."""
+
+    code: Optional[str] = None
+    name: Optional[str] = None
+    zone: Optional[str] = None
+    aisle: Optional[str] = None
+    rack: Optional[str] = None
+    level: Optional[str] = None
+    bin: Optional[str] = None
+    type: Optional[LocationType] = None
+    is_active: Optional[bool] = None

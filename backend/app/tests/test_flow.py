@@ -78,8 +78,9 @@ async def test_login_and_products():
     count = await db[Collections.PRODUCTS].count_documents({"tenant_id": tenant_id})
     assert count == len(catalog)
 
-    products = await product_service.list_products(tenant_id)
-    assert products  # listing returns rows (capped at 500 against real Mongo)
+    listed = await product_service.list_products(tenant_id)
+    assert listed["items"]  # listing returns rows (capped at 500 against real Mongo)
+    assert listed["total"] == count  # envelope reports the full count, not just the page
 
     first = catalog[0]
     found = await product_service.get_by_barcode(tenant_id, first["barcode"])
@@ -115,7 +116,7 @@ async def test_full_picking_packing_dispatch_flow():
     completed = await picking_service.complete(tenant_id, task_id, admin)
     assert completed["status"] == "completed"
 
-    packing_tasks = await packing_service.list_tasks(tenant_id, admin)
+    packing_tasks = (await packing_service.list_tasks(tenant_id, admin))["items"]
     assert len(packing_tasks) == 1
     packing_id = packing_tasks[0]["id"]
 
@@ -158,7 +159,7 @@ async def test_double_dispatch_blocked():
     await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
     await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
     await picking_service.complete(tenant_id, task["id"], admin)
-    pk = (await packing_service.list_tasks(tenant_id, admin))[0]
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     await packing_service.start_task(tenant_id, pk["id"], admin)
     await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
     await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
@@ -167,6 +168,33 @@ async def test_double_dispatch_blocked():
     await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
     with pytest.raises(Exception):
         await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
+
+
+async def test_picking_over_scan_blocked():
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order = await _order_1001()
+    order_id = str(order["_id"])
+    line0 = order["lines"][0]
+    bc1 = await _barcode_for(tenant_id, line0["product_id"])
+    qty1 = line0["ordered_quantity"]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    tid = task["id"]
+
+    ok = await picking_service.scan(tenant_id, tid, admin, bc1, qty1, None)
+    assert ok["status"] == "ok"
+
+    # One more scan of the same (already complete) product must be blocked.
+    over = await picking_service.scan(tenant_id, tid, admin, bc1, 1, None)
+    assert over["status"] == "rejected"
+    assert over["feedback"] == "warning"
+
+    # Nothing was applied: the picked quantity stays at the required amount.
+    t = await picking_service.get_task(tenant_id, tid)
+    line = next(l for l in t["lines"] if l["sku"] == line0["sku"])
+    assert line["quantity_picked"] == qty1
 
 
 async def test_picking_reset_line():
@@ -212,7 +240,7 @@ async def test_packing_reset_line():
     await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
     await picking_service.complete(tenant_id, task["id"], admin)
 
-    pk = (await packing_service.list_tasks(tenant_id, admin))[0]
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     pid = pk["id"]
     sku1 = pk["lines"][0]["sku"]
     await packing_service.start_task(tenant_id, pid, admin)
@@ -313,9 +341,14 @@ async def test_products_pagination():
     tenant_id = seed["tenant_id"]
     page1 = await product_service.list_products(tenant_id, limit=10, offset=0)
     page2 = await product_service.list_products(tenant_id, limit=10, offset=10)
-    assert len(page1) == 10
-    assert len(page2) == 10
-    assert {p["id"] for p in page1}.isdisjoint({p["id"] for p in page2})
+    # Envelope carries paging metadata so the UI can render "X–Y de N".
+    assert page1["limit"] == 10 and page1["offset"] == 0
+    assert page2["offset"] == 10
+    assert page1["total"] == page2["total"] >= 20
+    items1, items2 = page1["items"], page2["items"]
+    assert len(items1) == 10
+    assert len(items2) == 10
+    assert {p["id"] for p in items1}.isdisjoint({p["id"] for p in items2})
 
 
 async def test_user_cannot_lock_himself_out():
@@ -419,3 +452,92 @@ async def test_defontana_mock_sync_products():
     result = await integration_service.run_sync_products(tenant_id, admin.id)
     assert result["status"] == "ok"
     assert result["summary"]["synced"] == len(MOCK_PRODUCTS)
+
+
+async def test_dashboard_stats():
+    from app.services import dashboard_service
+
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    stats = await dashboard_service.get_stats(tenant_id)
+
+    catalog = _load_catalog()
+    assert stats["inventory"]["productos"] == len(catalog)
+    assert stats["inventory"]["con_stock"] >= 1  # el seed carga stock
+    assert stats["inventory"]["sin_stock"] >= 0
+    assert stats["inventory"]["ubicaciones"] >= 1
+
+    o = stats["orders"]
+    assert set(o) >= {
+        "total", "por_procesar", "en_proceso", "listos_despacho",
+        "despachados", "despachados_hoy", "error_cancelados", "por_estado",
+    }
+    # El desglose por estado suma el total.
+    assert sum(o["por_estado"].values()) == o["total"]
+    assert set(stats["operations"]) == {"picking_abiertas", "packing_abiertas", "sync_pendientes"}
+
+
+async def test_update_location():
+    from app.models.location import LocationType
+    from app.schemas.warehouse import LocationCreate, LocationUpdate
+    from app.services import warehouse_service
+
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    db = get_database()
+    wh = await db[Collections.WAREHOUSES].find_one({"tenant_id": tenant_id})
+    wid = str(wh["_id"])
+
+    loc = await warehouse_service.create_location(
+        tenant_id,
+        LocationCreate(warehouse_id=wid, code="EDIT-1", name="Orig", type=LocationType.STORAGE),
+        admin.id,
+    )
+
+    # Editar nombre, tipo, zona y desactivar.
+    upd = await warehouse_service.update_location(
+        tenant_id,
+        loc["id"],
+        LocationUpdate(name="Nuevo", type=LocationType.PICKING, zone="Z1", is_active=False),
+        admin.id,
+    )
+    assert upd["name"] == "Nuevo"
+    assert upd["type"] == "picking"
+    assert upd["zone"] == "Z1"
+    assert upd["is_active"] is False
+
+    # Un código repetido en la misma bodega se rechaza.
+    await warehouse_service.create_location(
+        tenant_id, LocationCreate(warehouse_id=wid, code="EDIT-2"), admin.id
+    )
+    with pytest.raises(Exception):
+        await warehouse_service.update_location(
+            tenant_id, loc["id"], LocationUpdate(code="EDIT-2"), admin.id
+        )
+
+    # Renombrar el código a uno libre funciona.
+    ok = await warehouse_service.update_location(
+        tenant_id, loc["id"], LocationUpdate(code="EDIT-1B"), admin.id
+    )
+    assert ok["code"] == "EDIT-1B"
+
+
+async def test_cannot_regenerate_picking_after_completed():
+    """Un pedido ya pickeado (picked/packing/…) no debe poder generar picking otra vez."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order, plan = await _order_scan_plan(tenant_id)
+    order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
+    await picking_service.complete(tenant_id, task["id"], admin)
+
+    o = await order_service.get_order(tenant_id, order_id)
+    assert o["status"] == "picked"
+    with pytest.raises(Exception):
+        await order_service.create_picking_task(tenant_id, order_id, admin.id)
