@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { createOrder, createPicking, getOrder, listOrders, updateOrder } from '../api/orders';
+import {
+  createOrder,
+  createPicking,
+  getOrder,
+  listOrders,
+  reopenPacking,
+  reopenPicking,
+  updateOrder,
+} from '../api/orders';
+import { cancelDispatch } from '../api/dispatch';
 import { listPickingTasks } from '../api/picking';
 import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
@@ -95,6 +104,30 @@ export default function OrdersPage() {
       setSelected(await getOrder(id));
     } catch (err) {
       setError(errorMessage(err));
+    }
+  }
+
+  async function handleRevert(kind: 'dispatch' | 'packing' | 'picking', orderId: string) {
+    const labels = {
+      dispatch: 'anular el despacho (vuelve a «listo para despacho»)',
+      packing: 'reabrir el packing (vuelve a «packing»)',
+      picking: 'reabrir el picking (vuelve a «picking» y se cancela el packing)',
+    };
+    if (!window.confirm(`¿Confirmas ${labels[kind]}?`)) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (kind === 'dispatch') await cancelDispatch(orderId);
+      else if (kind === 'packing') await reopenPacking(orderId);
+      else await reopenPicking(orderId);
+      setNotice('Pedido retrocedido de etapa.');
+      await load(offset);
+      openDetail(orderId);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -386,6 +419,49 @@ export default function OrdersPage() {
                   </button>
                 )}
               </div>
+
+              {/* Retroceso de etapa (solo admin/supervisor). */}
+              {canEdit &&
+                ['picked', 'packing', 'packed', 'ready_to_dispatch', 'dispatched'].includes(
+                  selected.status
+                ) && (
+                  <div className="mt-3 border-t border-slate-200 pt-3">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Retroceso
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {selected.status === 'dispatched' && (
+                        <button
+                          onClick={() => handleRevert('dispatch', selected.id)}
+                          className="btn-danger"
+                          disabled={busy}
+                        >
+                          ↩ Anular despacho
+                        </button>
+                      )}
+                      {selected.status === 'ready_to_dispatch' && (
+                        <button
+                          onClick={() => handleRevert('packing', selected.id)}
+                          className="btn-secondary"
+                          disabled={busy}
+                        >
+                          ↩ Reabrir packing
+                        </button>
+                      )}
+                      {['picked', 'packing', 'packed', 'ready_to_dispatch'].includes(
+                        selected.status
+                      ) && (
+                        <button
+                          onClick={() => handleRevert('picking', selected.id)}
+                          className="btn-secondary"
+                          disabled={busy}
+                        >
+                          ↩ Reabrir picking
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
             </div>
           ) : (
             <div className="card text-sm text-slate-400">

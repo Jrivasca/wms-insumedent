@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import PublicBultoPage from './pages/PublicBultoPage';
 import DashboardPage from './pages/DashboardPage';
 import ProductsPage from './pages/ProductsPage';
+import ProductDetailPage from './pages/ProductDetailPage';
 import LabelsPage from './pages/LabelsPage';
 import WarehousesPage from './pages/WarehousesPage';
 import LocationsPage from './pages/LocationsPage';
@@ -81,6 +82,16 @@ export default function App() {
           <Shell>
             <SupervisorOnly>
               <ProductsPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
+        path="/products/:id"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <ProductDetailPage />
             </SupervisorOnly>
           </Shell>
         }

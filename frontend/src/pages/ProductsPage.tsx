@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { addBarcode, createProduct, getProductByBarcode, listProducts } from '../api/products';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
@@ -11,6 +12,7 @@ const PAGE = 50;
 const EMPTY_NEW = { sku: '', name: '', category: '', unit: 'UN', brand: '', barcode: '', sale_price: '' };
 
 export default function ProductsPage() {
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -208,7 +210,12 @@ export default function ProductsPage() {
                 <tr key={p.id} className="align-top">
                   <td className="font-mono text-xs">{p.sku}</td>
                   <td>
-                    <div className="font-medium">{p.name}</div>
+                    <button
+                      onClick={() => navigate(`/products/${p.id}`)}
+                      className="text-left font-medium text-brand hover:underline"
+                    >
+                      {p.name}
+                    </button>
                     {p.category && <div className="text-xs text-slate-400">{p.category}</div>}
                   </td>
                   <td>{p.brand ?? '—'}</td>

@@ -12,6 +12,7 @@ import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import StatusBadge from '../components/StatusBadge';
+import Toast, { ToastTone } from '../components/Toast';
 import type { PackingLine, PackingTask } from '../types';
 
 export default function PackingTaskPage() {
@@ -22,8 +23,14 @@ export default function PackingTaskPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageTone, setMessageTone] = useState<ToastTone>('info');
   const [feedback, setFeedback] = useState<ScanFeedback>('idle');
   const [quantity, setQuantity] = useState(1);
+
+  function showMsg(text: string, tone: ToastTone = 'info') {
+    setMessage(text);
+    setMessageTone(tone);
+  }
   const [activePackage, setActivePackage] = useState<string | null>(null);
   const [packageLabel, setPackageLabel] = useState('');
   const [busy, setBusy] = useState(false);
@@ -81,7 +88,7 @@ export default function PackingTaskPage() {
       const pkg = await createPackage(id, packageLabel.trim() ? { label: packageLabel.trim() } : undefined);
       setActivePackage(pkg.package_id);
       setPackageLabel('');
-      setMessage(`Bulto creado: ${pkg.label ?? pkg.package_id}`);
+      showMsg(`Bulto creado: ${pkg.label ?? pkg.package_id}`, 'success');
       load();
     } catch (err) {
       setError(errorMessage(err));
@@ -99,19 +106,15 @@ export default function PackingTaskPage() {
         quantity: quantity || 1,
         package_id: activePackage ?? undefined,
       });
-      if (res.status === 'ok') {
-        setFeedback('success');
-        setMessage(res.message ?? 'Producto empacado');
-      } else {
-        setFeedback('error');
-        setMessage(res.message ?? 'Código incorrecto');
-      }
+      let tone: ToastTone;
+      if (res.status === 'ok') tone = 'success';
+      else if (res.feedback === 'warning') tone = 'warning'; // over-pack: ya completo / excede
+      else tone = 'error'; // código ajeno al pedido
+      setFeedback(tone === 'info' ? 'idle' : tone);
+      showMsg(res.message ?? (res.status === 'ok' ? 'Producto empacado' : 'Escaneo no válido'), tone);
       const refreshed =
         res.task && typeof res.task === 'object' ? (res.task as PackingTask) : await getPackingTask(id);
       setTask(refreshed);
-      if (res.status === 'ok' && refreshed.lines.some((l) => l.quantity_packed >= l.quantity_required)) {
-        setFeedback('warning');
-      }
     } catch (err) {
       setFeedback('error');
       setError(errorMessage(err));
@@ -146,7 +149,7 @@ export default function PackingTaskPage() {
           : await getPackingTask(id);
       setTask(refreshed);
       setFeedback('success');
-      setMessage('Línea empacada');
+      showMsg('Línea empacada', 'success');
       setTimeout(() => setFeedback('idle'), 1200);
     } catch (err) {
       setError(errorMessage(err));
@@ -163,7 +166,7 @@ export default function PackingTaskPage() {
     try {
       const t = await resetPackingLine(id, { sku });
       setTask(t);
-      setMessage(`Línea ${sku} reiniciada — vuelva a empacarla`);
+      showMsg(`Línea ${sku} reiniciada — vuelva a empacarla`, 'info');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -178,7 +181,7 @@ export default function PackingTaskPage() {
     try {
       const t = await completePacking(id);
       setTask(t);
-      setMessage('Packing finalizado. Continúe en Despacho.');
+      showMsg('Packing finalizado. Continúe en Despacho.', 'success');
       setTimeout(() => navigate('/dispatch'), 900);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
@@ -225,9 +228,7 @@ export default function PackingTaskPage() {
         </button>
       )}
 
-      {message && (
-        <div className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</div>
-      )}
+      <Toast message={message} tone={messageTone} onClose={() => setMessage(null)} />
       {error && <ErrorBox message={error} />}
 
       {/* Packages */}

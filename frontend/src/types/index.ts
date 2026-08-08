@@ -35,6 +35,8 @@ export interface Product {
   uses_lots?: boolean;
   uses_serials?: boolean;
   is_active?: boolean;
+  cost?: number;
+  sale_price?: number;
 }
 
 export interface Warehouse {
@@ -266,6 +268,7 @@ export interface Dispatch {
   id: string;
   order_id: string;
   status: string;
+  guide_number?: string;
   carrier?: string;
   tracking_number?: string;
 }

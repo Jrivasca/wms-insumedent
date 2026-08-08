@@ -141,6 +141,9 @@ export default function BarcodeScanner({
           (result) => {
             if (result) {
               fire(result.getText());
+              // Apagar la cámara tras leer un código: evita el re-escaneo en ráfaga.
+              // El operario vuelve a tocar "Cámara" para el siguiente producto.
+              setCameraOn(false);
             }
           }
         );

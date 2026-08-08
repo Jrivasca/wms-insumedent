@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getPackingTask } from '../api/packing';
 import { getOrder } from '../api/orders';
@@ -35,14 +35,6 @@ export default function PackingLabelsPage() {
     })();
   }, [id]);
 
-  const nameBySku = useMemo(() => {
-    const m: Record<string, string> = {};
-    task?.lines.forEach((l) => {
-      m[l.sku] = l.name;
-    });
-    return m;
-  }, [task]);
-
   if (loading) return <Loading />;
   if (error) return <ErrorBox message={error} />;
   if (!task) return null;
@@ -68,78 +60,44 @@ export default function PackingLabelsPage() {
         <>
           <style>{`@media print { @page { margin: 10mm; } }`}</style>
           <div className="space-y-4">
-            {packages.map((pkg, i) => {
-              const agg: Record<string, number> = {};
-              (pkg.items ?? []).forEach((it) => {
-                if (it.sku) agg[it.sku] = (agg[it.sku] ?? 0) + (it.quantity ?? 0);
-              });
-              const rows = Object.entries(agg);
-              const totalUnits = rows.reduce((a, [, q]) => a + q, 0);
-              return (
-                <div
-                  key={pkg.package_id}
-                  className="rounded-lg border-2 border-slate-800 p-4"
-                  style={{ breakAfter: 'page' }}
-                >
-                  <div className="flex items-start justify-between border-b-2 border-slate-800 pb-2">
-                    <div>
-                      <div className="text-xs uppercase tracking-wide text-slate-500">Pedido</div>
-                      <div className="text-xl font-bold">{erpNumber}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs uppercase tracking-wide text-slate-500">Bulto</div>
-                      <div className="text-4xl font-extrabold leading-none">
-                        {i + 1}/{packages.length}
-                      </div>
+            {packages.map((pkg, i) => (
+              <div
+                key={pkg.package_id}
+                className="flex flex-col rounded-lg border-2 border-slate-800 p-6"
+                style={{ breakAfter: 'page' }}
+              >
+                <div className="flex items-start justify-between border-b-2 border-slate-800 pb-2">
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-slate-500">Pedido</div>
+                    <div className="text-2xl font-bold">{erpNumber}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs uppercase tracking-wide text-slate-500">Bulto</div>
+                    <div className="text-5xl font-extrabold leading-none">
+                      {i + 1}/{packages.length}
                     </div>
                   </div>
-
-                  <div className="mt-2 text-lg font-semibold">Cliente: {customer}</div>
-                  <div className="text-xs text-slate-500">{pkg.label ?? pkg.package_id}</div>
-
-                  <table className="table mt-3 w-full">
-                    <thead className="bg-slate-100">
-                      <tr>
-                        <th>Producto</th>
-                        <th>SKU</th>
-                        <th className="text-right">Cant.</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {rows.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className="text-sm text-slate-400">
-                            Bulto vacío
-                          </td>
-                        </tr>
-                      ) : (
-                        rows.map(([sku, qty]) => (
-                          <tr key={sku}>
-                            <td>{nameBySku[sku] ?? sku}</td>
-                            <td className="font-mono text-xs">{sku}</td>
-                            <td className="text-right font-bold">{qty}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-
-                  <div className="mt-2 text-right text-sm font-semibold">
-                    Total: {totalUnits} unidades · {rows.length} ítems
-                  </div>
-
-                  {pkg.public_token && (
-                    <div className="mt-3 flex items-center gap-3 border-t border-slate-300 pt-3">
-                      <QrCode value={`${window.location.origin}/b/${pkg.public_token}`} size={96} />
-                      <div className="text-xs text-slate-600">
-                        <div className="font-semibold">Escanea para ver el detalle</div>
-                        <div className="text-slate-400">Contenido de este bulto (consulta segura)</div>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              );
-            })}
+
+                <div className="mt-2 text-lg font-semibold">Cliente: {customer}</div>
+                <div className="text-xs text-slate-500">{pkg.label ?? pkg.package_id}</div>
+
+                {/* QR grande al centro: el detalle del bulto se ve al escanear (puede
+                    tener muchos productos, por eso no se imprime el listado). */}
+                {pkg.public_token ? (
+                  <div className="mt-4 flex flex-col items-center justify-center">
+                    <QrCode value={`${window.location.origin}/b/${pkg.public_token}`} size={260} />
+                    <div className="mt-3 text-center text-base font-semibold">
+                      Escanea para ver el detalle del bulto
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-6 text-center text-sm text-slate-400">
+                    Este bulto aún no tiene QR (se genera al despachar).
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </>
       )}
