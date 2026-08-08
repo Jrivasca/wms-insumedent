@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { createOrder, createPicking, getOrder, listOrders, updateOrder } from '../api/orders';
 import { listPickingTasks } from '../api/picking';
+import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, ProductPicker } from '../components/Form';
@@ -30,6 +31,8 @@ export default function OrdersPage() {
   const [busy, setBusy] = useState(false);
   // order_id -> active (non-closed) picking task, to offer "Continuar picking".
   const [pickingByOrder, setPickingByOrder] = useState<Record<string, PickingTask>>({});
+  // order_id -> packing task id, to offer "Ir a packing" once picking is done.
+  const [packingByOrder, setPackingByOrder] = useState<Record<string, string>>({});
 
   // create-order state
   const [showCreate, setShowCreate] = useState(false);
@@ -50,9 +53,10 @@ export default function OrdersPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ords, tasks] = await Promise.all([
+      const [ords, tasks, packs] = await Promise.all([
         listOrders({ limit: PAGE, offset: off }),
         listPickingTasks().catch(() => null),
+        listPackingTasks().catch(() => null),
       ]);
       setOrders(ords.items);
       setTotal(ords.total);
@@ -62,6 +66,11 @@ export default function OrdersPage() {
         if (!CLOSED_PICKING.includes(t.status)) map[t.order_id] = t;
       }
       setPickingByOrder(map);
+      const pmap: Record<string, string> = {};
+      for (const t of packs?.items ?? []) {
+        if (t.status !== 'cancelled') pmap[t.order_id] = t.id;
+      }
+      setPackingByOrder(pmap);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -351,7 +360,7 @@ export default function OrdersPage() {
                   >
                     Continuar picking →
                   </button>
-                ) : (
+                ) : ['imported', 'pending_picking'].includes(selected.status) ? (
                   <button
                     onClick={() => handleGeneratePicking(selected.id)}
                     className="btn-primary"
@@ -359,7 +368,18 @@ export default function OrdersPage() {
                   >
                     {busy ? 'Generando…' : 'Generar picking'}
                   </button>
-                )}
+                ) : ['picked', 'packing', 'packed'].includes(selected.status) && packingByOrder[selected.id] ? (
+                  <button
+                    onClick={() => navigate(`/my/packing/${packingByOrder[selected.id]}`)}
+                    className="btn-primary"
+                  >
+                    Ir a packing →
+                  </button>
+                ) : selected.status === 'ready_to_dispatch' ? (
+                  <button onClick={() => navigate('/dispatch')} className="btn-primary">
+                    Ir a despacho →
+                  </button>
+                ) : null}
                 {canEdit && selected.status === 'imported' && (
                   <button onClick={() => openEdit(selected)} className="btn-secondary">
                     Editar pedido

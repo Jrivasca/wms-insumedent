@@ -192,13 +192,19 @@ async def create_picking_task(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    if order.get("status") in (
-        OrderStatus.DISPATCHED.value,
-        OrderStatus.CANCELLED.value,
+    # Only an order that has not yet been picked can generate a (new) picking task.
+    # Once it reaches picked/packing/…/dispatched the flow has moved on, so a second
+    # "Generar picking" must be refused (it previously only blocked dispatched/cancelled).
+    if order.get("status") not in (
+        OrderStatus.IMPORTED.value,
+        OrderStatus.PENDING_PICKING.value,
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot create picking for order in status '{order.get('status')}'",
+            detail=(
+                f"El pedido ya está en '{order.get('status')}'; "
+                "no se puede generar picking nuevamente."
+            ),
         )
 
     existing = await db[Collections.PICKING_TASKS].find_one(

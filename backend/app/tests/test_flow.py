@@ -521,3 +521,23 @@ async def test_update_location():
         tenant_id, loc["id"], LocationUpdate(code="EDIT-1B"), admin.id
     )
     assert ok["code"] == "EDIT-1B"
+
+
+async def test_cannot_regenerate_picking_after_completed():
+    """Un pedido ya pickeado (picked/packing/…) no debe poder generar picking otra vez."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order, plan = await _order_scan_plan(tenant_id)
+    order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
+    await picking_service.complete(tenant_id, task["id"], admin)
+
+    o = await order_service.get_order(tenant_id, order_id)
+    assert o["status"] == "picked"
+    with pytest.raises(Exception):
+        await order_service.create_picking_task(tenant_id, order_id, admin.id)
