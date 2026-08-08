@@ -1,5 +1,5 @@
 import { http } from './http';
-import type { InventoryBalance, InventoryMovement } from '../types';
+import type { InventoryBalance, InventoryMovement, Page } from '../types';
 
 export async function listBalances(params?: {
   product_id?: string;
@@ -7,8 +7,8 @@ export async function listBalances(params?: {
   location_id?: string;
   limit?: number;
   offset?: number;
-}): Promise<InventoryBalance[]> {
-  const { data } = await http.get<InventoryBalance[]>('/inventory/balances', { params });
+}): Promise<Page<InventoryBalance>> {
+  const { data } = await http.get<Page<InventoryBalance>>('/inventory/balances', { params });
   return data;
 }
 
@@ -16,8 +16,8 @@ export async function listMovements(params?: {
   product_id?: string;
   limit?: number;
   offset?: number;
-}): Promise<InventoryMovement[]> {
-  const { data } = await http.get<InventoryMovement[]>('/inventory/movements', { params });
+}): Promise<Page<InventoryMovement>> {
+  const { data } = await http.get<Page<InventoryMovement>>('/inventory/movements', { params });
   return data;
 }
 

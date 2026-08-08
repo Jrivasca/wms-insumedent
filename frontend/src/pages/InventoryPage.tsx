@@ -19,7 +19,9 @@ export default function InventoryPage() {
   const [fWarehouse, setFWarehouse] = useState('');
   const [fLocation, setFLocation] = useState('');
   const [balOffset, setBalOffset] = useState(0);
+  const [balTotal, setBalTotal] = useState(0);
   const [movOffset, setMovOffset] = useState(0);
+  const [movTotal, setMovTotal] = useState(0);
 
   async function loadBalances(offset: number) {
     setLoading(true);
@@ -31,7 +33,8 @@ export default function InventoryPage() {
         limit: PAGE,
         offset,
       });
-      setBalances(data);
+      setBalances(data.items);
+      setBalTotal(data.total);
       setBalOffset(offset);
     } catch (err) {
       setError(errorMessage(err));
@@ -42,7 +45,9 @@ export default function InventoryPage() {
 
   async function loadMovements(offset: number) {
     try {
-      setMovements(await listMovements({ limit: PAGE, offset }));
+      const data = await listMovements({ limit: PAGE, offset });
+      setMovements(data.items);
+      setMovTotal(data.total);
       setMovOffset(offset);
     } catch {
       // movements are secondary; ignore errors silently
@@ -141,6 +146,7 @@ export default function InventoryPage() {
         offset={balOffset}
         pageSize={PAGE}
         count={balances.length}
+        total={balTotal}
         onPrev={() => loadBalances(Math.max(0, balOffset - PAGE))}
         onNext={() => loadBalances(balOffset + PAGE)}
       />
@@ -182,6 +188,7 @@ export default function InventoryPage() {
         offset={movOffset}
         pageSize={PAGE}
         count={movements.length}
+        total={movTotal}
         onPrev={() => loadMovements(Math.max(0, movOffset - PAGE))}
         onNext={() => loadMovements(movOffset + PAGE)}
       />

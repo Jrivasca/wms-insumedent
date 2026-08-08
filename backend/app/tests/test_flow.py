@@ -78,8 +78,9 @@ async def test_login_and_products():
     count = await db[Collections.PRODUCTS].count_documents({"tenant_id": tenant_id})
     assert count == len(catalog)
 
-    products = await product_service.list_products(tenant_id)
-    assert products  # listing returns rows (capped at 500 against real Mongo)
+    listed = await product_service.list_products(tenant_id)
+    assert listed["items"]  # listing returns rows (capped at 500 against real Mongo)
+    assert listed["total"] == count  # envelope reports the full count, not just the page
 
     first = catalog[0]
     found = await product_service.get_by_barcode(tenant_id, first["barcode"])
@@ -115,7 +116,7 @@ async def test_full_picking_packing_dispatch_flow():
     completed = await picking_service.complete(tenant_id, task_id, admin)
     assert completed["status"] == "completed"
 
-    packing_tasks = await packing_service.list_tasks(tenant_id, admin)
+    packing_tasks = (await packing_service.list_tasks(tenant_id, admin))["items"]
     assert len(packing_tasks) == 1
     packing_id = packing_tasks[0]["id"]
 
@@ -158,7 +159,7 @@ async def test_double_dispatch_blocked():
     await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
     await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
     await picking_service.complete(tenant_id, task["id"], admin)
-    pk = (await packing_service.list_tasks(tenant_id, admin))[0]
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     await packing_service.start_task(tenant_id, pk["id"], admin)
     await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
     await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
@@ -239,7 +240,7 @@ async def test_packing_reset_line():
     await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
     await picking_service.complete(tenant_id, task["id"], admin)
 
-    pk = (await packing_service.list_tasks(tenant_id, admin))[0]
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     pid = pk["id"]
     sku1 = pk["lines"][0]["sku"]
     await packing_service.start_task(tenant_id, pid, admin)
@@ -340,9 +341,14 @@ async def test_products_pagination():
     tenant_id = seed["tenant_id"]
     page1 = await product_service.list_products(tenant_id, limit=10, offset=0)
     page2 = await product_service.list_products(tenant_id, limit=10, offset=10)
-    assert len(page1) == 10
-    assert len(page2) == 10
-    assert {p["id"] for p in page1}.isdisjoint({p["id"] for p in page2})
+    # Envelope carries paging metadata so the UI can render "X–Y de N".
+    assert page1["limit"] == 10 and page1["offset"] == 0
+    assert page2["offset"] == 10
+    assert page1["total"] == page2["total"] >= 20
+    items1, items2 = page1["items"], page2["items"]
+    assert len(items1) == 10
+    assert len(items2) == 10
+    assert {p["id"] for p in items1}.isdisjoint({p["id"] for p in items2})
 
 
 async def test_user_cannot_lock_himself_out():

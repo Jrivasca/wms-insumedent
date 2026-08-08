@@ -5,6 +5,7 @@ import { listPickingTasks } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field, ProductPicker } from '../components/Form';
+import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
 import { ERP_CREATE_ENABLED, PDF_IMPORT_ENABLED } from '../config';
 import { can } from '../permissions';
@@ -12,6 +13,7 @@ import { useAuth } from '../store/auth';
 import type { Order, PickingTask, Product } from '../types';
 
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
+const PAGE = 50;
 
 export default function OrdersPage() {
   const navigate = useNavigate();
@@ -19,6 +21,8 @@ export default function OrdersPage() {
   const { currentUser } = useAuth();
   const canEdit = can(currentUser?.role); // admin / supervisor
   const [orders, setOrders] = useState<Order[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,17 +46,19 @@ export default function OrdersPage() {
   const [editLines, setEditLines] = useState<{ product: Product | null; qty: string }[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  async function load() {
+  async function load(off = 0) {
     setLoading(true);
     setError(null);
     try {
       const [ords, tasks] = await Promise.all([
-        listOrders(),
-        listPickingTasks().catch(() => [] as PickingTask[]),
+        listOrders({ limit: PAGE, offset: off }),
+        listPickingTasks().catch(() => null),
       ]);
-      setOrders(ords);
+      setOrders(ords.items);
+      setTotal(ords.total);
+      setOffset(off);
       const map: Record<string, PickingTask> = {};
-      for (const t of tasks) {
+      for (const t of tasks?.items ?? []) {
         if (!CLOSED_PICKING.includes(t.status)) map[t.order_id] = t;
       }
       setPickingByOrder(map);
@@ -284,6 +290,16 @@ export default function OrdersPage() {
               </table>
             </div>
           )}
+          <div className="mt-2">
+            <Pager
+              offset={offset}
+              pageSize={PAGE}
+              count={orders.length}
+              total={total}
+              onPrev={() => load(Math.max(0, offset - PAGE))}
+              onNext={() => load(offset + PAGE)}
+            />
+          </div>
         </div>
 
         <div>

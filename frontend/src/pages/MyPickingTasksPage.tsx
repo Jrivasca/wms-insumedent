@@ -15,7 +15,7 @@ export default function MyPickingTasksPage() {
     setLoading(true);
     setError(null);
     try {
-      setTasks(await listPickingTasks({ assigned_to: 'me' }));
+      setTasks((await listPickingTasks({ assigned_to: 'me' })).items);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

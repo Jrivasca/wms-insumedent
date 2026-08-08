@@ -1,8 +1,11 @@
 import { http } from './http';
-import type { Dispatch } from '../types';
+import type { Dispatch, Page } from '../types';
 
-export async function listDispatches(): Promise<Dispatch[]> {
-  const { data } = await http.get<Dispatch[]>('/dispatches');
+export async function listDispatches(params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<Page<Dispatch>> {
+  const { data } = await http.get<Page<Dispatch>>('/dispatches', { params });
   return data;
 }
 

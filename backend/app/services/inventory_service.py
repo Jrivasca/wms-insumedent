@@ -10,7 +10,7 @@ from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.core.database import get_database
-from app.core.utils import now_utc, serialize, to_object_id
+from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.sync_job import SyncJobType
@@ -367,7 +367,7 @@ async def list_balances(
     location_id: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if product_id:
@@ -379,6 +379,7 @@ async def list_balances(
 
     limit = max(1, min(limit, 1000))
     offset = max(0, offset)
+    total = await db[Collections.INVENTORY_BALANCES].count_documents(query)
     balances = (
         await db[Collections.INVENTORY_BALANCES]
         .find(query)
@@ -408,7 +409,7 @@ async def list_balances(
         data["product_name"] = product.get("name") if product else None
         data["location_code"] = location.get("code") if location else None
         enriched.append(data)
-    return enriched
+    return page(enriched, total, limit, offset)
 
 
 async def list_movements(
@@ -416,13 +417,14 @@ async def list_movements(
     product_id: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if product_id:
         query["product_id"] = product_id
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
+    total = await db[Collections.INVENTORY_MOVEMENTS].count_documents(query)
     cursor = (
         db[Collections.INVENTORY_MOVEMENTS]
         .find(query)
@@ -442,4 +444,4 @@ async def list_movements(
         product = products.get(m.get("product_id"))
         data["sku"] = product.get("sku") if product else None
         result.append(data)
-    return result
+    return page(result, total, limit, offset)

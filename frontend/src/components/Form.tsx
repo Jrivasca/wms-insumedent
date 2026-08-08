@@ -80,7 +80,7 @@ export function ProductPicker({
     }
     setSearching(true);
     try {
-      setResults(await listProducts(q.trim(), 8, 0));
+      setResults((await listProducts(q.trim(), 8, 0)).items);
     } catch {
       setResults([]);
     } finally {

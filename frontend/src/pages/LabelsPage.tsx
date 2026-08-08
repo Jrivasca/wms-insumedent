@@ -20,7 +20,7 @@ export default function LabelsPage() {
     setLoading(true);
     setError(null);
     try {
-      setProducts(await listProducts(term?.trim() || undefined));
+      setProducts((await listProducts(term?.trim() || undefined)).items);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

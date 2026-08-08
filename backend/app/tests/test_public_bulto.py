@@ -41,7 +41,7 @@ async def _drive_to_packed_package():
         await picking_service.scan(tenant_id, task["id"], admin, bc, q, None)
     await picking_service.complete(tenant_id, task["id"], admin)
 
-    pk = (await packing_service.list_tasks(tenant_id, admin))[0]
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     pid = pk["id"]
     await packing_service.start_task(tenant_id, pid, admin)
     pkg = await packing_service.create_package(tenant_id, pid, admin, "Bulto 1")

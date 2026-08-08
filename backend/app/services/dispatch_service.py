@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
 from app.core.database import get_database
-from app.core.utils import now_utc, serialize, to_object_id
+from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.dispatch import DispatchStatus
 from app.models.order import OrderStatus
@@ -12,10 +12,19 @@ from app.models.sync_job import SyncJobType
 from app.services import sync_job_service
 
 
-async def list_dispatches(tenant_id: str) -> List[Dict[str, Any]]:
+async def list_dispatches(
+    tenant_id: str, limit: int = 500, offset: int = 0
+) -> Dict[str, Any]:
     db = get_database()
-    cursor = db[Collections.DISPATCHES].find({"tenant_id": tenant_id}).sort("created_at", -1)
-    return [serialize(d) for d in await cursor.to_list(length=500)]
+    query: Dict[str, Any] = {"tenant_id": tenant_id}
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    total = await db[Collections.DISPATCHES].count_documents(query)
+    cursor = (
+        db[Collections.DISPATCHES].find(query).sort("created_at", -1).skip(offset).limit(limit)
+    )
+    items = [serialize(d) for d in await cursor.to_list(length=limit)]
+    return page(items, total, limit, offset)
 
 
 async def get_dispatch(tenant_id: str, dispatch_id: str) -> Dict[str, Any]:

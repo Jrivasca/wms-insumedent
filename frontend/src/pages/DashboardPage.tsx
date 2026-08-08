@@ -6,7 +6,7 @@ import { getDefontanaStatus } from '../api/integrations';
 import { ErrorBox, Loading, PageHeader } from '../components/Async';
 import StatusBadge from '../components/StatusBadge';
 import { errorMessage } from '../api/http';
-import type { DefontanaStatus, Order, SyncJob } from '../types';
+import type { DefontanaStatus, SyncJob } from '../types';
 
 interface Stats {
   products: number;
@@ -25,21 +25,22 @@ export default function DashboardPage() {
     setError(null);
     try {
       const [products, orders, jobs, defontana] = await Promise.all([
-        listProducts().catch(() => [] as never[]),
-        listOrders().catch(() => [] as Order[]),
+        listProducts().catch(() => null),
+        listOrders().catch(() => null),
         listSyncJobs().catch(() => [] as SyncJob[]),
         getDefontanaStatus().catch(() => null),
       ]);
 
       const ordersByStatus: Record<string, number> = {};
-      for (const o of orders) {
+      for (const o of orders?.items ?? []) {
         ordersByStatus[o.status] = (ordersByStatus[o.status] ?? 0) + 1;
       }
       const pendingSync = jobs.filter(
         (j) => j.status === 'pending' || j.status === 'queued' || j.status === 'retrying'
       ).length;
 
-      setStats({ products: products.length, ordersByStatus, pendingSync, defontana });
+      // `total` is the real catalog size (not just the first page).
+      setStats({ products: products?.total ?? 0, ordersByStatus, pendingSync, defontana });
     } catch (err) {
       setError(errorMessage(err));
     } finally {

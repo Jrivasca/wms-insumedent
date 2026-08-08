@@ -1,8 +1,12 @@
 import { http } from './http';
-import type { Order, PickingTask } from '../types';
+import type { Order, Page, PickingTask } from '../types';
 
-export async function listOrders(): Promise<Order[]> {
-  const { data } = await http.get<Order[]>('/orders');
+export async function listOrders(params?: {
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<Page<Order>> {
+  const { data } = await http.get<Page<Order>>('/orders', { params });
   return data;
 }
 

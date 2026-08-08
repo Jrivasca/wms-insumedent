@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.database import get_database
-from app.core.utils import now_utc, serialize, to_object_id
+from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.product import BarcodeSource, BarcodeType
 from app.models.sync_job import SyncJobType
@@ -27,7 +27,7 @@ async def list_products(
     search: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if search:
@@ -37,6 +37,7 @@ async def list_products(
         ]
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
+    total = await db[Collections.PRODUCTS].count_documents(query)
     cursor = (
         db[Collections.PRODUCTS].find(query).sort("name", 1).skip(offset).limit(limit)
     )
@@ -45,7 +46,7 @@ async def list_products(
         data = serialize(p)
         data["barcodes"] = await _barcodes_for(tenant_id, data["id"])
         result.append(data)
-    return result
+    return page(result, total, limit, offset)
 
 
 async def get_product(tenant_id: str, product_id: str) -> Dict[str, Any]:

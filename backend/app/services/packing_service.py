@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.database import get_database
-from app.core.utils import now_utc, serialize, to_object_id
+from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
@@ -129,16 +129,26 @@ async def create_packing_task_from_picking(
 
 
 async def list_tasks(
-    tenant_id: str, user: CurrentUser, assigned_to: Optional[str] = None
-) -> List[Dict[str, Any]]:
+    tenant_id: str,
+    user: CurrentUser,
+    assigned_to: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> Dict[str, Any]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if assigned_to == "me":
         query["assigned_to"] = user.id
     elif assigned_to:
         query["assigned_to"] = assigned_to
-    cursor = db[Collections.PACKING_TASKS].find(query).sort("created_at", -1)
-    return [serialize(t) for t in await cursor.to_list(length=500)]
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    total = await db[Collections.PACKING_TASKS].count_documents(query)
+    cursor = (
+        db[Collections.PACKING_TASKS].find(query).sort("created_at", -1).skip(offset).limit(limit)
+    )
+    items = [serialize(t) for t in await cursor.to_list(length=limit)]
+    return page(items, total, limit, offset)
 
 
 async def get_task(tenant_id: str, task_id: str) -> Dict[str, Any]:

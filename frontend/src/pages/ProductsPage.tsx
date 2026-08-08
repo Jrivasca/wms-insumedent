@@ -12,6 +12,7 @@ const EMPTY_NEW = { sku: '', name: '', category: '', unit: 'UN', brand: '', barc
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [barcodeSearch, setBarcodeSearch] = useState('');
   const [offset, setOffset] = useState(0);
@@ -33,7 +34,9 @@ export default function ProductsPage() {
     setLoading(true);
     setError(null);
     try {
-      setProducts(await listProducts(searchTerm, PAGE, off));
+      const p = await listProducts(searchTerm, PAGE, off);
+      setProducts(p.items);
+      setTotal(p.total);
       setOffset(off);
     } catch (err) {
       setError(errorMessage(err));
@@ -62,11 +65,15 @@ export default function ProductsPage() {
     try {
       const product = await getProductByBarcode(code);
       setProducts([product]);
+      setOffset(0);
+      setTotal(1);
       setNotice(`Producto encontrado por código de barras: ${product.sku}`);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 404) {
         setProducts([]);
+        setOffset(0);
+        setTotal(0);
         setNotice(`No existe producto con código ${code}`);
       } else {
         setError(errorMessage(err));
@@ -275,6 +282,7 @@ export default function ProductsPage() {
           offset={offset}
           pageSize={PAGE}
           count={products.length}
+          total={total}
           onPrev={() => load(search.trim() || undefined, Math.max(0, offset - PAGE))}
           onNext={() => load(search.trim() || undefined, offset + PAGE)}
         />

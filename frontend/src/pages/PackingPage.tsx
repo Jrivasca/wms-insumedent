@@ -3,20 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
+import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
 import type { PackingTask } from '../types';
+
+const PAGE = 50;
 
 export default function PackingPage() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<PackingTask[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  async function load(off = 0) {
     setLoading(true);
     setError(null);
     try {
-      setTasks(await listPackingTasks());
+      const data = await listPackingTasks({ limit: PAGE, offset: off });
+      setTasks(data.items);
+      setTotal(data.total);
+      setOffset(off);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -25,7 +33,7 @@ export default function PackingPage() {
   }
 
   useEffect(() => {
-    load();
+    load(0);
   }, []);
 
   return (
@@ -34,13 +42,13 @@ export default function PackingPage() {
         title="Packing"
         subtitle="Todas las tareas de packing · toca una tarea para abrirla o continuarla"
         actions={
-          <button onClick={load} className="btn-secondary">
+          <button onClick={() => load(offset)} className="btn-secondary">
             Refrescar
           </button>
         }
       />
 
-      {error && <ErrorBox message={error} onRetry={load} />}
+      {error && <ErrorBox message={error} onRetry={() => load(offset)} />}
 
       {loading ? (
         <Loading />
@@ -90,6 +98,17 @@ export default function PackingPage() {
           </table>
         </div>
       )}
+
+      <div className="mt-2">
+        <Pager
+          offset={offset}
+          pageSize={PAGE}
+          count={tasks.length}
+          total={total}
+          onPrev={() => load(Math.max(0, offset - PAGE))}
+          onNext={() => load(offset + PAGE)}
+        />
+      </div>
     </div>
   );
 }

@@ -1,11 +1,13 @@
 import { http } from './http';
-import type { PickingTask, ScanResult } from '../types';
+import type { Page, PickingTask, ScanResult } from '../types';
 
 export async function listPickingTasks(params?: {
   assigned_to?: string;
   status?: string;
-}): Promise<PickingTask[]> {
-  const { data } = await http.get<PickingTask[]>('/picking/tasks', { params });
+  limit?: number;
+  offset?: number;
+}): Promise<Page<PickingTask>> {
+  const { data } = await http.get<Page<PickingTask>>('/picking/tasks', { params });
   return data;
 }
 

@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
 from app.core.database import get_database
-from app.core.utils import now_utc, serialize, to_object_id
+from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
@@ -43,7 +43,9 @@ async def list_tasks(
     user: CurrentUser,
     assigned_to: Optional[str] = None,
     status_filter: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    limit: int = 500,
+    offset: int = 0,
+) -> Dict[str, Any]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if assigned_to == "me":
@@ -52,8 +54,14 @@ async def list_tasks(
         query["assigned_to"] = assigned_to
     if status_filter:
         query["status"] = status_filter
-    cursor = db[Collections.PICKING_TASKS].find(query).sort("created_at", -1)
-    return [serialize(t) for t in await cursor.to_list(length=500)]
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    total = await db[Collections.PICKING_TASKS].count_documents(query)
+    cursor = (
+        db[Collections.PICKING_TASKS].find(query).sort("created_at", -1).skip(offset).limit(limit)
+    )
+    items = [serialize(t) for t in await cursor.to_list(length=limit)]
+    return page(items, total, limit, offset)
 
 
 async def get_task(tenant_id: str, task_id: str) -> Dict[str, Any]:

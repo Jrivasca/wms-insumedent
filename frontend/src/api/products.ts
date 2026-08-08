@@ -1,16 +1,16 @@
 import { http } from './http';
-import type { Barcode, Product } from '../types';
+import type { Barcode, Page, Product } from '../types';
 
 export async function listProducts(
   search?: string,
   limit?: number,
   offset?: number
-): Promise<Product[]> {
+): Promise<Page<Product>> {
   const params: Record<string, string | number> = {};
   if (search) params.search = search;
   if (limit != null) params.limit = limit;
   if (offset != null) params.offset = offset;
-  const { data } = await http.get<Product[]>('/products', { params });
+  const { data } = await http.get<Page<Product>>('/products', { params });
   return data;
 }
 

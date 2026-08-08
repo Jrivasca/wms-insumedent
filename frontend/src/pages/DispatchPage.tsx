@@ -5,12 +5,17 @@ import { listOrders } from '../api/orders';
 import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
+import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
-import type { Dispatch, Order, PackingTask } from '../types';
+import type { Dispatch, Order } from '../types';
+
+const PAGE = 50;
 
 export default function DispatchPage() {
   const navigate = useNavigate();
   const [dispatches, setDispatches] = useState<Dispatch[]>([]);
+  const [dispOffset, setDispOffset] = useState(0);
+  const [dispTotal, setDispTotal] = useState(0);
   const [readyOrders, setReadyOrders] = useState<Order[]>([]);
   const [taskByOrder, setTaskByOrder] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -25,19 +30,21 @@ export default function DispatchPage() {
 
   const carrierValue = carrierChoice === 'Otro' ? carrierOther.trim() : carrierChoice;
 
-  async function load() {
+  async function load(off = 0) {
     setLoading(true);
     setError(null);
     try {
       const [d, orders, tasks] = await Promise.all([
-        listDispatches().catch(() => [] as Dispatch[]),
-        listOrders().catch(() => [] as Order[]),
-        listPackingTasks().catch(() => [] as PackingTask[]),
+        listDispatches({ limit: PAGE, offset: off }).catch(() => null),
+        listOrders().catch(() => null),
+        listPackingTasks().catch(() => null),
       ]);
-      setDispatches(d);
-      setReadyOrders(orders.filter((o) => o.status === 'ready_to_dispatch'));
+      setDispatches(d?.items ?? []);
+      setDispTotal(d?.total ?? 0);
+      setDispOffset(off);
+      setReadyOrders((orders?.items ?? []).filter((o) => o.status === 'ready_to_dispatch'));
       const map: Record<string, string> = {};
-      for (const t of tasks) map[t.order_id] = t.id;
+      for (const t of tasks?.items ?? []) map[t.order_id] = t.id;
       setTaskByOrder(map);
     } catch (err) {
       setError(errorMessage(err));
@@ -47,7 +54,7 @@ export default function DispatchPage() {
   }
 
   useEffect(() => {
-    load();
+    load(0);
   }, []);
 
   function openLabels(orderId: string) {

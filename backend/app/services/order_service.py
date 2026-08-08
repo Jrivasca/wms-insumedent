@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.core.database import get_database
-from app.core.utils import now_utc, serialize, to_object_id
+from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.order import OrderLineStatus, OrderStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
@@ -59,13 +59,24 @@ async def _default_warehouse_id(tenant_id: str) -> Optional[str]:
     return str(warehouse["_id"]) if warehouse else None
 
 
-async def list_orders(tenant_id: str, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+async def list_orders(
+    tenant_id: str,
+    status_filter: Optional[str] = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> Dict[str, Any]:
     db = get_database()
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if status_filter:
         query["status"] = status_filter
-    cursor = db[Collections.ORDERS].find(query).sort("created_at", -1)
-    return [serialize(o) for o in await cursor.to_list(length=500)]
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    total = await db[Collections.ORDERS].count_documents(query)
+    cursor = (
+        db[Collections.ORDERS].find(query).sort("created_at", -1).skip(offset).limit(limit)
+    )
+    items = [serialize(o) for o in await cursor.to_list(length=limit)]
+    return page(items, total, limit, offset)
 
 
 async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
