@@ -10,7 +10,7 @@ from app.models import Collections
 from app.models.order import OrderLineStatus, OrderStatus
 from app.models.sync_job import SyncJobType
 from app.schemas.order import OrderCreate, OrderUpdate
-from app.services import order_service, sync_job_service
+from app.services import order_service, packing_service, picking_service, sync_job_service
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -190,3 +190,31 @@ async def create_picking(order_id: str, user: CurrentUser = Depends(get_current_
         user_agent=user.user_agent,
     )
     return task
+
+
+@router.post("/{order_id}/reopen-packing")
+async def reopen_packing(
+    order_id: str, user: CurrentUser = Depends(require_roles("supervisor"))
+):
+    """Retroceso: reabrir el packing (el pedido vuelve a 'packing')."""
+    result = await packing_service.reopen_packing(user.tenant_id, order_id, user)
+    await log_action(
+        tenant_id=user.tenant_id, user_id=user.id, action="reopen_packing",
+        entity_type="order", entity_id=order_id, metadata={"order_id": order_id},
+        ip=user.ip, user_agent=user.user_agent,
+    )
+    return result
+
+
+@router.post("/{order_id}/reopen-picking")
+async def reopen_picking(
+    order_id: str, user: CurrentUser = Depends(require_roles("supervisor"))
+):
+    """Retroceso: reabrir el picking (el pedido vuelve a 'picking'; cancela packing)."""
+    result = await picking_service.reopen_picking(user.tenant_id, order_id, user)
+    await log_action(
+        tenant_id=user.tenant_id, user_id=user.id, action="reopen_picking",
+        entity_type="order", entity_id=order_id, metadata={"order_id": order_id},
+        ip=user.ip, user_agent=user.user_agent,
+    )
+    return result

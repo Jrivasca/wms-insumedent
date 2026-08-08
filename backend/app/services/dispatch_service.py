@@ -43,6 +43,7 @@ async def confirm_dispatch(
     user: CurrentUser,
     carrier: Optional[str] = None,
     tracking_number: Optional[str] = None,
+    guide_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Confirm dispatch for a ready order and enqueue the Defontana sync job (8.3)."""
     db = get_database()
@@ -58,12 +59,13 @@ async def confirm_dispatch(
             detail="Order must be ready_to_dispatch to confirm dispatch",
         )
 
-    # Prevent double dispatch (section 8.3).
+    # Prevent double dispatch (8.3). A cancelled/errored dispatch does not count, so an
+    # order whose dispatch was annulled can be dispatched again.
     existing = await db[Collections.DISPATCHES].find_one(
         {
             "tenant_id": tenant_id,
             "order_id": order_id,
-            "status": {"$ne": DispatchStatus.ERROR.value},
+            "status": {"$nin": [DispatchStatus.ERROR.value, DispatchStatus.CANCELLED.value]},
         }
     )
     if existing:
@@ -78,6 +80,7 @@ async def confirm_dispatch(
         "erp_order_number": order.get("erp_order_number"),
         "status": DispatchStatus.PENDING.value,
         "dispatch_date": now,
+        "guide_number": guide_number,
         "carrier": carrier,
         "tracking_number": tracking_number,
         "erp_dispatch_response": None,
@@ -111,3 +114,39 @@ async def confirm_dispatch(
         {"_id": dispatch["_id"]}, {"$set": {"sync_job_id": job["id"]}}
     )
     return serialize(await db[Collections.DISPATCHES].find_one({"_id": dispatch["_id"]}))
+
+
+async def cancel_dispatch(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
+    """Retroceso: anular el despacho de un pedido despachado. El pedido vuelve a
+    'ready_to_dispatch' y el despacho queda 'cancelled' (puede re-despacharse)."""
+    db = get_database()
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if order.get("status") != OrderStatus.DISPATCHED.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se puede anular el despacho de un pedido despachado.",
+        )
+
+    now = now_utc()
+    dispatch = await db[Collections.DISPATCHES].find_one(
+        {
+            "tenant_id": tenant_id,
+            "order_id": order_id,
+            "status": {"$nin": [DispatchStatus.ERROR.value, DispatchStatus.CANCELLED.value]},
+        }
+    )
+    if dispatch:
+        await db[Collections.DISPATCHES].update_one(
+            {"_id": dispatch["_id"]},
+            {"$set": {"status": DispatchStatus.CANCELLED.value, "updated_at": now,
+                      "updated_by": user.id}},
+        )
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"status": OrderStatus.READY_TO_DISPATCH.value, "updated_at": now}},
+    )
+    return await get_dispatch(tenant_id, str(dispatch["_id"])) if dispatch else {"status": "reverted"}

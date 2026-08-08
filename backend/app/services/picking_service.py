@@ -8,6 +8,7 @@ from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
+from app.models.packing import PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.services import inventory_service, packing_service
 
@@ -354,3 +355,49 @@ async def complete(
     await packing_service.create_packing_task_from_picking(tenant_id, task, user)
 
     return serialize(task)
+
+
+async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
+    """Retroceso (supervisor): reabrir el picking. El pedido vuelve a 'picking', la tarea
+    de picking a 'in_progress' y la de packing se cancela (se regenera al recompletar el
+    picking). Nota: los movimientos de inventario ya registrados NO se revierten
+    automáticamente; si hace falta, corregir con un ajuste."""
+    db = get_database()
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if order.get("status") not in (
+        OrderStatus.PICKED.value,
+        OrderStatus.PACKING.value,
+        OrderStatus.PACKED.value,
+        OrderStatus.READY_TO_DISPATCH.value,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El pedido no está en una etapa que permita reabrir picking.",
+        )
+    now = now_utc()
+    # Cancelar cualquier tarea de packing activa (se regenerará al recompletar picking).
+    await db[Collections.PACKING_TASKS].update_many(
+        {"tenant_id": tenant_id, "order_id": order_id,
+         "status": {"$ne": PackingTaskStatus.CANCELLED.value}},
+        {"$set": {"status": PackingTaskStatus.CANCELLED.value, "updated_at": now,
+                  "updated_by": user.id}},
+    )
+    task = await db[Collections.PICKING_TASKS].find_one(
+        {"tenant_id": tenant_id, "order_id": order_id,
+         "status": {"$ne": PickingTaskStatus.CANCELLED.value}}
+    )
+    if task:
+        await db[Collections.PICKING_TASKS].update_one(
+            {"_id": task["_id"]},
+            {"$set": {"status": PickingTaskStatus.IN_PROGRESS.value, "completed_at": None,
+                      "updated_at": now, "updated_by": user.id}},
+        )
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"status": OrderStatus.PICKING.value, "updated_at": now}},
+    )
+    return serialize(await _load_task(tenant_id, str(task["_id"]))) if task else {"status": "reverted"}

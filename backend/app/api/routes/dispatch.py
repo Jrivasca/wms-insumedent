@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.api.deps import CurrentUser, get_current_user, require_roles
+from app.api.deps import CurrentUser, get_current_user, require_roles, require_supervisor
 from app.schemas.dispatch import DispatchRequest
 from app.services import dispatch_service
 from app.services.audit_service import log_action
@@ -15,7 +15,10 @@ async def dispatch_order(
     user: CurrentUser = Depends(require_roles("supervisor", "dispatcher")),
 ):
     dispatch = await dispatch_service.confirm_dispatch(
-        user.tenant_id, order_id, user, payload.carrier, payload.tracking_number
+        user.tenant_id, order_id, user,
+        carrier=payload.carrier,
+        tracking_number=payload.tracking_number,
+        guide_number=payload.guide_number,
     )
     await log_action(
         tenant_id=user.tenant_id,
@@ -23,11 +26,31 @@ async def dispatch_order(
         action="confirm_dispatch",
         entity_type="dispatch",
         entity_id=dispatch["id"],
-        metadata={"order_id": order_id, "carrier": payload.carrier},
+        metadata={"order_id": order_id, "carrier": payload.carrier,
+                  "guide_number": payload.guide_number},
         ip=user.ip,
         user_agent=user.user_agent,
     )
     return dispatch
+
+
+@router.post("/orders/{order_id}/dispatch/cancel")
+async def cancel_dispatch(
+    order_id: str, user: CurrentUser = Depends(require_supervisor)
+):
+    """Retroceso: anular el despacho (el pedido vuelve a 'listo para despacho')."""
+    result = await dispatch_service.cancel_dispatch(user.tenant_id, order_id, user)
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="cancel_dispatch",
+        entity_type="order",
+        entity_id=order_id,
+        metadata={"order_id": order_id},
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    return result
 
 
 @router.get("/dispatches")
