@@ -23,11 +23,19 @@ import unicodedata
 from typing import List, Optional
 
 import pdfplumber
+from PIL import Image, ImageOps  # Pillow ships with pdfplumber
 
-try:  # OCR stack (phase 2). pypdfium2 + Pillow ship with pdfplumber; pytesseract is new.
+# Optional: let Pillow open iPhone HEIC/HEIF photos (registers the opener if present).
+try:  # pragma: no cover - depends on the optional wheel being installed
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+except Exception:  # pragma: no cover
+    pass
+
+try:  # OCR stack (phase 2). pytesseract also needs the Tesseract binary at runtime.
     import pypdfium2 as pdfium
     import pytesseract
-    from PIL import Image
     _OCR_LIBS = True
 except Exception:  # pragma: no cover
     _OCR_LIBS = False
@@ -179,13 +187,37 @@ def _ocr_available() -> bool:
         return False
 
 
+def _normalize_for_ocr(img: "Image.Image") -> "Image.Image":
+    """Return an OCR-friendly copy of a photo.
+
+    Phone photos are frequently MPO (iPhone), HEIC, CMYK or palette images. Tesseract
+    (via pytesseract) only accepts a fixed set of formats and otherwise raises
+    ``TypeError('Unsupported image format/type')`` — which used to surface as a 500.
+    ``convert('RGB')`` flattens the mode AND resets ``.format`` to ``None`` (pytesseract
+    then treats it as PNG), and ``exif_transpose`` honours the phone's rotation so the
+    text is upright for OCR.
+    """
+    img = ImageOps.exif_transpose(img) or img
+    return img.convert("RGB")
+
+
 def _ocr_image_bytes(image_bytes: bytes) -> str:
     try:
         img = Image.open(io.BytesIO(image_bytes))
         img.load()
+        img = _normalize_for_ocr(img)
     except Exception as exc:  # noqa: BLE001
-        raise ValueError("No se pudo abrir la imagen.") from exc
-    return pytesseract.image_to_string(img, lang=OCR_LANG)
+        raise ValueError(
+            "No se pudo abrir la imagen (formato no soportado). Sube una foto JPG/PNG "
+            "o el PDF."
+        ) from exc
+    try:
+        return pytesseract.image_to_string(img, lang=OCR_LANG)
+    except Exception as exc:  # noqa: BLE001 - never leak a raw 500 to the operator
+        raise ValueError(
+            "No se pudo leer la imagen por OCR. Prueba con más luz/enfoque, recorta al "
+            "documento o sube el PDF."
+        ) from exc
 
 
 def _ocr_pdf_bytes(pdf_bytes: bytes) -> str:

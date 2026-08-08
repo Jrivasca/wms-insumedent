@@ -194,6 +194,20 @@ async def test_parse_rejects_non_pdf():
         parse_pdf(b"esto no es un pdf")
 
 
+async def test_normalize_image_for_ocr_flattens_unsupported_format():
+    """Fotos de iPhone suelen ser MPO/HEIC/CMYK: se normalizan a RGB (y format=None,
+    que pytesseract trata como PNG) para no reventar con 'Unsupported image format/type'."""
+    from PIL import Image
+
+    from app.services.pdf_order_parser import _normalize_for_ocr
+
+    img = Image.new("CMYK", (12, 12))
+    img.format = "MPO"  # formato que pytesseract rechaza
+    out = _normalize_for_ocr(img)
+    assert out.mode == "RGB"
+    assert not out.format  # convert() deja .format = None -> aceptado por pytesseract
+
+
 @pytest.mark.skipif(not _ocr_available(), reason="OCR/Tesseract no disponible en este entorno")
 async def test_ocr_pipeline_on_rendered_image():
     # Render the digital fixture to a clean PNG and run the OCR path end to end.
