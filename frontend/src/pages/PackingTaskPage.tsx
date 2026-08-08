@@ -106,11 +106,11 @@ export default function PackingTaskPage() {
         quantity: quantity || 1,
         package_id: activePackage ?? undefined,
       });
-      let tone: ToastTone;
+      let tone: 'success' | 'warning' | 'error';
       if (res.status === 'ok') tone = 'success';
       else if (res.feedback === 'warning') tone = 'warning'; // over-pack: ya completo / excede
       else tone = 'error'; // código ajeno al pedido
-      setFeedback(tone === 'info' ? 'idle' : tone);
+      setFeedback(tone);
       showMsg(res.message ?? (res.status === 'ok' ? 'Producto empacado' : 'Escaneo no válido'), tone);
       const refreshed =
         res.task && typeof res.task === 'object' ? (res.task as PackingTask) : await getPackingTask(id);
