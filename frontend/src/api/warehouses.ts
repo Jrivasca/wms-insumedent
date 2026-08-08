@@ -27,12 +27,26 @@ export async function listWarehouseLocations(warehouseId: string): Promise<Locat
   return data;
 }
 
-export async function createLocation(payload: {
-  warehouse_id: string;
-  code: string;
+export interface LocationInput {
+  code?: string;
   name?: string;
   type?: string;
-}): Promise<Location> {
+  zone?: string;
+  aisle?: string;
+  rack?: string;
+  level?: string;
+  bin?: string;
+  is_active?: boolean;
+}
+
+export async function createLocation(
+  payload: LocationInput & { warehouse_id: string; code: string }
+): Promise<Location> {
   const { data } = await http.post<Location>('/locations', payload);
+  return data;
+}
+
+export async function updateLocation(id: string, payload: LocationInput): Promise<Location> {
+  const { data } = await http.put<Location>(`/locations/${id}`, payload);
   return data;
 }

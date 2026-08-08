@@ -452,3 +452,72 @@ async def test_defontana_mock_sync_products():
     result = await integration_service.run_sync_products(tenant_id, admin.id)
     assert result["status"] == "ok"
     assert result["summary"]["synced"] == len(MOCK_PRODUCTS)
+
+
+async def test_dashboard_stats():
+    from app.services import dashboard_service
+
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    stats = await dashboard_service.get_stats(tenant_id)
+
+    catalog = _load_catalog()
+    assert stats["inventory"]["productos"] == len(catalog)
+    assert stats["inventory"]["con_stock"] >= 1  # el seed carga stock
+    assert stats["inventory"]["sin_stock"] >= 0
+    assert stats["inventory"]["ubicaciones"] >= 1
+
+    o = stats["orders"]
+    assert set(o) >= {
+        "total", "por_procesar", "en_proceso", "listos_despacho",
+        "despachados", "despachados_hoy", "error_cancelados", "por_estado",
+    }
+    # El desglose por estado suma el total.
+    assert sum(o["por_estado"].values()) == o["total"]
+    assert set(stats["operations"]) == {"picking_abiertas", "packing_abiertas", "sync_pendientes"}
+
+
+async def test_update_location():
+    from app.models.location import LocationType
+    from app.schemas.warehouse import LocationCreate, LocationUpdate
+    from app.services import warehouse_service
+
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    db = get_database()
+    wh = await db[Collections.WAREHOUSES].find_one({"tenant_id": tenant_id})
+    wid = str(wh["_id"])
+
+    loc = await warehouse_service.create_location(
+        tenant_id,
+        LocationCreate(warehouse_id=wid, code="EDIT-1", name="Orig", type=LocationType.STORAGE),
+        admin.id,
+    )
+
+    # Editar nombre, tipo, zona y desactivar.
+    upd = await warehouse_service.update_location(
+        tenant_id,
+        loc["id"],
+        LocationUpdate(name="Nuevo", type=LocationType.PICKING, zone="Z1", is_active=False),
+        admin.id,
+    )
+    assert upd["name"] == "Nuevo"
+    assert upd["type"] == "picking"
+    assert upd["zone"] == "Z1"
+    assert upd["is_active"] is False
+
+    # Un código repetido en la misma bodega se rechaza.
+    await warehouse_service.create_location(
+        tenant_id, LocationCreate(warehouse_id=wid, code="EDIT-2"), admin.id
+    )
+    with pytest.raises(Exception):
+        await warehouse_service.update_location(
+            tenant_id, loc["id"], LocationUpdate(code="EDIT-2"), admin.id
+        )
+
+    # Renombrar el código a uno libre funciona.
+    ok = await warehouse_service.update_location(
+        tenant_id, loc["id"], LocationUpdate(code="EDIT-1B"), admin.id
+    )
+    assert ok["code"] == "EDIT-1B"

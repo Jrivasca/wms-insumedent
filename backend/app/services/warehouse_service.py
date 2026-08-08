@@ -6,7 +6,7 @@ from app.core.database import get_database
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
 from app.models.location import DEFAULT_LOCATIONS
-from app.schemas.warehouse import LocationCreate, WarehouseCreate
+from app.schemas.warehouse import LocationCreate, LocationUpdate, WarehouseCreate
 
 
 async def list_warehouses(tenant_id: str) -> List[Dict[str, Any]]:
@@ -120,3 +120,51 @@ async def create_location(
     result = await db[Collections.LOCATIONS].insert_one(doc)
     doc["_id"] = result.inserted_id
     return serialize(doc)
+
+
+async def update_location(
+    tenant_id: str, location_id: str, data: LocationUpdate, actor: str
+) -> Dict[str, Any]:
+    """Edit a location's fields. The warehouse is fixed; the code stays unique per
+    warehouse. Stock/tasks reference the location by id, so renaming code is safe."""
+    db = get_database()
+    location = await db[Collections.LOCATIONS].find_one(
+        {"_id": to_object_id(location_id), "tenant_id": tenant_id}
+    )
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    update: Dict[str, Any] = {"updated_at": now_utc(), "updated_by": actor}
+    payload = data.model_dump(exclude_unset=True)
+
+    new_code = payload.get("code")
+    if new_code is not None:
+        new_code = new_code.strip()
+        if not new_code:
+            raise HTTPException(status_code=400, detail="El código no puede estar vacío")
+        if new_code != location["code"]:
+            clash = await db[Collections.LOCATIONS].find_one(
+                {
+                    "tenant_id": tenant_id,
+                    "warehouse_id": location["warehouse_id"],
+                    "code": new_code,
+                    "_id": {"$ne": location["_id"]},
+                }
+            )
+            if clash:
+                raise HTTPException(
+                    status_code=409, detail="Location code already exists in warehouse"
+                )
+        update["code"] = new_code
+
+    for field in ("name", "zone", "aisle", "rack", "level", "bin", "is_active"):
+        if field in payload:
+            update[field] = payload[field]
+    if payload.get("type") is not None:
+        # LocationType enum -> its string value.
+        update["type"] = getattr(payload["type"], "value", payload["type"])
+
+    await db[Collections.LOCATIONS].update_one(
+        {"_id": location["_id"]}, {"$set": update}
+    )
+    return serialize(await db[Collections.LOCATIONS].find_one({"_id": location["_id"]}))

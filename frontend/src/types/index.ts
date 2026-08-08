@@ -56,6 +56,31 @@ export interface Location {
   rack?: string;
   level?: string;
   bin?: string;
+  is_active?: boolean;
+}
+
+export interface DashboardStats {
+  orders: {
+    total: number;
+    por_procesar: number;
+    en_proceso: number;
+    listos_despacho: number;
+    despachados: number;
+    despachados_hoy: number;
+    error_cancelados: number;
+    por_estado: Record<string, number>;
+  };
+  inventory: {
+    productos: number;
+    sin_stock: number;
+    con_stock: number;
+    ubicaciones: number;
+  };
+  operations: {
+    picking_abiertas: number;
+    packing_abiertas: number;
+    sync_pendientes: number;
+  };
 }
 
 export interface InventoryBalance {
