@@ -357,6 +357,64 @@ async def register_operational_move(
     )
 
 
+async def reverse_moves_for_reference(
+    *, tenant_id: str, reference_type: str, reference_id: str, created_by: str, reason: str
+) -> int:
+    """Deshace los movimientos operativos de una referencia (una tarea de picking o
+    packing): por cada movimiento crea el inverso (origen/destino intercambiados) para
+    dejar los saldos como antes, lo registra como movimiento de reverso (auditable) y
+    marca el original como revertido. Idempotente: no revierte dos veces el mismo
+    movimiento. Devuelve cuántos movimientos revirtió."""
+    db = get_database()
+    moves = await db[Collections.INVENTORY_MOVEMENTS].find(
+        {
+            "tenant_id": tenant_id,
+            "reference_type": reference_type,
+            "reference_id": reference_id,
+            "reversed": {"$ne": True},
+            "is_reversal": {"$ne": True},
+        }
+    ).to_list(length=5000)
+
+    count = 0
+    for m in moves:
+        qty = m.get("quantity") or 0
+        if qty <= 0 or not m.get("product_id"):
+            continue
+        frm = m.get("from_location_id")
+        to = m.get("to_location_id")
+        lot = m.get("lot_number")
+        serial = m.get("serial_number")
+        # Inverso: sacar de `to`, devolver a `from`.
+        if to:
+            await change_location_stock(
+                tenant_id=tenant_id, product_id=m["product_id"],
+                warehouse_id=m["warehouse_id"], location_id=to, delta=-qty,
+                lot_number=lot, serial_number=serial, allow_negative=True,
+            )
+        if frm:
+            await change_location_stock(
+                tenant_id=tenant_id, product_id=m["product_id"],
+                warehouse_id=m["warehouse_id"], location_id=frm, delta=qty,
+                lot_number=lot, serial_number=serial, allow_negative=True,
+            )
+        rev = await record_movement(
+            tenant_id=tenant_id, movement_type=m.get("movement_type"),
+            product_id=m["product_id"], warehouse_id=m["warehouse_id"], quantity=qty,
+            from_location_id=to, to_location_id=frm, lot_number=lot, serial_number=serial,
+            reference_type=reference_type, reference_id=reference_id, reason=reason,
+            created_by=created_by,
+        )
+        await db[Collections.INVENTORY_MOVEMENTS].update_one(
+            {"_id": rev["_id"]}, {"$set": {"is_reversal": True}}
+        )
+        await db[Collections.INVENTORY_MOVEMENTS].update_one(
+            {"_id": m["_id"]}, {"$set": {"reversed": True}}
+        )
+        count += 1
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Read helpers used by the API layer
 # ---------------------------------------------------------------------------
