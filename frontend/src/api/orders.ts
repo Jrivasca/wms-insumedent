@@ -39,3 +39,13 @@ export async function createPicking(orderId: string): Promise<PickingTask> {
   const { data } = await http.post<PickingTask>(`/orders/${orderId}/create-picking`);
   return data;
 }
+
+export async function reopenPacking(orderId: string): Promise<unknown> {
+  const { data } = await http.post(`/orders/${orderId}/reopen-packing`);
+  return data;
+}
+
+export async function reopenPicking(orderId: string): Promise<unknown> {
+  const { data } = await http.post(`/orders/${orderId}/reopen-picking`);
+  return data;
+}

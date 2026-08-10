@@ -1,18 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { dispatchOrder, listDispatches } from '../api/dispatch';
+import { cancelDispatch, dispatchOrder, listDispatches } from '../api/dispatch';
 import { listOrders } from '../api/orders';
 import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
+import { can } from '../permissions';
+import { useAuth } from '../store/auth';
 import type { Dispatch, Order } from '../types';
 
 const PAGE = 50;
+const CANCELLABLE = ['pending', 'sent_to_defontana', 'completed'];
 
 export default function DispatchPage() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const canRevert = can(currentUser?.role); // admin / supervisor
   const [dispatches, setDispatches] = useState<Dispatch[]>([]);
   const [dispOffset, setDispOffset] = useState(0);
   const [dispTotal, setDispTotal] = useState(0);
@@ -23,6 +28,7 @@ export default function DispatchPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [activeOrder, setActiveOrder] = useState<string | null>(null);
+  const [guide, setGuide] = useState('');
   const [carrierChoice, setCarrierChoice] = useState('Bluexpress');
   const [carrierOther, setCarrierOther] = useState('');
   const [tracking, setTracking] = useState('');
@@ -69,15 +75,32 @@ export default function DispatchPage() {
     setNotice(null);
     try {
       await dispatchOrder(orderId, {
+        guide_number: guide.trim() || undefined,
         carrier: carrierValue || undefined,
         tracking_number: tracking.trim() || undefined,
       });
       setNotice('Despacho confirmado');
       setActiveOrder(null);
+      setGuide('');
       setCarrierChoice('Bluexpress');
       setCarrierOther('');
       setTracking('');
-      load();
+      load(dispOffset);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCancelDispatch(orderId: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await cancelDispatch(orderId);
+      setNotice('Despacho anulado. El pedido volvió a «listo para despacho».');
+      load(dispOffset);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -123,9 +146,21 @@ export default function DispatchPage() {
               </div>
 
               {activeOrder === o.id && (
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
                   <div>
-                    <label className="label">Transportista</label>
+                    <label className="label">N° guía de despacho</label>
+                    <input
+                      value={guide}
+                      onChange={(e) => setGuide(e.target.value)}
+                      placeholder="Ingresa la guía"
+                      className="input"
+                    />
+                    <p className="mt-1 text-xs text-slate-400">
+                      Creada en Defontana (por ahora manual). Opcional.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="label">Transportista (opcional)</label>
                     <select
                       value={carrierChoice}
                       onChange={(e) => setCarrierChoice(e.target.value)}
@@ -145,7 +180,7 @@ export default function DispatchPage() {
                     )}
                   </div>
                   <div>
-                    <label className="label">N° seguimiento</label>
+                    <label className="label">N° seguimiento (opcional)</label>
                     <input value={tracking} onChange={(e) => setTracking(e.target.value)} className="input" />
                   </div>
                   <div className="flex items-end gap-2">
@@ -171,8 +206,8 @@ export default function DispatchPage() {
           <table className="table w-full">
             <thead className="bg-slate-50">
               <tr>
-                <th>ID</th>
                 <th>Pedido</th>
+                <th>Guía</th>
                 <th>Transportista</th>
                 <th>Seguimiento</th>
                 <th>Estado</th>
@@ -182,19 +217,30 @@ export default function DispatchPage() {
             <tbody className="divide-y divide-slate-100">
               {dispatches.map((d) => (
                 <tr key={d.id}>
-                  <td className="font-mono text-xs">{d.id}</td>
                   <td>{d.order_id}</td>
+                  <td className="font-mono text-xs">{d.guide_number ?? '—'}</td>
                   <td>{d.carrier ?? '—'}</td>
                   <td>{d.tracking_number ?? '—'}</td>
                   <td>
                     <StatusBadge status={d.status} />
                   </td>
                   <td>
-                    {taskByOrder[d.order_id] && (
-                      <button onClick={() => openLabels(d.order_id)} className="btn-secondary">
-                        Etiquetas (QR)
-                      </button>
-                    )}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {taskByOrder[d.order_id] && (
+                        <button onClick={() => openLabels(d.order_id)} className="btn-secondary">
+                          Etiquetas (QR)
+                        </button>
+                      )}
+                      {canRevert && CANCELLABLE.includes(d.status) && (
+                        <button
+                          onClick={() => handleCancelDispatch(d.order_id)}
+                          className="btn-danger"
+                          disabled={busy}
+                        >
+                          Anular despacho
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -202,6 +248,15 @@ export default function DispatchPage() {
           </table>
         </div>
       )}
+
+      <Pager
+        offset={dispOffset}
+        pageSize={PAGE}
+        count={dispatches.length}
+        total={dispTotal}
+        onPrev={() => load(Math.max(0, dispOffset - PAGE))}
+        onNext={() => load(dispOffset + PAGE)}
+      />
     </div>
   );
 }

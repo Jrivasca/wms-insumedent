@@ -6,3 +6,4 @@ class DispatchStatus(str, Enum):
     SENT_TO_DEFONTANA = "sent_to_defontana"
     COMPLETED = "completed"
     ERROR = "error"
+    CANCELLED = "cancelled"

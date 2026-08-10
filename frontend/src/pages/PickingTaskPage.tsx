@@ -12,6 +12,7 @@ import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import StatusBadge from '../components/StatusBadge';
+import Toast from '../components/Toast';
 import type { PickingLine, PickingTask } from '../types';
 
 export default function PickingTaskPage() {
@@ -253,21 +254,7 @@ export default function PickingTaskPage() {
         </button>
       )}
 
-      {message && (
-        <div
-          className={`mb-3 rounded-md px-3 py-2 text-sm font-medium ${
-            messageTone === 'error'
-              ? 'bg-red-100 text-red-800'
-              : messageTone === 'warning'
-              ? 'bg-amber-100 text-amber-900'
-              : messageTone === 'success'
-              ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-blue-50 text-blue-700'
-          }`}
-        >
-          {message}
-        </div>
-      )}
+      <Toast message={message} tone={messageTone} onClose={() => setMessage(null)} />
       {error && <ErrorBox message={error} />}
 
       {/* Current line */}

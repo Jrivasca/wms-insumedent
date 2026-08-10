@@ -16,8 +16,13 @@ export async function getDispatch(id: string): Promise<Dispatch> {
 
 export async function dispatchOrder(
   orderId: string,
-  payload: { carrier?: string; tracking_number?: string }
+  payload: { guide_number?: string; carrier?: string; tracking_number?: string }
 ): Promise<Dispatch> {
   const { data } = await http.post<Dispatch>(`/orders/${orderId}/dispatch`, payload);
+  return data;
+}
+
+export async function cancelDispatch(orderId: string): Promise<unknown> {
+  const { data } = await http.post(`/orders/${orderId}/dispatch/cancel`);
   return data;
 }

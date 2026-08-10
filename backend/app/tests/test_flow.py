@@ -541,3 +541,47 @@ async def test_cannot_regenerate_picking_after_completed():
     assert o["status"] == "picked"
     with pytest.raises(Exception):
         await order_service.create_picking_task(tenant_id, order_id, admin.id)
+
+
+async def test_revert_flow_dispatch_packing_picking():
+    """Cadena de retroceso: anular despacho -> reabrir packing -> reabrir picking."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order, plan = await _order_scan_plan(tenant_id)
+    order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
+
+    # Llevar hasta despachado.
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
+    await picking_service.complete(tenant_id, task["id"], admin)
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
+    await packing_service.start_task(tenant_id, pk["id"], admin)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
+    await packing_service.complete(tenant_id, pk["id"], admin)
+    d1 = await dispatch_service.confirm_dispatch(tenant_id, order_id, admin, guide_number="GD-123")
+    assert d1["guide_number"] == "GD-123"
+    assert (await order_service.get_order(tenant_id, order_id))["status"] == "dispatched"
+
+    # Anular despacho -> ready_to_dispatch, y se puede re-despachar.
+    await dispatch_service.cancel_dispatch(tenant_id, order_id, admin)
+    assert (await order_service.get_order(tenant_id, order_id))["status"] == "ready_to_dispatch"
+    d2 = await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
+    assert d2["status"] == "pending"
+    await dispatch_service.cancel_dispatch(tenant_id, order_id, admin)
+
+    # Reabrir packing -> packing.
+    await packing_service.reopen_packing(tenant_id, order_id, admin)
+    assert (await order_service.get_order(tenant_id, order_id))["status"] == "packing"
+
+    # Reabrir picking -> picking, y la tarea de packing queda cancelada.
+    await picking_service.reopen_picking(tenant_id, order_id, admin)
+    assert (await order_service.get_order(tenant_id, order_id))["status"] == "picking"
+    db = get_database()
+    pk_after = await db[Collections.PACKING_TASKS].find_one(
+        {"tenant_id": tenant_id, "order_id": order_id}
+    )
+    assert pk_after["status"] == "cancelled"

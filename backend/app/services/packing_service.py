@@ -426,3 +426,38 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
         {"$set": {"status": OrderStatus.READY_TO_DISPATCH.value, "updated_at": now}},
     )
     return serialize(await _load_task(tenant_id, task_id))
+
+
+async def reopen_packing(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
+    """Retroceso (supervisor): reabrir el packing de un pedido listo para despacho.
+    El pedido vuelve a 'packing' y la tarea de packing a 'in_progress'."""
+    db = get_database()
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if order.get("status") not in (
+        OrderStatus.READY_TO_DISPATCH.value,
+        OrderStatus.PACKED.value,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se puede reabrir packing de un pedido listo para despacho.",
+        )
+    now = now_utc()
+    task = await db[Collections.PACKING_TASKS].find_one(
+        {"tenant_id": tenant_id, "order_id": order_id,
+         "status": {"$ne": PackingTaskStatus.CANCELLED.value}}
+    )
+    if task:
+        await db[Collections.PACKING_TASKS].update_one(
+            {"_id": task["_id"]},
+            {"$set": {"status": PackingTaskStatus.IN_PROGRESS.value, "completed_at": None,
+                      "updated_at": now, "updated_by": user.id}},
+        )
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"status": OrderStatus.PACKING.value, "updated_at": now}},
+    )
+    return serialize(await _load_task(tenant_id, str(task["_id"]))) if task else {"status": "reverted"}
