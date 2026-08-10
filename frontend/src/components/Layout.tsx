@@ -68,7 +68,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           <span className="mt-1.5 block h-0.5 w-6 bg-white" />
           <span className="mt-1.5 block h-0.5 w-6 bg-white" />
         </button>
-        <span className="font-bold">WMS Insumedent</span>
+        <span className="font-bold">
+          Selarix WMS <span className="font-normal text-slate-400">· Insumedent</span>
+        </span>
         <button onClick={handleLogout} className="text-sm underline">
           Salir
         </button>
@@ -80,8 +82,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         } w-full shrink-0 bg-slate-900 p-4 text-white md:block md:w-64 print:hidden`}
       >
         <div className="mb-6 hidden md:block">
-          <h1 className="text-lg font-bold">WMS Insumedent</h1>
-          <p className="text-xs text-slate-400">{ROLE_LABEL[role ?? ''] ?? role ?? ''}</p>
+          <h1 className="text-lg font-bold">Selarix WMS</h1>
+          <p className="text-xs text-slate-400">
+            Insumedent · {ROLE_LABEL[role ?? ''] ?? role ?? ''}
+          </p>
         </div>
 
         <nav className="space-y-1">

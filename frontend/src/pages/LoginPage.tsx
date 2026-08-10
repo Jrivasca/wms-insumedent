@@ -34,7 +34,8 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-900 p-4">
       <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-slate-900">WMS Insumedent</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Selarix WMS</h1>
+          <p className="text-sm font-medium text-slate-600">Insumedent</p>
           <p className="text-sm text-slate-500">Inicie sesión para continuar</p>
         </div>
 
