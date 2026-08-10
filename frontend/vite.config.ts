@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'WMS Insumedent',
-        short_name: 'WMS',
-        description: 'Warehouse Management System',
+        name: 'Selarix WMS',
+        short_name: 'Selarix',
+        description: 'Selarix WMS — Warehouse Management System',
         theme_color: '#1e293b',
         background_color: '#0f172a',
         display: 'standalone',
