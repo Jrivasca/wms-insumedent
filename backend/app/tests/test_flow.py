@@ -585,3 +585,34 @@ async def test_revert_flow_dispatch_packing_picking():
         {"tenant_id": tenant_id, "order_id": order_id}
     )
     assert pk_after["status"] == "cancelled"
+
+
+async def test_reopen_restores_inventory():
+    """Reabrir picking revierte el movimiento de inventario (la ubicación de origen
+    recupera su stock) y al recompletar no se descuenta dos veces."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order, plan = await _order_scan_plan(tenant_id)
+    order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    line0 = next(l for l in task["lines"] if l.get("barcode_expected") and bc1 in l["barcode_expected"])
+    pid, loc, wh = line0["product_id"], line0["suggested_location_id"], task["warehouse_id"]
+    before = (await inventory_service.get_balance_doc(tenant_id, pid, wh, loc))["quantity_on_hand"]
+
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
+    await picking_service.complete(tenant_id, task["id"], admin)
+    after_pick = (await inventory_service.get_balance_doc(tenant_id, pid, wh, loc))["quantity_on_hand"]
+    assert after_pick == before - q1  # el pick descontó la ubicación de origen
+
+    await picking_service.reopen_picking(tenant_id, order_id, admin)
+    restored = (await inventory_service.get_balance_doc(tenant_id, pid, wh, loc))["quantity_on_hand"]
+    assert restored == before  # el reverso devolvió el stock
+
+    # Recompletar el picking descuenta una sola vez (no se duplica).
+    await picking_service.complete(tenant_id, task["id"], admin)
+    final = (await inventory_service.get_balance_doc(tenant_id, pid, wh, loc))["quantity_on_hand"]
+    assert final == before - q1

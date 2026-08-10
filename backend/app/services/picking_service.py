@@ -360,8 +360,8 @@ async def complete(
 async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
     """Retroceso (supervisor): reabrir el picking. El pedido vuelve a 'picking', la tarea
     de picking a 'in_progress' y la de packing se cancela (se regenera al recompletar el
-    picking). Nota: los movimientos de inventario ya registrados NO se revierten
-    automáticamente; si hace falta, corregir con un ajuste."""
+    picking). Ajuste automático: revierte los movimientos de inventario de packing y
+    picking (la mercadería vuelve a su ubicación de origen); se re-aplican al recompletar."""
     db = get_database()
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
@@ -379,6 +379,16 @@ async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Di
             detail="El pedido no está en una etapa que permita reabrir picking.",
         )
     now = now_utc()
+    # Ajuste automático: revertir los movimientos de packing (si los hubo) y de picking.
+    packing_tasks = await db[Collections.PACKING_TASKS].find(
+        {"tenant_id": tenant_id, "order_id": order_id}
+    ).to_list(length=100)
+    for pt in packing_tasks:
+        await inventory_service.reverse_moves_for_reference(
+            tenant_id=tenant_id, reference_type=ReferenceType.PACKING_TASK.value,
+            reference_id=str(pt["_id"]), created_by=user.id,
+            reason="Reverso por reapertura de picking",
+        )
     # Cancelar cualquier tarea de packing activa (se regenerará al recompletar picking).
     await db[Collections.PACKING_TASKS].update_many(
         {"tenant_id": tenant_id, "order_id": order_id,
@@ -391,6 +401,11 @@ async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Di
          "status": {"$ne": PickingTaskStatus.CANCELLED.value}}
     )
     if task:
+        await inventory_service.reverse_moves_for_reference(
+            tenant_id=tenant_id, reference_type=ReferenceType.PICKING_TASK.value,
+            reference_id=str(task["_id"]), created_by=user.id,
+            reason="Reverso por reapertura de picking",
+        )
         await db[Collections.PICKING_TASKS].update_one(
             {"_id": task["_id"]},
             {"$set": {"status": PickingTaskStatus.IN_PROGRESS.value, "completed_at": None,

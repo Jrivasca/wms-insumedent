@@ -456,6 +456,13 @@ async def reopen_packing(tenant_id: str, order_id: str, user: CurrentUser) -> Di
             {"$set": {"status": PackingTaskStatus.IN_PROGRESS.value, "completed_at": None,
                       "updated_at": now, "updated_by": user.id}},
         )
+        # Ajuste automático: revertir los movimientos de inventario del packing (la
+        # mercadería vuelve de "packing" a "staging"). Al recompletar se re-aplican.
+        await inventory_service.reverse_moves_for_reference(
+            tenant_id=tenant_id, reference_type=ReferenceType.PACKING_TASK.value,
+            reference_id=str(task["_id"]), created_by=user.id,
+            reason="Reverso por reapertura de packing",
+        )
     await db[Collections.ORDERS].update_one(
         {"_id": order["_id"]},
         {"$set": {"status": OrderStatus.PACKING.value, "updated_at": now}},

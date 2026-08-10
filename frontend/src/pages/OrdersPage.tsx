@@ -110,8 +110,9 @@ export default function OrdersPage() {
   async function handleRevert(kind: 'dispatch' | 'packing' | 'picking', orderId: string) {
     const labels = {
       dispatch: 'anular el despacho (vuelve a «listo para despacho»)',
-      packing: 'reabrir el packing (vuelve a «packing»)',
-      picking: 'reabrir el picking (vuelve a «picking» y se cancela el packing)',
+      packing: 'reabrir el packing (vuelve a «packing»; el inventario se ajusta automáticamente)',
+      picking:
+        'reabrir el picking (vuelve a «picking», se cancela el packing y el inventario se ajusta automáticamente)',
     };
     if (!window.confirm(`¿Confirmas ${labels[kind]}?`)) return;
     setBusy(true);
@@ -121,7 +122,11 @@ export default function OrdersPage() {
       if (kind === 'dispatch') await cancelDispatch(orderId);
       else if (kind === 'packing') await reopenPacking(orderId);
       else await reopenPicking(orderId);
-      setNotice('Pedido retrocedido de etapa.');
+      setNotice(
+        kind === 'dispatch'
+          ? 'Despacho anulado. El pedido volvió a «listo para despacho».'
+          : 'Pedido retrocedido de etapa. El inventario se ajustó automáticamente.'
+      );
       await load(offset);
       openDetail(orderId);
     } catch (err) {
