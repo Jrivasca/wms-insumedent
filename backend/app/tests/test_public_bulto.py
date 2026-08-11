@@ -48,7 +48,7 @@ async def _drive_to_packed_package():
     bc0, q0 = plan[0]
     await packing_service.scan(tenant_id, pid, admin, bc0, q0, pkg["package_id"])
 
-    task = await packing_service.get_task(tenant_id, pid)  # backfills/returns tokens
+    task = await packing_service.get_task(tenant_id, pid, admin)  # backfills/returns tokens
     return order, task["packages"][0]["public_token"], pid
 
 

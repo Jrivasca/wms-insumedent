@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.product import BarcodeSource, BarcodeType
@@ -12,7 +12,7 @@ from app.services import sync_job_service
 
 
 async def _barcodes_for(tenant_id: str, product_id: str) -> List[Dict[str, Any]]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     cursor = db[Collections.BARCODES].find(
         {"tenant_id": tenant_id, "product_id": product_id, "is_active": True}
     )
@@ -28,7 +28,7 @@ async def list_products(
     limit: int = 100,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if search:
         query["$or"] = [
@@ -50,7 +50,7 @@ async def list_products(
 
 
 async def get_product(tenant_id: str, product_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     product = await db[Collections.PRODUCTS].find_one(
         {"_id": to_object_id(product_id), "tenant_id": tenant_id}
     )
@@ -62,7 +62,7 @@ async def get_product(tenant_id: str, product_id: str) -> Dict[str, Any]:
 
 
 async def get_by_barcode(tenant_id: str, barcode: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     bc = await db[Collections.BARCODES].find_one(
         {"tenant_id": tenant_id, "barcode": barcode, "is_active": True}
     )
@@ -89,7 +89,7 @@ async def get_by_barcode(tenant_id: str, barcode: str) -> Dict[str, Any]:
 async def add_barcode(
     tenant_id: str, product_id: str, barcode: str, barcode_type: str, actor: str
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     product = await db[Collections.PRODUCTS].find_one(
         {"_id": to_object_id(product_id), "tenant_id": tenant_id}
     )
@@ -127,7 +127,7 @@ async def create_product(
     SKU is unique per tenant. If a ``barcode`` is provided it is attached. The ERP
     sync is best-effort and asynchronous (see SyncJobType.CREATE_PRODUCT).
     """
-    db = get_database()
+    db = tenant_db(tenant_id)
     sku = (data.get("sku") or "").strip()
     if not sku:
         raise HTTPException(status_code=400, detail="SKU es obligatorio")

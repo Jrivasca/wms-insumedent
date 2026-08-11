@@ -24,7 +24,7 @@ async def list_tasks(
 
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str, user: CurrentUser = Depends(get_current_user)):
-    return await packing_service.get_task(user.tenant_id, task_id)
+    return await packing_service.get_task(user.tenant_id, task_id, user)
 
 
 @router.post("/tasks/{task_id}/start")

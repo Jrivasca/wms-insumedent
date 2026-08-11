@@ -40,7 +40,7 @@ try:  # OCR stack (phase 2). pytesseract also needs the Tesseract binary at runt
 except Exception:  # pragma: no cover
     _OCR_LIBS = False
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import to_object_id
 from app.models import Collections
 from app.schemas.order_import import (
@@ -347,7 +347,7 @@ def parse_document(
 
 async def resolve_draft(draft: ParsedOrderDraft, tenant_id: str) -> ParsedOrderDraft:
     """Match each parsed line against the catalog (SKU -> barcode -> name)."""
-    db = get_database()
+    db = tenant_db(tenant_id)
 
     # Warn on repeated SKUs (real in the samples: same product on two lines).
     seen: dict = {}

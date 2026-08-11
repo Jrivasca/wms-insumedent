@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
@@ -14,7 +14,7 @@ from app.services import inventory_service, packing_service
 
 
 async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await db[Collections.PICKING_TASKS].find_one(
         {"_id": to_object_id(task_id), "tenant_id": tenant_id}
     )
@@ -24,6 +24,7 @@ async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
 
 
 def _assert_can_operate(task: Dict[str, Any], user: CurrentUser) -> None:
+    user.assert_warehouse_allowed(task.get("warehouse_id"))
     if not user.is_supervisor and task.get("assigned_to") != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -32,7 +33,7 @@ def _assert_can_operate(task: Dict[str, Any], user: CurrentUser) -> None:
 
 
 async def _location_id_by_type(tenant_id: str, warehouse_id: str, loc_type: str) -> Optional[str]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     loc = await db[Collections.LOCATIONS].find_one(
         {"tenant_id": tenant_id, "warehouse_id": warehouse_id, "type": loc_type}
     )
@@ -47,7 +48,7 @@ async def list_tasks(
     limit: int = 500,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if assigned_to == "me":
         query["assigned_to"] = user.id
@@ -55,6 +56,8 @@ async def list_tasks(
         query["assigned_to"] = assigned_to
     if status_filter:
         query["status"] = status_filter
+    if user.warehouse_scoped:
+        query["warehouse_id"] = {"$in": list(user.allowed_warehouse_ids)}
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     total = await db[Collections.PICKING_TASKS].count_documents(query)
@@ -65,12 +68,14 @@ async def list_tasks(
     return page(items, total, limit, offset)
 
 
-async def get_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
-    return serialize(await _load_task(tenant_id, task_id))
+async def get_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
+    task = await _load_task(tenant_id, task_id)
+    user.assert_warehouse_allowed(task.get("warehouse_id"))
+    return serialize(task)
 
 
 async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
     if task["status"] in (
@@ -108,7 +113,7 @@ async def scan(
     quantity: float,
     location_id: Optional[str],
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -212,7 +217,7 @@ async def scan(
 async def mark_missing(
     tenant_id: str, task_id: str, user: CurrentUser, sku: str, reason: str
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -238,7 +243,7 @@ async def reset_line(
     tenant_id: str, task_id: str, user: CurrentUser, sku: str
 ) -> Dict[str, Any]:
     """Undo a line: set picked back to 0 so it can be scanned again (fix a mistake)."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -272,7 +277,7 @@ async def reset_line(
 async def complete(
     tenant_id: str, task_id: str, user: CurrentUser, allow_partial: bool = False
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -362,7 +367,7 @@ async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Di
     de picking a 'in_progress' y la de packing se cancela (se regenera al recompletar el
     picking). Ajuste automático: revierte los movimientos de inventario de packing y
     picking (la mercadería vuelve a su ubicación de origen); se re-aplican al recompletar."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )

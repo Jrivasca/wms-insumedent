@@ -8,8 +8,9 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 
+from app.api.deps import CurrentUser
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
@@ -33,7 +34,7 @@ async def get_balance_doc(
     lot_number: Optional[str] = None,
     serial_number: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     return await db[Collections.INVENTORY_BALANCES].find_one(
         {
             "tenant_id": tenant_id,
@@ -62,7 +63,7 @@ async def change_location_stock(
     Does NOT record a movement on its own; callers must pair it with
     :func:`record_movement` (see the higher-level helpers below).
     """
-    db = get_database()
+    db = tenant_db(tenant_id)
     key = {
         "tenant_id": tenant_id,
         "product_id": product_id,
@@ -111,7 +112,7 @@ async def record_movement(
     reason: Optional[str] = None,
     created_by: Optional[str] = None,
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     doc = {
         "tenant_id": tenant_id,
         "movement_type": movement_type,
@@ -273,7 +274,7 @@ async def create_reception(
 
     job = None
     if sync_erp and settings.erp_sync_enabled:
-        db = get_database()
+        db = tenant_db(tenant_id)
         product = await db[Collections.PRODUCTS].find_one(
             {"_id": to_object_id(product_id), "tenant_id": tenant_id}
         )
@@ -365,7 +366,7 @@ async def reverse_moves_for_reference(
     dejar los saldos como antes, lo registra como movimiento de reverso (auditable) y
     marca el original como revertido. Idempotente: no revierte dos veces el mismo
     movimiento. Devuelve cuántos movimientos revirtió."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     moves = await db[Collections.INVENTORY_MOVEMENTS].find(
         {
             "tenant_id": tenant_id,
@@ -425,15 +426,24 @@ async def list_balances(
     location_id: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    *,
+    user: CurrentUser,
 ) -> Dict[str, Any]:
-    db = get_database()
-    query: Dict[str, Any] = {"tenant_id": tenant_id}
+    db = tenant_db(tenant_id)
+    query: Dict[str, Any] = {}
     if product_id:
         query["product_id"] = product_id
     if warehouse_id:
         query["warehouse_id"] = warehouse_id
     if location_id:
         query["location_id"] = location_id
+    if user.warehouse_scoped:
+        allowed = set(user.allowed_warehouse_ids)
+        if warehouse_id is not None:
+            if warehouse_id not in allowed:
+                return []
+        else:
+            query["warehouse_id"] = {"$in": list(allowed)}
 
     limit = max(1, min(limit, 1000))
     offset = max(0, offset)
@@ -475,11 +485,15 @@ async def list_movements(
     product_id: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    *,
+    user: CurrentUser,
 ) -> Dict[str, Any]:
-    db = get_database()
-    query: Dict[str, Any] = {"tenant_id": tenant_id}
+    db = tenant_db(tenant_id)
+    query: Dict[str, Any] = {}
     if product_id:
         query["product_id"] = product_id
+    if user.warehouse_scoped:
+        query["warehouse_id"] = {"$in": list(user.allowed_warehouse_ids)}
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     total = await db[Collections.INVENTORY_MOVEMENTS].count_documents(query)

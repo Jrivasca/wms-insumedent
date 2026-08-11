@@ -21,7 +21,7 @@ async def balances(
     user: CurrentUser = Depends(get_current_user),
 ):
     return await inventory_service.list_balances(
-        user.tenant_id, product_id, warehouse_id, location_id, limit, offset
+        user.tenant_id, product_id, warehouse_id, location_id, limit, offset, user=user
     )
 
 
@@ -32,13 +32,16 @@ async def movements(
     offset: int = 0,
     user: CurrentUser = Depends(get_current_user),
 ):
-    return await inventory_service.list_movements(user.tenant_id, product_id, limit, offset)
+    return await inventory_service.list_movements(
+        user.tenant_id, product_id, limit, offset, user=user
+    )
 
 
 @router.post("/receptions", status_code=201)
 async def create_reception(
     payload: ReceptionRequest, user: CurrentUser = Depends(get_current_user)
 ):
+    user.assert_warehouse_allowed(payload.warehouse_id)
     result = await inventory_service.create_reception(
         tenant_id=user.tenant_id,
         product_id=payload.product_id,
@@ -73,6 +76,7 @@ async def create_adjustment(
     payload: AdjustmentRequest, user: CurrentUser = Depends(require_supervisor)
 ):
     # Section 8.4: adjustments must be approved by a supervisor.
+    user.assert_warehouse_allowed(payload.warehouse_id)
     balance = await inventory_service.create_adjustment(
         tenant_id=user.tenant_id,
         product_id=payload.product_id,
@@ -101,6 +105,7 @@ async def create_adjustment(
 async def create_transfer(
     payload: TransferRequest, user: CurrentUser = Depends(get_current_user)
 ):
+    user.assert_warehouse_allowed(payload.warehouse_id)
     await inventory_service.create_transfer(
         tenant_id=user.tenant_id,
         product_id=payload.product_id,

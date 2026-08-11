@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.dispatch import DispatchStatus
@@ -15,7 +15,7 @@ from app.services import sync_job_service
 async def list_dispatches(
     tenant_id: str, limit: int = 500, offset: int = 0
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
@@ -28,7 +28,7 @@ async def list_dispatches(
 
 
 async def get_dispatch(tenant_id: str, dispatch_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     doc = await db[Collections.DISPATCHES].find_one(
         {"_id": to_object_id(dispatch_id), "tenant_id": tenant_id}
     )
@@ -46,7 +46,7 @@ async def confirm_dispatch(
     guide_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Confirm dispatch for a ready order and enqueue the Defontana sync job (8.3)."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
@@ -119,7 +119,7 @@ async def confirm_dispatch(
 async def cancel_dispatch(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
     """Retroceso: anular el despacho de un pedido despachado. El pedido vuelve a
     'ready_to_dispatch' y el despacho queda 'cancelled' (puede re-despacharse)."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )

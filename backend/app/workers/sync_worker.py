@@ -10,6 +10,7 @@ from datetime import timedelta
 from typing import Any, Dict, Optional
 
 from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.logging import configure_logging, get_logger
 from app.core.utils import now_utc, to_object_id
 from app.models import Collections
@@ -46,8 +47,8 @@ async def claim_next_job() -> Optional[Dict[str, Any]]:
 
 
 async def _handle_dispatch_order(job: Dict[str, Any]) -> Dict[str, Any]:
-    db = get_database()
     tenant_id = job["tenant_id"]
+    db = tenant_db(tenant_id)
     payload = job.get("payload", {})
     dispatch_id = payload.get("dispatch_id")
 

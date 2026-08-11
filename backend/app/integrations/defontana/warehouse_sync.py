@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc
 from app.models import Collections
 from app.models.warehouse import WarehouseType
@@ -9,7 +9,7 @@ from app.integrations.defontana.mapper import DefontanaMapper
 
 
 async def sync_warehouses(tenant_id: str, actor: str = "system") -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     connector = DefontanaConnector(tenant_id)
     raw_storages = await connector.get_warehouses()
 

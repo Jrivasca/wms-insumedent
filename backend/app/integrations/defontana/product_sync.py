@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc
 from app.models import Collections
 from app.models.product import BarcodeSource, BarcodeType
@@ -15,7 +15,7 @@ def _guess_barcode_type(barcode: str) -> str:
 
 
 async def sync_products(tenant_id: str, actor: str = "system") -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     connector = DefontanaConnector(tenant_id)
     raw_products = await connector.get_products()
 

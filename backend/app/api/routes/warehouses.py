@@ -9,7 +9,7 @@ router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 
 @router.get("")
 async def list_warehouses(user: CurrentUser = Depends(get_current_user)):
-    return await warehouse_service.list_warehouses(user.tenant_id)
+    return await warehouse_service.list_warehouses(user.tenant_id, user)
 
 
 @router.post("", status_code=201)
@@ -23,4 +23,4 @@ async def create_warehouse(
 async def warehouse_locations(
     warehouse_id: str, user: CurrentUser = Depends(get_current_user)
 ):
-    return await warehouse_service.list_locations(user.tenant_id, warehouse_id)
+    return await warehouse_service.list_locations(user.tenant_id, warehouse_id, user)

@@ -28,6 +28,27 @@ class CurrentUser:
     def is_supervisor(self) -> bool:
         return self.role in SUPERVISOR_ROLES
 
+    @property
+    def warehouse_scoped(self) -> bool:
+        """True when this user may only see/operate a subset of warehouses.
+
+        Admins and supervisors always see every warehouse; an empty
+        ``allowed_warehouse_ids`` also means "no restriction".
+        """
+        return bool(self.allowed_warehouse_ids) and not self.is_supervisor
+
+    def can_access_warehouse(self, warehouse_id: Optional[str]) -> bool:
+        if not self.warehouse_scoped:
+            return True
+        return warehouse_id in self.allowed_warehouse_ids
+
+    def assert_warehouse_allowed(self, warehouse_id: Optional[str]) -> None:
+        if not self.can_access_warehouse(warehouse_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes acceso a esta bodega",
+            )
+
 
 async def get_current_user(
     request: Request,
