@@ -192,7 +192,7 @@ async def test_picking_over_scan_blocked():
     assert over["feedback"] == "warning"
 
     # Nothing was applied: the picked quantity stays at the required amount.
-    t = await picking_service.get_task(tenant_id, tid)
+    t = await picking_service.get_task(tenant_id, tid, admin)
     line = next(l for l in t["lines"] if l["sku"] == line0["sku"])
     assert line["quantity_picked"] == qty1
 
@@ -211,7 +211,7 @@ async def test_picking_reset_line():
     tid = task["id"]
     await picking_service.scan(tenant_id, tid, admin, bc1, qty1, None)
 
-    t = await picking_service.get_task(tenant_id, tid)
+    t = await picking_service.get_task(tenant_id, tid, admin)
     line = next(l for l in t["lines"] if l["sku"] == sku1)
     assert line["quantity_picked"] == qty1  # fully picked
 
@@ -247,7 +247,7 @@ async def test_packing_reset_line():
     pkg = await packing_service.create_package(tenant_id, pid, admin, None)
     await packing_service.scan(tenant_id, pid, admin, bc1, q1, pkg["package_id"])
 
-    t = await packing_service.get_task(tenant_id, pid)
+    t = await packing_service.get_task(tenant_id, pid, admin)
     line = next(l for l in t["lines"] if l["sku"] == sku1)
     assert line["quantity_packed"] == q1
     assert any(it.get("sku") == sku1 for p in t["packages"] for it in p.get("items", []))

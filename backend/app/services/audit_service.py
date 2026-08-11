@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.logging import sanitize_payload
 from app.core.utils import now_utc
 from app.models import Collections
@@ -23,7 +23,7 @@ async def log_action(
 
     Payloads are sanitized to avoid persisting secrets.
     """
-    db = get_database()
+    db = tenant_db(tenant_id)
     await db[Collections.AUDIT_LOGS].insert_one(
         {
             "tenant_id": tenant_id,

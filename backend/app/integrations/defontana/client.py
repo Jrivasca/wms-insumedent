@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.logging import get_logger
 from app.models import Collections
 from app.integrations.erp_connector import ERPConnector
@@ -26,7 +26,7 @@ class DefontanaConnector(ERPConnector):
         self.mock = settings.defontana_mock
 
     async def _base_url(self) -> str:
-        db = get_database()
+        db = tenant_db(self.tenant_id)
         connection = await db[Collections.ERP_CONNECTIONS].find_one(
             {"tenant_id": self.tenant_id, "erp": "defontana"}
         )

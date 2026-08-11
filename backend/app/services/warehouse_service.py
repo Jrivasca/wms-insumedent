@@ -2,23 +2,29 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.core.database import get_database
+from app.api.deps import CurrentUser
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
 from app.models.location import DEFAULT_LOCATIONS
 from app.schemas.warehouse import LocationCreate, LocationUpdate, WarehouseCreate
 
 
-async def list_warehouses(tenant_id: str) -> List[Dict[str, Any]]:
-    db = get_database()
-    cursor = db[Collections.WAREHOUSES].find({"tenant_id": tenant_id}).sort("name", 1)
+async def list_warehouses(tenant_id: str, user: CurrentUser) -> List[Dict[str, Any]]:
+    db = tenant_db(tenant_id)
+    query: Dict[str, Any] = {}
+    if user.warehouse_scoped:
+        query["_id"] = {
+            "$in": [oid for oid in (to_object_id(w) for w in user.allowed_warehouse_ids) if oid]
+        }
+    cursor = db[Collections.WAREHOUSES].find(query).sort("name", 1)
     return [serialize(w) for w in await cursor.to_list(length=200)]
 
 
 async def create_warehouse(
     tenant_id: str, data: WarehouseCreate, actor: str, with_defaults: bool = True
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     now = now_utc()
     doc = {
         "tenant_id": tenant_id,
@@ -45,7 +51,7 @@ async def create_warehouse(
 
 
 async def _create_default_locations(tenant_id: str, warehouse_id: str, actor: str) -> None:
-    db = get_database()
+    db = tenant_db(tenant_id)
     now = now_utc()
     for loc in DEFAULT_LOCATIONS:
         existing = await db[Collections.LOCATIONS].find_one(
@@ -74,12 +80,19 @@ async def _create_default_locations(tenant_id: str, warehouse_id: str, actor: st
 
 
 async def list_locations(
-    tenant_id: str, warehouse_id: Optional[str] = None
+    tenant_id: str, warehouse_id: Optional[str], user: CurrentUser
 ) -> List[Dict[str, Any]]:
-    db = get_database()
-    query: Dict[str, Any] = {"tenant_id": tenant_id}
+    db = tenant_db(tenant_id)
+    query: Dict[str, Any] = {}
     if warehouse_id:
         query["warehouse_id"] = warehouse_id
+    if user.warehouse_scoped:
+        allowed = set(user.allowed_warehouse_ids)
+        if warehouse_id is not None:
+            if warehouse_id not in allowed:
+                return []
+        else:
+            query["warehouse_id"] = {"$in": list(allowed)}
     cursor = db[Collections.LOCATIONS].find(query).sort("code", 1)
     return [serialize(loc) for loc in await cursor.to_list(length=1000)]
 
@@ -87,7 +100,7 @@ async def list_locations(
 async def create_location(
     tenant_id: str, data: LocationCreate, actor: str
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     warehouse = await db[Collections.WAREHOUSES].find_one(
         {"_id": to_object_id(data.warehouse_id), "tenant_id": tenant_id}
     )
@@ -127,7 +140,7 @@ async def update_location(
 ) -> Dict[str, Any]:
     """Edit a location's fields. The warehouse is fixed; the code stays unique per
     warehouse. Stock/tasks reference the location by id, so renaming code is safe."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     location = await db[Collections.LOCATIONS].find_one(
         {"_id": to_object_id(location_id), "tenant_id": tenant_id}
     )

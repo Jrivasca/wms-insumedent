@@ -11,7 +11,7 @@ from typing import Optional
 import httpx
 
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.logging import get_logger
 from app.core.security import decrypt_secret, encrypt_secret
 from app.core.utils import now_utc
@@ -32,13 +32,13 @@ class DefontanaTokenManager:
     erp = "defontana"
 
     async def _get_connection(self, tenant_id: str) -> Optional[dict]:
-        db = get_database()
+        db = tenant_db(tenant_id)
         return await db[Collections.ERP_CONNECTIONS].find_one(
             {"tenant_id": tenant_id, "erp": self.erp}
         )
 
     async def _stored_token(self, tenant_id: str) -> Optional[dict]:
-        db = get_database()
+        db = tenant_db(tenant_id)
         return await db[Collections.ERP_TOKENS].find_one(
             {"tenant_id": tenant_id, "erp": self.erp}
         )
@@ -121,7 +121,7 @@ class DefontanaTokenManager:
         return token
 
     async def _persist_token(self, tenant_id: str, token: str) -> None:
-        db = get_database()
+        db = tenant_db(tenant_id)
         now = now_utc()
         await db[Collections.ERP_TOKENS].update_one(
             {"tenant_id": tenant_id, "erp": self.erp},

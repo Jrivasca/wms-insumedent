@@ -2,7 +2,7 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.security import hash_password
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
@@ -11,13 +11,13 @@ from app.services.auth_service import user_public
 
 
 async def list_users(tenant_id: str) -> List[Dict[str, Any]]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     cursor = db[Collections.USERS].find({"tenant_id": tenant_id}).sort("name", 1)
     return [user_public(u) for u in await cursor.to_list(length=500)]
 
 
 async def get_user(tenant_id: str, user_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     user = await db[Collections.USERS].find_one(
         {"_id": to_object_id(user_id), "tenant_id": tenant_id}
     )
@@ -27,7 +27,7 @@ async def get_user(tenant_id: str, user_id: str) -> Dict[str, Any]:
 
 
 async def create_user(tenant_id: str, data: UserCreate, actor: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     existing = await db[Collections.USERS].find_one(
         {"tenant_id": tenant_id, "email": data.email}
     )
@@ -56,7 +56,7 @@ async def create_user(tenant_id: str, data: UserCreate, actor: str) -> Dict[str,
 async def update_user(
     tenant_id: str, user_id: str, data: UserUpdate, actor: str
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     user = await db[Collections.USERS].find_one(
         {"_id": to_object_id(user_id), "tenant_id": tenant_id}
     )

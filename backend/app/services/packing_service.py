@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
@@ -35,14 +35,14 @@ async def _ensure_public_tokens(task: Dict[str, Any]) -> None:
             pkg["public_expires_at"] = _public_expiry()
             changed = True
     if changed:
-        db = get_database()
+        db = tenant_db(task["tenant_id"])
         await db[Collections.PACKING_TASKS].update_one(
             {"_id": task["_id"]}, {"$set": {"packages": packages}}
         )
 
 
 async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await db[Collections.PACKING_TASKS].find_one(
         {"_id": to_object_id(task_id), "tenant_id": tenant_id}
     )
@@ -52,6 +52,7 @@ async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
 
 
 def _assert_can_operate(task: Dict[str, Any], user: CurrentUser) -> None:
+    user.assert_warehouse_allowed(task.get("warehouse_id"))
     if not user.is_supervisor and task.get("assigned_to") != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -60,7 +61,7 @@ def _assert_can_operate(task: Dict[str, Any], user: CurrentUser) -> None:
 
 
 async def _location_id_by_type(tenant_id: str, warehouse_id: str, loc_type: str) -> Optional[str]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     loc = await db[Collections.LOCATIONS].find_one(
         {"tenant_id": tenant_id, "warehouse_id": warehouse_id, "type": loc_type}
     )
@@ -71,7 +72,7 @@ async def create_packing_task_from_picking(
     tenant_id: str, picking_task: Dict[str, Any], user: CurrentUser
 ) -> Dict[str, Any]:
     """Create the packing task that follows a closed picking task (section 8.2)."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     existing = await db[Collections.PACKING_TASKS].find_one(
         {
             "tenant_id": tenant_id,
@@ -135,12 +136,14 @@ async def list_tasks(
     limit: int = 500,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if assigned_to == "me":
         query["assigned_to"] = user.id
     elif assigned_to:
         query["assigned_to"] = assigned_to
+    if user.warehouse_scoped:
+        query["warehouse_id"] = {"$in": list(user.allowed_warehouse_ids)}
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     total = await db[Collections.PACKING_TASKS].count_documents(query)
@@ -151,14 +154,15 @@ async def list_tasks(
     return page(items, total, limit, offset)
 
 
-async def get_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
+async def get_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
     task = await _load_task(tenant_id, task_id)
+    user.assert_warehouse_allowed(task.get("warehouse_id"))
     await _ensure_public_tokens(task)  # backfill QR tokens for bultos created before this feature
     return serialize(task)
 
 
 async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -202,7 +206,7 @@ async def scan(
     quantity: float,
     package_id: Optional[str],
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
     if task["status"] in (PackingTaskStatus.COMPLETED.value, PackingTaskStatus.CANCELLED.value):
@@ -293,7 +297,7 @@ async def scan(
 async def create_package(
     tenant_id: str, task_id: str, user: CurrentUser, label: Optional[str]
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -319,7 +323,7 @@ async def reset_line(
     """Undo a packed line: set packed back to 0 and remove its items from every
     package, so it can be packed again (fix a mistake). Inventory is only touched
     on complete(), so nothing to revert there."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -359,7 +363,7 @@ async def reset_line(
 
 
 async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
@@ -431,7 +435,7 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
 async def reopen_packing(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
     """Retroceso (supervisor): reabrir el packing de un pedido listo para despacho.
     El pedido vuelve a 'packing' y la tarea de packing a 'in_progress'."""
-    db = get_database()
+    db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )

@@ -22,8 +22,18 @@ def user_public(user_doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def login(email: str, password: str) -> Dict[str, Any]:
+    # Pre-authentication: the tenant is not known yet, so this is intentionally not
+    # tenant-scoped. Email is unique *per tenant*, not globally, so once a second
+    # company exists the same address could resolve to two accounts — refuse rather
+    # than silently sign into an arbitrary tenant.
     db = get_database()
-    user = await db[Collections.USERS].find_one({"email": email})
+    matches = await db[Collections.USERS].find({"email": email}).to_list(length=2)
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este correo está registrado en más de una empresa; contacta al administrador",
+        )
+    user = matches[0] if matches else None
     if not user or not verify_password(password, user.get("password_hash", "")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"

@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc
 from app.models import Collections
 from app.models.order import OrderLineStatus, OrderStatus
@@ -11,7 +11,7 @@ from app.integrations.defontana.mapper import DefontanaMapper
 async def _resolve_product_id(tenant_id: str, sku: Optional[str]) -> Optional[str]:
     if not sku:
         return None
-    db = get_database()
+    db = tenant_db(tenant_id)
     product = await db[Collections.PRODUCTS].find_one({"tenant_id": tenant_id, "sku": sku})
     return str(product["_id"]) if product else None
 
@@ -22,7 +22,7 @@ async def sync_orders(
     to_date: str = "2999-12-31",
     actor: str = "system",
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     connector = DefontanaConnector(tenant_id)
     raw_orders = await connector.get_orders(from_date, to_date)
 

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import CurrentUser, get_current_user, require_roles
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
 from app.models.order import OrderLineStatus, OrderStatus
@@ -32,7 +32,7 @@ async def create_order(
     user: CurrentUser = Depends(require_roles("supervisor", "sales")),
 ):
     """Manually create / simulate an order (acceptance: import or simulate orders)."""
-    db = get_database()
+    db = tenant_db(user.tenant_id)
     existing = await db[Collections.ORDERS].find_one(
         {"tenant_id": user.tenant_id, "erp_order_number": payload.erp_order_number}
     )
@@ -108,7 +108,7 @@ async def create_order(
 
 
 async def _build_lines(tenant_id: str, lines_input) -> list:
-    db = get_database()
+    db = tenant_db(tenant_id)
     lines = []
     for idx, line in enumerate(lines_input, start=1):
         product = await db[Collections.PRODUCTS].find_one(
@@ -137,7 +137,7 @@ async def update_order(
     user: CurrentUser = Depends(require_roles("supervisor")),
 ):
     """Editar un pedido. Sólo admin/supervisor y sólo antes de generar picking."""
-    db = get_database()
+    db = tenant_db(user.tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": user.tenant_id}
     )

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.order import OrderLineStatus, OrderStatus
@@ -13,7 +13,7 @@ from app.services import sync_job_service
 
 
 async def _expected_barcodes(tenant_id: str, product_id: str, sku: str) -> List[str]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     codes = [
         b["barcode"]
         async for b in db[Collections.BARCODES].find(
@@ -28,7 +28,7 @@ async def _expected_barcodes(tenant_id: str, product_id: str, sku: str) -> List[
 async def _suggested_location(
     tenant_id: str, product_id: str, warehouse_id: str
 ) -> Optional[str]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     # Prefer a location that already holds stock for this product.
     balance = await db[Collections.INVENTORY_BALANCES].find_one(
         {
@@ -52,7 +52,7 @@ async def _suggested_location(
 
 
 async def _default_warehouse_id(tenant_id: str) -> Optional[str]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     warehouse = await db[Collections.WAREHOUSES].find_one(
         {"tenant_id": tenant_id, "is_active": True}
     )
@@ -65,7 +65,7 @@ async def list_orders(
     limit: int = 500,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if status_filter:
         query["status"] = status_filter
@@ -80,7 +80,7 @@ async def list_orders(
 
 
 async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
@@ -106,7 +106,7 @@ async def create_order_from_lines(
     Products are matched by ``product_id`` when given, else by exact SKU; a line with
     no catalog match is kept (``product_id=None``), mirroring the manual behavior.
     """
-    db = get_database()
+    db = tenant_db(tenant_id)
     existing = await db[Collections.ORDERS].find_one(
         {"tenant_id": tenant_id, "erp_order_number": erp_order_number}
     )
@@ -185,7 +185,7 @@ async def create_order_from_lines(
 async def create_picking_task(
     tenant_id: str, order_id: str, created_by: str
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )

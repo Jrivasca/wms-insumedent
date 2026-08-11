@@ -6,7 +6,7 @@ the web app.
 """
 from typing import Any, Dict
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc
 from app.models import Collections
 from app.models.order import OrderStatus
@@ -16,7 +16,7 @@ from app.models.sync_job import SyncJobStatus
 
 
 async def get_stats(tenant_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
 
     def q(**extra: Any) -> Dict[str, Any]:
         return {"tenant_id": tenant_id, **extra}

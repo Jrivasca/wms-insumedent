@@ -13,7 +13,7 @@ router = APIRouter(prefix="/locations", tags=["locations"])
 async def list_locations(
     warehouse_id: Optional[str] = None, user: CurrentUser = Depends(get_current_user)
 ):
-    return await warehouse_service.list_locations(user.tenant_id, warehouse_id)
+    return await warehouse_service.list_locations(user.tenant_id, warehouse_id, user)
 
 
 @router.post("", status_code=201)

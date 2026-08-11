@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
 from app.models.sync_job import DEFAULT_MAX_ATTEMPTS, SyncJobStatus
@@ -17,7 +17,7 @@ async def enqueue(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     created_by: Optional[str] = None,
 ) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     now = now_utc()
     job = {
         "tenant_id": tenant_id,
@@ -42,7 +42,7 @@ async def enqueue(
 async def list_jobs(
     tenant_id: str, status_filter: Optional[str] = None, limit: int = 200
 ) -> List[Dict[str, Any]]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if status_filter:
         query["status"] = status_filter
@@ -51,7 +51,7 @@ async def list_jobs(
 
 
 async def retry(tenant_id: str, job_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     job = await db[Collections.SYNC_JOBS].find_one(
         {"_id": to_object_id(job_id), "tenant_id": tenant_id}
     )
@@ -76,7 +76,7 @@ async def retry(tenant_id: str, job_id: str) -> Dict[str, Any]:
 
 
 async def cancel(tenant_id: str, job_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     job = await db[Collections.SYNC_JOBS].find_one(
         {"_id": to_object_id(job_id), "tenant_id": tenant_id}
     )

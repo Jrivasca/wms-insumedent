@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 from app.core.config import settings
-from app.core.database import get_database
+from app.core.tenant_db import tenant_db
 from app.core.security import encrypt_secret
 from app.core.utils import now_utc, serialize
 from app.models import Collections
@@ -14,7 +14,7 @@ ERP = ErpProvider.DEFONTANA.value
 
 
 async def _connection(tenant_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     return await db[Collections.ERP_CONNECTIONS].find_one({"tenant_id": tenant_id, "erp": ERP})
 
 
@@ -43,7 +43,7 @@ async def get_status(tenant_id: str) -> Dict[str, Any]:
 
 
 async def configure(tenant_id: str, config: DefontanaConfigRequest, actor: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     now = now_utc()
 
     base_url = config.base_url or (
@@ -81,7 +81,7 @@ async def configure(tenant_id: str, config: DefontanaConfigRequest, actor: str) 
 
 
 async def check(tenant_id: str) -> Dict[str, Any]:
-    db = get_database()
+    db = tenant_db(tenant_id)
     connector = DefontanaConnector(tenant_id)
     now = now_utc()
     try:
