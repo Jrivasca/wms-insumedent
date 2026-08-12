@@ -7,10 +7,17 @@ from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
+from app.models.notification import NotificationType
 from app.models.order import OrderLineStatus, OrderStatus
 from app.models.sync_job import SyncJobType
 from app.schemas.order import OrderCreate, OrderUpdate
-from app.services import order_service, packing_service, picking_service, sync_job_service
+from app.services import (
+    notification_service,
+    order_service,
+    packing_service,
+    picking_service,
+    sync_job_service,
+)
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -103,6 +110,16 @@ async def create_order(
         metadata={"erp_order_number": payload.erp_order_number},
         ip=user.ip,
         user_agent=user.user_agent,
+    )
+    await notification_service.emit(
+        tenant_id=user.tenant_id,
+        notification_type=NotificationType.ORDER_CREATED.value,
+        title=f"Nuevo pedido {payload.erp_order_number}",
+        body=f"{payload.customer or 'Sin cliente'} · {len(lines)} línea(s)",
+        entity_type="order",
+        entity_id=str(doc["_id"]),
+        metadata={"erp_order_number": payload.erp_order_number},
+        actor_id=user.id,
     )
     return serialize(doc)
 

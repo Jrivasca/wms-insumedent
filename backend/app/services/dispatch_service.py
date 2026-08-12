@@ -7,9 +7,10 @@ from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.dispatch import DispatchStatus
+from app.models.notification import NotificationType
 from app.models.order import OrderStatus
 from app.models.sync_job import SyncJobType
-from app.services import sync_job_service
+from app.services import notification_service, sync_job_service
 
 
 async def list_dispatches(
@@ -112,6 +113,18 @@ async def confirm_dispatch(
 
     await db[Collections.DISPATCHES].update_one(
         {"_id": dispatch["_id"]}, {"$set": {"sync_job_id": job["id"]}}
+    )
+
+    await notification_service.emit(
+        tenant_id=tenant_id,
+        notification_type=NotificationType.ORDER_DISPATCHED.value,
+        title=f"Pedido {order.get('erp_order_number')} despachado",
+        body=(order.get("customer") or "Sin cliente")
+        + (f" · {carrier}" if carrier else ""),
+        entity_type="order",
+        entity_id=order_id,
+        metadata={"erp_order_number": order.get("erp_order_number")},
+        actor_id=user.id,
     )
     return serialize(await db[Collections.DISPATCHES].find_one({"_id": dispatch["_id"]}))
 

@@ -13,6 +13,7 @@ from app.api.routes import (
     dispatch,
     inventory,
     locations,
+    notifications,
     order_import,
     orders,
     packing,
@@ -81,6 +82,7 @@ for module in (
     dispatch,
     defontana,
     sync_jobs,
+    notifications,
     seed,
     public,
 ):

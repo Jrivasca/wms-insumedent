@@ -85,4 +85,14 @@ async def ensure_indexes() -> None:
     # This is intentionally NOT tenant-scoped and is a multikey index over the packages array.
     await db.packing_tasks.create_index([("packages.public_token", 1)])
 
+    # In-app notifications: the feed and the unread badge query by tenant + user,
+    # newest first, filtered by read state.
+    await db.notifications.create_index(
+        [("tenant_id", 1), ("user_id", 1), ("read_at", 1), ("created_at", -1)]
+    )
+    # Edge-trigger state for stock-zero alerts (dedupe per product+warehouse).
+    await db.stock_alerts.create_index(
+        [("tenant_id", 1), ("product_id", 1), ("warehouse_id", 1)], unique=True
+    )
+
     logger.info("MongoDB indexes ensured")

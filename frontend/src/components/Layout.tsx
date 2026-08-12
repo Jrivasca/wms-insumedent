@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useAuth } from '../store/auth';
 import { FLOOR_ROLES, ROLE_LABEL, can } from '../permissions';
+import NotificationBell from './NotificationBell';
 
 interface NavItem {
   to?: string;
@@ -71,9 +72,12 @@ export default function Layout({ children }: { children: ReactNode }) {
         <span className="font-bold">
           Selarix WMS <span className="font-normal text-slate-400">· Insumedent</span>
         </span>
-        <button onClick={handleLogout} className="text-sm underline">
-          Salir
-        </button>
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <button onClick={handleLogout} className="text-sm underline">
+            Salir
+          </button>
+        </div>
       </header>
 
       <aside
@@ -135,7 +139,12 @@ export default function Layout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-x-hidden bg-slate-100 p-4 md:p-6">{children}</main>
+      <main className="flex-1 overflow-x-hidden bg-slate-100 p-4 md:p-6">
+        <div className="mb-4 hidden items-center justify-end text-slate-700 md:flex print:hidden">
+          <NotificationBell />
+        </div>
+        {children}
+      </main>
     </div>
   );
 }

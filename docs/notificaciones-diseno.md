@@ -1,9 +1,25 @@
 # Diseño de notificaciones — Selarix WMS
 
-Estado: **propuesta de diseño** (sin implementar). Fecha: 2026-08-11.
-Decidido con el usuario: en esta sesión solo se diseña; la implementación va en una
-sesión posterior. Relacionado: backlog sección 0, aislamiento por tenant
-(`app/core/tenant_db.py`).
+Estado: **Fase 1 (feed in-app) IMPLEMENTADA** (2026-08-11). Fase 2 (Web Push) pendiente.
+Relacionado: backlog sección 0, aislamiento por tenant (`app/core/tenant_db.py`).
+
+**Implementado en Fase 1:**
+- Modelo `backend/app/models/notification.py` (`NotificationType`, audiencia por rol) — modelo
+  **fan-out** (una fila por destinatario con `read_at`; decisión 6.1 cerrada a favor de fan-out).
+- Servicio `backend/app/services/notification_service.py`: `emit` (best-effort, nunca rompe al
+  caller), `list_for_user`, `unread_count`, `mark_read`, `mark_all_read` — todo vía `tenant_db`.
+- Rutas `backend/app/api/routes/notifications.py`: `GET /notifications`, `GET /notifications/unread-count`,
+  `POST /notifications/{id}/read`, `POST /notifications/read-all`.
+- Hooks: nuevo pedido (`create_order_from_lines`, ruta manual `POST /orders`, `order_sync` ERP),
+  despacho (`confirm_dispatch`), stock 0 (`inventory_service.change_location_stock`, edge-trigger con
+  dedup por `(product, warehouse)` en la colección `stock_alerts`; decisión 6.2 = total del producto
+  por bodega).
+- Índices en `ensure_indexes`; frontend: campana con badge (polling 45 s) + dropdown + marcar leídas
+  (`frontend/src/components/NotificationBell.tsx`, integrada en `Layout`).
+- Pruebas: `backend/app/tests/test_notifications.py` (fan-out, aislamiento tenant/usuario, feed/lectura,
+  stock-0 con dedup y re-arm).
+
+El resto de este documento es el diseño original (incluye la Fase 2 Web Push, aún pendiente).
 
 ## 1. Objetivo
 
