@@ -11,11 +11,14 @@ export function isPushSupported(): boolean {
   );
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = window.atob(base64);
-  const output = new Uint8Array(raw.length);
+  // Back the view with an explicit ArrayBuffer so the type is Uint8Array<ArrayBuffer>
+  // (assignable to BufferSource) across TypeScript versions — bare `new Uint8Array(n)`
+  // infers Uint8Array<ArrayBufferLike> in TS >= 5.7, which pushManager rejects.
+  const output = new Uint8Array(new ArrayBuffer(raw.length));
   for (let i = 0; i < raw.length; i += 1) output[i] = raw.charCodeAt(i);
   return output;
 }
