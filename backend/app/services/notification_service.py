@@ -12,8 +12,18 @@ from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.notification import NOTIFICATION_AUDIENCE
+from app.services import push_service
 
 logger = get_logger(__name__)
+
+
+def _entity_url(entity_type: Optional[str], entity_id: Optional[str]) -> str:
+    """Where a notification points in the web app (the order list has no per-id page)."""
+    if entity_type == "product" and entity_id:
+        return f"/products/{entity_id}"
+    if entity_type == "order":
+        return "/orders"
+    return "/"
 
 
 async def _recipient_ids(db, roles: set, exclude_id: Optional[str]) -> List[str]:
@@ -64,6 +74,17 @@ async def emit(
             for uid in recipients
         ]
         await db[Collections.NOTIFICATIONS].insert_many(docs)
+        # Phase 2: also push to the browser (fire-and-forget; no-op if disabled).
+        push_service.dispatch(
+            tenant_id,
+            recipients,
+            {
+                "title": title,
+                "body": body,
+                "url": _entity_url(entity_type, entity_id),
+                "tag": notification_type,
+            },
+        )
         return len(docs)
     except Exception as exc:  # noqa: BLE001 - notifications must never break the caller
         logger.warning("notification emit failed (%s): %s", notification_type, exc)

@@ -94,5 +94,9 @@ async def ensure_indexes() -> None:
     await db.stock_alerts.create_index(
         [("tenant_id", 1), ("product_id", 1), ("warehouse_id", 1)], unique=True
     )
+    # Web Push subscriptions: one row per user+endpoint; looked up by user to push.
+    await db.push_subscriptions.create_index(
+        [("tenant_id", 1), ("user_id", 1), ("endpoint", 1)], unique=True
+    )
 
     logger.info("MongoDB indexes ensured")

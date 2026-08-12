@@ -13,7 +13,11 @@ python-multipart==0.0.20
 pdfplumber==0.11.10
 pytesseract==0.3.13
 pillow-heif==1.5.0
-cryptography==44.0.0
+# Web Push (VAPID). py-vapid 1.9.x requires cryptography>=46, so cryptography is
+# bumped from 44 accordingly (verified: JWT via python-jose + Fernet still pass).
+cryptography==50.0.0
+pywebpush==2.0.0
+py-vapid==1.9.4
 pytest==8.3.4
 pytest-asyncio==0.25.2
 mongomock-motor==0.0.34

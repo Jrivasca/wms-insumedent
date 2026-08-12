@@ -1,7 +1,20 @@
 # Diseño de notificaciones — Selarix WMS
 
-Estado: **Fase 1 (feed in-app) IMPLEMENTADA** (2026-08-11). Fase 2 (Web Push) pendiente.
+Estado: **Fase 1 (feed in-app) + Fase 2 (Web Push) IMPLEMENTADAS** (2026-08-12).
 Relacionado: backlog sección 0, aislamiento por tenant (`app/core/tenant_db.py`).
+
+**Implementado en Fase 2 (Web Push / VAPID):**
+- `push_subscriptions` (una fila por usuario+endpoint) + `push_service` (`subscribe`/`unsubscribe`/
+  `send_to_users` con poda de suscripciones muertas 404/410/`dispatch` fire-and-forget), todo vía
+  `tenant_db`. `emit` de Fase 1 llama `push_service.dispatch` tras escribir el feed (best-effort).
+- Config VAPID en `settings` (`vapid_public_key`, `vapid_private_key` [PEM en base64], `vapid_subject`,
+  `push_enabled`); rutas `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe`.
+- Frontend: `public/push-sw.js` (handlers `push`/`notificationclick`) importado por el SW generado
+  (`vite.config.ts` `workbox.importScripts`); helper `src/push.ts` (permiso + suscripción) + control
+  "Activar/Desactivar push" en la campana. Requiere HTTPS (ya lo tenemos).
+- Deploy: generar par VAPID una vez y ponerlo en el `.env` del droplet (ver `.env.production.example`);
+  `push_enabled=false` mientras no haya claves (el feed in-app sigue). Dependencias:
+  `pywebpush`/`py-vapid` (cryptography bumpeado 44→50). Tests: `test_push.py`.
 
 **Implementado en Fase 1:**
 - Modelo `backend/app/models/notification.py` (`NotificationType`, audiencia por rol) — modelo

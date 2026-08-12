@@ -20,6 +20,7 @@ from app.api.routes import (
     picking,
     products,
     public,
+    push,
     seed,
     sync_jobs,
     users,
@@ -83,6 +84,7 @@ for module in (
     defontana,
     sync_jobs,
     notifications,
+    push,
     seed,
     public,
 ):
