@@ -22,3 +22,5 @@ class Collections:
     NOTIFICATIONS = "notifications"
     # Edge-trigger state for stock-zero alerts (one row per product+warehouse).
     STOCK_ALERTS = "stock_alerts"
+    # Web Push (VAPID) browser subscriptions, one per user+device endpoint.
+    PUSH_SUBSCRIPTIONS = "push_subscriptions"

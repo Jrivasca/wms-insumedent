@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['icon.svg', 'push-sw.js'],
       manifest: {
         name: 'Selarix WMS',
         short_name: 'Selarix',
@@ -29,6 +29,9 @@ export default defineConfig({
       workbox: {
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        // Push/notificationclick handlers live in a static script the generated
+        // service worker imports (keeps the generateSW + autoUpdate setup intact).
+        importScripts: ['/push-sw.js'],
       },
     }),
   ],

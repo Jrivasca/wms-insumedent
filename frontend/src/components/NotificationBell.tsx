@@ -7,6 +7,7 @@ import {
   markRead,
   unreadCount,
 } from '../api/notifications';
+import { disablePush, enablePush, getPushState, type PushState } from '../push';
 
 const POLL_MS = 45_000;
 
@@ -42,6 +43,8 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [push, setPush] = useState<PushState>('unsupported');
+  const [pushBusy, setPushBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const refreshCount = useCallback(async () => {
@@ -84,7 +87,21 @@ export default function NotificationBell() {
   function toggle() {
     const next = !open;
     setOpen(next);
-    if (next) loadList();
+    if (next) {
+      loadList();
+      getPushState().then(setPush).catch(() => setPush('unsupported'));
+    }
+  }
+
+  async function togglePush() {
+    setPushBusy(true);
+    try {
+      setPush(push === 'enabled' ? await disablePush() : await enablePush());
+    } catch {
+      /* noop: la campana no debe romper la app */
+    } finally {
+      setPushBusy(false);
+    }
   }
 
   async function onItemClick(n: AppNotification) {
@@ -151,6 +168,27 @@ export default function NotificationBell() {
               Marcar todas
             </button>
           </div>
+
+          {(push === 'enabled' || push === 'disabled' || push === 'denied') && (
+            <div className="border-b border-slate-100 bg-slate-50 px-4 py-1.5 text-xs">
+              {push === 'denied' ? (
+                <span className="text-slate-400">
+                  Notificaciones push bloqueadas en el navegador
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={togglePush}
+                  disabled={pushBusy}
+                  className="font-medium text-brand hover:underline disabled:opacity-50"
+                >
+                  {push === 'enabled'
+                    ? '🔔 Push activado en este dispositivo · desactivar'
+                    : 'Activar notificaciones push en este dispositivo'}
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="max-h-96 overflow-y-auto">
             {loading ? (

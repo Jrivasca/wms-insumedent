@@ -1,3 +1,4 @@
+import base64
 from functools import lru_cache
 from typing import Annotated, List
 
@@ -43,6 +44,14 @@ class Settings(BaseSettings):
     # Consulta pública de bultos por QR: días de validez del enlace (token) del bulto.
     public_bulto_ttl_days: int = 90
 
+    # Web Push (VAPID) — notificaciones push Fase 2. Vacío = push deshabilitado (la
+    # Fase 1 in-app sigue funcionando igual). `vapid_public_key` es la application
+    # server key (base64url) que consume el navegador; `vapid_private_key` es el PEM
+    # de la clave EC P-256, codificado en base64 para viajar en una sola línea del .env.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:notificaciones@selarix.cl"
+
     # CORS — orígenes separados por coma (p. ej. "https://a.cl,https://b.cl").
     # NoDecode evita que pydantic-settings intente JSON-decodificar el valor del
     # env antes de correr el validador de abajo; sin esto, un valor como "*" o un
@@ -61,6 +70,24 @@ class Settings(BaseSettings):
         if self.defontana_env.lower() in ("production", "prod"):
             return self.defontana_prod_base_url
         return self.defontana_test_base_url
+
+    @property
+    def push_enabled(self) -> bool:
+        return bool(self.vapid_public_key and self.vapid_private_key)
+
+    @property
+    def vapid_private_pem(self) -> str:
+        """The EC private key as PEM text. Stored base64-encoded in the env to keep
+        the multi-line PEM on a single line; a raw PEM is also accepted."""
+        if not self.vapid_private_key:
+            return ""
+        value = self.vapid_private_key.strip()
+        if "BEGIN" in value:
+            return value
+        try:
+            return base64.b64decode(value).decode("utf-8")
+        except Exception:
+            return value
 
 
 @lru_cache
