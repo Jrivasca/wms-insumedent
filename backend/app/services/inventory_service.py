@@ -10,12 +10,16 @@ from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
+from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
-from app.services import sync_job_service
+from app.services import notification_service, sync_job_service
+
+logger = get_logger(__name__)
 
 
 def _available(balance: Dict[str, Any]) -> float:
@@ -93,7 +97,81 @@ async def change_location_stock(
         "updated_at": now_utc(),
     }
     await db[Collections.INVENTORY_BALANCES].update_one(key, {"$set": doc}, upsert=True)
+
+    # Stock-zero alert, edge-triggered and deduped per product+warehouse. Best-effort:
+    # a notification failure must never break a stock movement. Only pay the cost when a
+    # location actually empties on a decrease (operational net-zero moves keep the
+    # warehouse total > 0, so they self-suppress), and re-arm when stock returns.
+    if delta < 0 and new_on_hand <= 0:
+        await _alert_stock_zero_if_depleted(tenant_id, product_id, warehouse_id)
+    elif delta > 0:
+        await _clear_stock_zero_if_recovered(tenant_id, product_id, warehouse_id)
+
     return await db[Collections.INVENTORY_BALANCES].find_one(key)
+
+
+async def _product_warehouse_total(db, product_id: str, warehouse_id: str) -> float:
+    total = 0.0
+    async for b in db[Collections.INVENTORY_BALANCES].find(
+        {"product_id": product_id, "warehouse_id": warehouse_id}
+    ):
+        total += b.get("quantity_on_hand", 0) or 0
+    return total
+
+
+async def _alert_stock_zero_if_depleted(
+    tenant_id: str, product_id: str, warehouse_id: str
+) -> None:
+    try:
+        db = tenant_db(tenant_id)
+        if await _product_warehouse_total(db, product_id, warehouse_id) > 0:
+            return
+        # Edge-trigger: only the first crossing to zero raises an alert.
+        already = await db[Collections.STOCK_ALERTS].find_one(
+            {"product_id": product_id, "warehouse_id": warehouse_id, "active": True}
+        )
+        if already:
+            return
+        now = now_utc()
+        await db[Collections.STOCK_ALERTS].update_one(
+            {"product_id": product_id, "warehouse_id": warehouse_id},
+            {"$set": {"active": True, "updated_at": now}, "$setOnInsert": {"created_at": now}},
+            upsert=True,
+        )
+        product = await db[Collections.PRODUCTS].find_one({"_id": to_object_id(product_id)})
+        warehouse = await db[Collections.WAREHOUSES].find_one({"_id": to_object_id(warehouse_id)})
+        sku = (product or {}).get("sku", "")
+        name = (product or {}).get("name", sku) or sku
+        wh_name = (warehouse or {}).get("name", "")
+        await notification_service.emit(
+            tenant_id=tenant_id,
+            notification_type=NotificationType.STOCK_ZERO.value,
+            title=f"Stock 0: {sku}".strip(),
+            body=f"{name} quedó sin stock" + (f" en {wh_name}" if wh_name else ""),
+            entity_type="product",
+            entity_id=product_id,
+            metadata={"product_id": product_id, "warehouse_id": warehouse_id, "sku": sku},
+        )
+    except Exception as exc:  # noqa: BLE001 - alerting must never break a stock move
+        logger.warning("stock-zero alert failed: %s", exc)
+
+
+async def _clear_stock_zero_if_recovered(
+    tenant_id: str, product_id: str, warehouse_id: str
+) -> None:
+    try:
+        db = tenant_db(tenant_id)
+        active = await db[Collections.STOCK_ALERTS].find_one(
+            {"product_id": product_id, "warehouse_id": warehouse_id, "active": True}
+        )
+        if not active:
+            return
+        if await _product_warehouse_total(db, product_id, warehouse_id) > 0:
+            await db[Collections.STOCK_ALERTS].update_one(
+                {"_id": active["_id"]}, {"$set": {"active": False, "updated_at": now_utc()}}
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("stock-zero clear failed: %s", exc)
 
 
 async def record_movement(

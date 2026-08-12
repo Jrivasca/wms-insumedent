@@ -19,3 +19,6 @@ class Collections:
     SYNC_JOBS = "sync_jobs"
     AUDIT_LOGS = "audit_logs"
     INTEGRATION_LOGS = "integration_logs"
+    NOTIFICATIONS = "notifications"
+    # Edge-trigger state for stock-zero alerts (one row per product+warehouse).
+    STOCK_ALERTS = "stock_alerts"

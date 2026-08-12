@@ -18,6 +18,20 @@ export interface User {
   is_active?: boolean;
 }
 
+export type NotificationType = 'order_created' | 'order_dispatched' | 'stock_zero' | string;
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  metadata?: Record<string, unknown>;
+  read_at?: string | null;
+  created_at: string;
+}
+
 export interface Barcode {
   barcode: string;
   type?: string;

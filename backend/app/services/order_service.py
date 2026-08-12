@@ -8,8 +8,9 @@ from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.order import OrderLineStatus, OrderStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
+from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
-from app.services import sync_job_service
+from app.services import notification_service, sync_job_service
 
 
 async def _expected_barcodes(tenant_id: str, product_id: str, sku: str) -> List[str]:
@@ -179,6 +180,17 @@ async def create_order_from_lines(
             },
             created_by=created_by,
         )
+
+    await notification_service.emit(
+        tenant_id=tenant_id,
+        notification_type=NotificationType.ORDER_CREATED.value,
+        title=f"Nuevo pedido {erp_order_number}",
+        body=f"{customer or 'Sin cliente'} · {len(built)} línea(s)",
+        entity_type="order",
+        entity_id=str(doc["_id"]),
+        metadata={"erp_order_number": erp_order_number},
+        actor_id=created_by,
+    )
     return serialize(doc)
 
 

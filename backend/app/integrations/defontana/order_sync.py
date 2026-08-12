@@ -3,7 +3,9 @@ from typing import Any, Dict, Optional
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc
 from app.models import Collections
+from app.models.notification import NotificationType
 from app.models.order import OrderLineStatus, OrderStatus
+from app.services import notification_service
 from app.integrations.defontana.client import DefontanaConnector
 from app.integrations.defontana.mapper import DefontanaMapper
 
@@ -79,7 +81,16 @@ async def sync_orders(
             doc["is_active"] = True
             doc["created_at"] = now
             doc["created_by"] = actor
-            await db[Collections.ORDERS].insert_one(doc)
+            res = await db[Collections.ORDERS].insert_one(doc)
             created += 1
+            await notification_service.emit(
+                tenant_id=tenant_id,
+                notification_type=NotificationType.ORDER_CREATED.value,
+                title=f"Nuevo pedido {mapped['erp_order_number']}",
+                body=f"{mapped.get('customer') or 'Sin cliente'} · {len(lines)} línea(s) (Defontana)",
+                entity_type="order",
+                entity_id=str(res.inserted_id),
+                metadata={"erp_order_number": mapped["erp_order_number"], "source": "defontana"},
+            )
 
     return {"synced": len(raw_orders), "created": created, "updated": updated}
