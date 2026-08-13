@@ -100,6 +100,23 @@ async def test_staleness_reminder_fresh_then_stale_then_deduped():
     assert await product_import_service.catalog_staleness_check(tid) is False
 
 
+async def test_import_reads_legacy_xls():
+    xlwt = pytest.importorskip("xlwt")  # se saltea si xlwt no está instalado
+    tid = "tA"
+    wb = xlwt.Workbook()
+    ws = wb.add_sheet("s")
+    for col, h in enumerate(["Código", "Nombre", "Código de barras"]):
+        ws.write(0, col, h)
+    ws.write(1, 0, "SKU-XLS")
+    ws.write(1, 1, "Guante formato viejo")
+    ws.write(1, 2, "7801111111118")
+    buf = io.BytesIO()
+    wb.save(buf)
+    rep = await product_import_service.import_xlsx(tid, buf.getvalue(), actor="u1")
+    assert rep["applied"] and rep["created"] == 1 and rep["barcodes_added"] == 1
+    assert await _product_count(tid) == 1
+
+
 async def test_import_is_tenant_isolated():
     a, b = "tA", "tB"
     await product_import_service.import_xlsx(a, _xlsx(["Código", "Nombre"], [["SKU-1", "Ok"]]), actor="u1")

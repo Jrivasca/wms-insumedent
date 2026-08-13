@@ -171,7 +171,7 @@ export default function ProductsPage() {
                 {importing ? 'Importando…' : 'Importar Excel'}
                 <input
                   type="file"
-                  accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  accept=".xlsx,.xlsm,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                   onChange={handleImport}
                   disabled={importing}
                   className="hidden"

@@ -24,7 +24,7 @@ logger = get_logger("app.workers.folder_intake")
 
 # Same set the manual import route accepts (PDF digital/escaneado + fotos).
 ORDER_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic"}
-PRODUCT_EXTS = {".xlsx", ".xlsm"}
+PRODUCT_EXTS = {".xlsx", ".xlsm", ".xls"}
 
 
 async def _resolve_tenant_id() -> Optional[str]:
