@@ -76,13 +76,31 @@ def _map_headers(row: Tuple) -> Dict[int, str]:
     return mapping
 
 
-def _parse(data: bytes) -> Tuple[bool, Dict[int, str], List[Tuple]]:
+# OLE2 compound-file signature = formato viejo .xls (Excel 97-2003, BIFF).
+_XLS_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def _rows_from_bytes(data: bytes) -> List[Tuple]:
+    """Extrae las filas de la primera hoja como tuplas, soportando .xlsx/.xlsm
+    (openpyxl) y el formato viejo .xls (xlrd), detectado por magic bytes."""
+    if data[:8] == _XLS_MAGIC:
+        import xlrd  # solo se importa si llega un .xls
+
+        book = xlrd.open_workbook(file_contents=data)
+        sheet = book.sheet_by_index(0)
+        return [tuple(sheet.row_values(r)) for r in range(sheet.nrows)]
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb.active
+    rows = [tuple(row) for row in ws.iter_rows(values_only=True)]
+    wb.close()
+    return rows
+
+
+def _parse(data: bytes) -> Tuple[bool, Dict[int, str], List[Tuple]]:
     header_map: Dict[int, str] = {}
     header_found = False
     data_rows: List[Tuple] = []
-    for row in ws.iter_rows(values_only=True):
+    for row in _rows_from_bytes(data):
         if not header_found:
             candidate = _map_headers(row)
             if "sku" in candidate.values():
@@ -90,7 +108,6 @@ def _parse(data: bytes) -> Tuple[bool, Dict[int, str], List[Tuple]]:
                 header_found = True
             continue
         data_rows.append(row)
-    wb.close()
     return header_found, header_map, data_rows
 
 

@@ -10,7 +10,7 @@ from app.services.audit_service import log_action
 router = APIRouter(prefix="/products", tags=["products"])
 
 MAX_IMPORT_BYTES = 15 * 1024 * 1024  # 15 MB
-_XLSX_EXTS = (".xlsx", ".xlsm")
+_XLSX_EXTS = (".xlsx", ".xlsm", ".xls")
 
 
 @router.get("")
@@ -50,7 +50,7 @@ async def import_catalog(
     """Importar/actualizar el catálogo desde un Excel (Plan 1, Fase 2)."""
     fname = (file.filename or "").lower()
     if not fname.endswith(_XLSX_EXTS):
-        raise HTTPException(status_code=415, detail="Sube el catálogo en formato Excel (.xlsx).")
+        raise HTTPException(status_code=415, detail="Sube el catálogo en formato Excel (.xlsx o .xls).")
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="El archivo está vacío.")
