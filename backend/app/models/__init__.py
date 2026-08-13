@@ -28,3 +28,6 @@ class Collections:
     # need a human before becoming an order, and a log of processed files.
     ORDER_IMPORT_DRAFTS = "order_import_drafts"
     INTAKE_RUNS = "intake_runs"
+    # Excel catalog import (Plan 1 Fase 2): per-tenant last-import state for the
+    # "no lo cargaste en 24 h" staleness reminder.
+    CATALOG_IMPORT_STATE = "catalog_import_state"

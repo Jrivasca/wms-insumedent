@@ -1,13 +1,16 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.api.deps import CurrentUser, get_current_user, require_supervisor
 from app.schemas.product import BarcodeCreate, ProductCreate
-from app.services import product_service
+from app.services import product_import_service, product_service
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/products", tags=["products"])
+
+MAX_IMPORT_BYTES = 15 * 1024 * 1024  # 15 MB
+_XLSX_EXTS = (".xlsx", ".xlsm")
 
 
 @router.get("")
@@ -38,6 +41,36 @@ async def create_product(
         user_agent=user.user_agent,
     )
     return product
+
+
+@router.post("/import")
+async def import_catalog(
+    file: UploadFile = File(...), user: CurrentUser = Depends(require_supervisor)
+):
+    """Importar/actualizar el catálogo desde un Excel (Plan 1, Fase 2)."""
+    fname = (file.filename or "").lower()
+    if not fname.endswith(_XLSX_EXTS):
+        raise HTTPException(status_code=415, detail="Sube el catálogo en formato Excel (.xlsx).")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+    if len(data) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="El archivo supera el tamaño máximo (15 MB).")
+
+    report = await product_import_service.import_xlsx(user.tenant_id, data, user.id, source="upload")
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="catalog_import",
+        entity_type="product",
+        metadata={"applied": report.get("applied"), "created": report.get("created"),
+                  "updated": report.get("updated"), "file": file.filename},
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    if not report.get("applied"):
+        raise HTTPException(status_code=422, detail=report)
+    return report
 
 
 @router.get("/barcode/{barcode}")

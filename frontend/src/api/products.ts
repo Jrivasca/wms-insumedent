@@ -34,6 +34,26 @@ export async function getProduct(id: string): Promise<Product> {
   return data;
 }
 
+export interface CatalogImportReport {
+  applied: boolean;
+  rows?: number;
+  created?: number;
+  updated?: number;
+  barcodes_added?: number;
+  rejected?: { row: number; reason: string }[];
+  error?: string;
+}
+
+/** Import/actualizar el catálogo desde un Excel (.xlsx). */
+export async function importCatalog(file: File): Promise<CatalogImportReport> {
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await http.post<CatalogImportReport>('/products/import', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
 export async function getProductByBarcode(barcode: string): Promise<Product> {
   const { data } = await http.get<Product>(`/products/barcode/${encodeURIComponent(barcode)}`);
   return data;

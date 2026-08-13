@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { addBarcode, createProduct, getProductByBarcode, listProducts } from '../api/products';
+import {
+  addBarcode,
+  createProduct,
+  getProductByBarcode,
+  importCatalog,
+  listProducts,
+  type CatalogImportReport,
+} from '../api/products';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
 import { Field } from '../components/Form';
 import Pager from '../components/Pager';
 import { ERP_CREATE_ENABLED } from '../config';
+import { isSupervisor, useAuth } from '../store/auth';
 import type { Product } from '../types';
 
 const PAGE = 50;
@@ -13,6 +21,9 @@ const EMPTY_NEW = { sku: '', name: '', category: '', unit: 'UN', brand: '', barc
 
 export default function ProductsPage() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const canImport = isSupervisor(currentUser?.role);
+  const [importing, setImporting] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -125,17 +136,54 @@ export default function ProductsPage() {
     }
   }
 
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError(null);
+    setNotice(null);
+    setImporting(true);
+    try {
+      const rep = await importCatalog(file);
+      setNotice(
+        `Catálogo actualizado: ${rep.created ?? 0} creados · ${rep.updated ?? 0} actualizados · ${rep.barcodes_added ?? 0} códigos`
+      );
+      load(undefined, 0);
+    } catch (err) {
+      const ax = err as { response?: { data?: { detail?: CatalogImportReport } } };
+      const rep = ax.response?.data?.detail;
+      if (rep?.error) setError(`Catálogo rechazado: ${rep.error}`);
+      else setError(errorMessage(err));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="Productos"
         subtitle="Catálogo y códigos de barras"
         actions={
-          ERP_CREATE_ENABLED ? (
-            <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
-              {showCreate ? 'Cerrar' : '+ Nuevo producto'}
-            </button>
-          ) : undefined
+          <div className="flex flex-wrap gap-2">
+            {canImport && (
+              <label className="btn-secondary cursor-pointer whitespace-nowrap">
+                {importing ? 'Importando…' : 'Importar Excel'}
+                <input
+                  type="file"
+                  accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  onChange={handleImport}
+                  disabled={importing}
+                  className="hidden"
+                />
+              </label>
+            )}
+            {ERP_CREATE_ENABLED && (
+              <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
+                {showCreate ? 'Cerrar' : '+ Nuevo producto'}
+              </button>
+            )}
+          </div>
         }
       />
 

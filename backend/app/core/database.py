@@ -104,5 +104,7 @@ async def ensure_indexes() -> None:
         [("tenant_id", 1), ("status", 1), ("created_at", -1)]
     )
     await db.intake_runs.create_index([("tenant_id", 1), ("file_hash", 1)], unique=True)
+    # Excel catalog import: one state doc per tenant.
+    await db.catalog_import_state.create_index([("tenant_id", 1)], unique=True)
 
     logger.info("MongoDB indexes ensured")

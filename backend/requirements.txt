@@ -13,6 +13,8 @@ python-multipart==0.0.20
 pdfplumber==0.11.10
 pytesseract==0.3.13
 pillow-heif==1.5.0
+# Importador de catálogo por Excel (Plan 1, Fase 2).
+openpyxl==3.1.5
 # Web Push (VAPID). py-vapid 1.9.x requires cryptography>=46, so cryptography is
 # bumped from 44 accordingly (verified: JWT via python-jose + Fernet still pass).
 cryptography==50.0.0
