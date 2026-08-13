@@ -195,10 +195,12 @@ async def run_forever() -> None:
 
 
 async def _run_all() -> None:
-    """Run the ERP sync-job drain and the folder-watch intake concurrently."""
-    from app.workers import folder_intake
+    """Run the ERP sync-job drain, the folder-watch intake and the near-expiry watch."""
+    from app.workers import expiry_watch, folder_intake
 
-    await asyncio.gather(run_forever(), folder_intake.run_forever())
+    await asyncio.gather(
+        run_forever(), folder_intake.run_forever(), expiry_watch.run_forever()
+    )
 
 
 def main() -> None:

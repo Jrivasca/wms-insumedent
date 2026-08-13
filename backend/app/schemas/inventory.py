@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -33,5 +34,7 @@ class ReceptionRequest(BaseModel):
     reference: Optional[str] = None
     lot_number: Optional[str] = None
     serial_number: Optional[str] = None
+    # Fecha de vencimiento del lote recibido (Fase 5, FEFO + alertas). "YYYY-MM-DD".
+    expiration_date: Optional[datetime] = None
     # Whether to push an inventory-entry document to the ERP (default yes).
     sync_erp: bool = True

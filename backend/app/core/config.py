@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     intake_tenant_id: str = ""
     intake_interval_seconds: int = 120
 
+    # Lotes y vencimiento (Plan 1 Fase 5). ``expiry_alert_days`` = ventana para avisar
+    # "por vencer"; el worker revisa cada ``expiry_check_interval_seconds``.
+    expiry_alert_days: int = 30
+    expiry_check_interval_seconds: int = 21600  # 6 h
+
     # CORS — orígenes separados por coma (p. ej. "https://a.cl,https://b.cl").
     # NoDecode evita que pydantic-settings intente JSON-decodificar el valor del
     # env antes de correr el validador de abajo; sin esto, un valor como "*" o un

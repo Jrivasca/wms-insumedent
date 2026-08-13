@@ -4,6 +4,7 @@ Golden rule (section 8.4): stock is never modified without recording a movement.
 All public mutators in this module both update ``inventory_balances`` and append a
 document to ``inventory_movements``.
 """
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -61,11 +62,14 @@ async def change_location_stock(
     lot_number: Optional[str] = None,
     serial_number: Optional[str] = None,
     allow_negative: bool = False,
+    expiration_date: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Apply ``delta`` to on-hand stock of a single location and return the balance.
 
     Does NOT record a movement on its own; callers must pair it with
-    :func:`record_movement` (see the higher-level helpers below).
+    :func:`record_movement` (see the higher-level helpers below). ``expiration_date``
+    is the lot's expiry (Fase 5); it is only written when provided (on a receipt), so
+    operational net-zero moves never wipe it.
     """
     db = tenant_db(tenant_id)
     key = {
@@ -96,6 +100,8 @@ async def change_location_stock(
         "quantity_available": new_on_hand - reserved - blocked,
         "updated_at": now_utc(),
     }
+    if expiration_date is not None:
+        doc["expiration_date"] = expiration_date
     await db[Collections.INVENTORY_BALANCES].update_one(key, {"$set": doc}, upsert=True)
 
     # Stock-zero alert, edge-triggered and deduped per product+warehouse. Best-effort:
@@ -315,12 +321,14 @@ async def create_reception(
     reference: Optional[str] = None,
     lot_number: Optional[str] = None,
     serial_number: Optional[str] = None,
+    expiration_date: Optional[datetime] = None,
     sync_erp: bool = True,
 ) -> Dict[str, Any]:
     """Receive inbound stock into a location (entrada de mercadería).
 
     Adds stock + records a RECEIPT movement, and (optionally) enqueues an ERP
     inventory-entry document (Defontana ``PUT /Inventory/Insert``, real-supported).
+    ``expiration_date`` (Fase 5) is stored on the lot's balance for FEFO + alerts.
     """
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="La cantidad debe ser positiva")
@@ -334,6 +342,7 @@ async def create_reception(
         lot_number=lot_number,
         serial_number=serial_number,
         allow_negative=True,
+        expiration_date=expiration_date,
     )
     movement = await record_movement(
         tenant_id=tenant_id,
@@ -492,6 +501,60 @@ async def reverse_moves_for_reference(
         )
         count += 1
     return count
+
+
+# ---------------------------------------------------------------------------
+# Lotes y vencimiento (Fase 5): alerta "por vencer"
+# ---------------------------------------------------------------------------
+def _aware(dt):
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def check_expiring_stock(tenant_id: str, days: Optional[int] = None) -> int:
+    """Alert on lots that expire within ``days`` (default ``expiry_alert_days``) and
+    still have stock. Deduped per (product, warehouse, lot) via ``expiry_alerts``, so a
+    lot only alerts once when it enters the window. Returns how many it alerted."""
+    days = settings.expiry_alert_days if days is None else days
+    db = tenant_db(tenant_id)
+    now = now_utc()
+    threshold = now + timedelta(days=days)
+    alerted = 0
+    cursor = db[Collections.INVENTORY_BALANCES].find(
+        {"expiration_date": {"$ne": None, "$lte": threshold}, "quantity_on_hand": {"$gt": 0}}
+    )
+    async for bal in cursor:
+        pid = bal.get("product_id")
+        wid = bal.get("warehouse_id")
+        lot = bal.get("lot_number")
+        marker = {"product_id": pid, "warehouse_id": wid, "lot_number": lot}
+        if await db[Collections.EXPIRY_ALERTS].find_one({**marker, "active": True}):
+            continue
+        await db[Collections.EXPIRY_ALERTS].update_one(
+            marker,
+            {"$set": {**marker, "active": True, "updated_at": now,
+                      "expiration_date": bal.get("expiration_date")}},
+            upsert=True,
+        )
+        product = await db[Collections.PRODUCTS].find_one({"_id": to_object_id(pid)})
+        sku = (product or {}).get("sku", "") or ""
+        name = (product or {}).get("name", sku) or sku
+        exp = _aware(bal.get("expiration_date"))
+        exp_str = exp.date().isoformat() if exp else "?"
+        expired = bool(exp and exp <= now)
+        await notification_service.emit(
+            tenant_id=tenant_id,
+            notification_type=NotificationType.STOCK_EXPIRING.value,
+            title=(f"Vencido: {sku}" if expired else f"Por vencer: {sku}").strip(),
+            body=f"{name} · lote {lot or 's/l'} vence {exp_str} · {bal.get('quantity_on_hand')} u",
+            entity_type="product",
+            entity_id=pid,
+            metadata={"product_id": pid, "warehouse_id": wid, "lot_number": lot,
+                      "expiration_date": exp_str},
+        )
+        alerted += 1
+    return alerted
 
 
 # ---------------------------------------------------------------------------

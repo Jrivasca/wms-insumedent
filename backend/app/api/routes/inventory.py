@@ -1,3 +1,4 @@
+from datetime import timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -9,6 +10,13 @@ from app.services import inventory_service
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+
+
+def _aware(dt):
+    """Normalize a parsed date/datetime to timezone-aware UTC (dates arrive naive)."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 @router.get("/balances")
@@ -52,6 +60,7 @@ async def create_reception(
         reference=payload.reference,
         lot_number=payload.lot_number,
         serial_number=payload.serial_number,
+        expiration_date=_aware(payload.expiration_date),
         sync_erp=payload.sync_erp,
     )
     await log_action(
