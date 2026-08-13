@@ -37,6 +37,10 @@ services:
       - backend
     env_file:
       - .env
+    # Carpeta de ingesta (folder-watch, Plan 1): el host ./inbound se sincroniza con
+    # la nube (rclone) y el worker la lee. Inactiva salvo INTAKE_ENABLED=true.
+    volumes:
+      - ./inbound:/data/inbound
     command: python -m app.workers.sync_worker
 
   frontend:

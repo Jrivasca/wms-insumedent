@@ -98,5 +98,11 @@ async def ensure_indexes() -> None:
     await db.push_subscriptions.create_index(
         [("tenant_id", 1), ("user_id", 1), ("endpoint", 1)], unique=True
     )
+    # Folder-watch intake: review queue listed by tenant+status newest-first, and a
+    # per-file dedupe log (unique content hash) so a re-synced file is not reprocessed.
+    await db.order_import_drafts.create_index(
+        [("tenant_id", 1), ("status", 1), ("created_at", -1)]
+    )
+    await db.intake_runs.create_index([("tenant_id", 1), ("file_hash", 1)], unique=True)
 
     logger.info("MongoDB indexes ensured")

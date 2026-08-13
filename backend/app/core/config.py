@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:notificaciones@selarix.cl"
 
+    # Ingesta por carpeta (folder-watch) — Plan 1 Fase 1/2. Lee PDFs de pedidos y
+    # Excel de productos desde un directorio local (una carpeta de nube sincronizada
+    # por rclone) cada N segundos. Vacío/false = deshabilitado (el import manual por
+    # la UI sigue igual). ``intake_inbound_dir`` es la base y contiene las subcarpetas
+    # ``pedidos/ productos/ procesados/ revisar/``. ``intake_tenant_id`` es el tenant
+    # dueño; si queda vacío y existe un único tenant, se usa ese.
+    intake_enabled: bool = False
+    intake_inbound_dir: str = ""
+    intake_tenant_id: str = ""
+    intake_interval_seconds: int = 120
+
     # CORS — orígenes separados por coma (p. ej. "https://a.cl,https://b.cl").
     # NoDecode evita que pydantic-settings intente JSON-decodificar el valor del
     # env antes de correr el validador de abajo; sin esto, un valor como "*" o un

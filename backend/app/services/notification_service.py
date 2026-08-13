@@ -23,6 +23,8 @@ def _entity_url(entity_type: Optional[str], entity_id: Optional[str]) -> str:
         return f"/products/{entity_id}"
     if entity_type == "order":
         return "/orders"
+    if entity_type == "import_draft":
+        return "/orders/import"
     return "/"
 
 

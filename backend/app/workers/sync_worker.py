@@ -194,9 +194,16 @@ async def run_forever() -> None:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
+async def _run_all() -> None:
+    """Run the ERP sync-job drain and the folder-watch intake concurrently."""
+    from app.workers import folder_intake
+
+    await asyncio.gather(run_forever(), folder_intake.run_forever())
+
+
 def main() -> None:
     configure_logging()
-    asyncio.run(run_forever())
+    asyncio.run(_run_all())
 
 
 if __name__ == "__main__":

@@ -24,3 +24,7 @@ class Collections:
     STOCK_ALERTS = "stock_alerts"
     # Web Push (VAPID) browser subscriptions, one per user+device endpoint.
     PUSH_SUBSCRIPTIONS = "push_subscriptions"
+    # Folder-watch order intake (Plan 1 Fase 1): review queue for parsed PDFs that
+    # need a human before becoming an order, and a log of processed files.
+    ORDER_IMPORT_DRAFTS = "order_import_drafts"
+    INTAKE_RUNS = "intake_runs"
