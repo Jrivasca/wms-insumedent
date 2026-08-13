@@ -126,12 +126,15 @@ async def _scan_products(tenant_id: str, dirs: dict) -> None:
 async def _scan_once(tenant_id: str) -> None:
     dirs = _dirs()
     await _scan_orders(tenant_id, dirs)
-    await _scan_products(tenant_id, dirs)
-    # Recordatorio si nadie subió el catálogo en 24 h (deduplicado internamente).
-    try:
-        await product_import_service.catalog_staleness_check(tenant_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("intake: fallo el chequeo de obsolescencia del catálogo: %s", exc)
+    # Productos: solo si el folder-watch de catálogo está habilitado (por defecto OFF;
+    # el catálogo se importa manualmente por el botón "Importar Excel").
+    if settings.intake_products_enabled:
+        await _scan_products(tenant_id, dirs)
+        # Recordatorio si nadie subió el catálogo en 24 h (deduplicado internamente).
+        try:
+            await product_import_service.catalog_staleness_check(tenant_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("intake: fallo el chequeo de obsolescencia del catálogo: %s", exc)
 
 
 async def run_forever() -> None:
