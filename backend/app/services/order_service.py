@@ -30,7 +30,24 @@ async def _suggested_location(
     tenant_id: str, product_id: str, warehouse_id: str
 ) -> Optional[str]:
     db = tenant_db(tenant_id)
-    # Prefer a location that already holds stock for this product.
+    # FEFO (Fase 5): prefer the lot with the nearest expiration among those with stock.
+    fefo = (
+        await db[Collections.INVENTORY_BALANCES]
+        .find(
+            {
+                "tenant_id": tenant_id,
+                "product_id": product_id,
+                "warehouse_id": warehouse_id,
+                "quantity_on_hand": {"$gt": 0},
+                "expiration_date": {"$ne": None},
+            }
+        )
+        .sort([("expiration_date", 1)])
+        .to_list(length=1)
+    )
+    if fefo:
+        return fefo[0]["location_id"]
+    # Otherwise any location that already holds stock for this product.
     balance = await db[Collections.INVENTORY_BALANCES].find_one(
         {
             "tenant_id": tenant_id,

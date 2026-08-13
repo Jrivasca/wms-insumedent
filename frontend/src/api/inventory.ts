@@ -29,6 +29,7 @@ export async function createReception(payload: {
   reference?: string;
   lot_number?: string;
   serial_number?: string;
+  expiration_date?: string;
   sync_erp?: boolean;
 }): Promise<{ balance: InventoryBalance | null; movement: InventoryMovement; sync_job_id?: string | null }> {
   const { data } = await http.post('/inventory/receptions', payload);

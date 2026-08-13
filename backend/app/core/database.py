@@ -98,5 +98,19 @@ async def ensure_indexes() -> None:
     await db.push_subscriptions.create_index(
         [("tenant_id", 1), ("user_id", 1), ("endpoint", 1)], unique=True
     )
+    # Folder-watch intake: review queue listed by tenant+status newest-first, and a
+    # per-file dedupe log (unique content hash) so a re-synced file is not reprocessed.
+    await db.order_import_drafts.create_index(
+        [("tenant_id", 1), ("status", 1), ("created_at", -1)]
+    )
+    await db.intake_runs.create_index([("tenant_id", 1), ("file_hash", 1)], unique=True)
+    # Excel catalog import: one state doc per tenant.
+    await db.catalog_import_state.create_index([("tenant_id", 1)], unique=True)
+    # Near-expiry alerts: dedupe marker per product+warehouse+lot; plus a query on
+    # balances by expiration for the periodic scan.
+    await db.expiry_alerts.create_index(
+        [("tenant_id", 1), ("product_id", 1), ("warehouse_id", 1), ("lot_number", 1)], unique=True
+    )
+    await db.inventory_balances.create_index([("tenant_id", 1), ("expiration_date", 1)])
 
     logger.info("MongoDB indexes ensured")

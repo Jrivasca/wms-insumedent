@@ -1,6 +1,15 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { parseOrderPdf, confirmOrderImport, type ConfirmLine } from '../api/orderImport';
+import {
+  parseOrderPdf,
+  confirmOrderImport,
+  listImportDrafts,
+  getImportDraft,
+  confirmImportDraft,
+  discardImportDraft,
+  type ConfirmLine,
+  type ImportDraftSummary,
+} from '../api/orderImport';
 import { errorMessage } from '../api/http';
 import { ErrorBox, PageHeader } from '../components/Async';
 import { Field, ProductPicker } from '../components/Form';
@@ -48,6 +57,39 @@ export default function OrderImportPage() {
   const [docType, setDocType] = useState<string | null>(null);
   const [lines, setLines] = useState<EditLine[] | null>(null);
 
+  // Cola de revisión del folder-watch (PDFs auto-ingestados con líneas a resolver).
+  const [drafts, setDrafts] = useState<ImportDraftSummary[]>([]);
+  const [draftId, setDraftId] = useState<string | null>(null);
+
+  function refreshDrafts() {
+    listImportDrafts().then(setDrafts).catch(() => setDrafts([]));
+  }
+  useEffect(refreshDrafts, []);
+
+  function applyDraft(draft: {
+    erp_order_number?: string | null;
+    customer?: string | null;
+    customer_rut?: string | null;
+    order_date?: string | null;
+    doc_type?: string | null;
+    document_warnings?: string[];
+    lines?: ParsedOrderLine[];
+  }) {
+    setFolio(draft.erp_order_number ?? '');
+    setCustomer(draft.customer ?? '');
+    setRut(draft.customer_rut ?? '');
+    setDocDate(draft.order_date ?? '');
+    setDocType(draft.doc_type ?? null);
+    setDocWarnings(draft.document_warnings ?? []);
+    setLines(
+      (draft.lines ?? []).map((l) => ({
+        ...l,
+        include: l.match_status !== 'invalid',
+        resolved: null,
+      }))
+    );
+  }
+
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-selecting the same file
@@ -55,27 +97,45 @@ export default function OrderImportPage() {
     setParsing(true);
     setError(null);
     setLines(null);
+    setDraftId(null);
     setFileName(file.name);
     try {
-      const draft = await parseOrderPdf(file);
-      setFolio(draft.erp_order_number ?? '');
-      setCustomer(draft.customer ?? '');
-      setRut(draft.customer_rut ?? '');
-      setDocDate(draft.order_date ?? '');
-      setDocType(draft.doc_type ?? null);
-      setDocWarnings(draft.document_warnings ?? []);
-      setLines(
-        (draft.lines ?? []).map((l) => ({
-          ...l,
-          include: l.match_status !== 'invalid',
-          resolved: null,
-        }))
-      );
+      applyDraft(await parseOrderPdf(file));
     } catch (err) {
       setError(errorMessage(err));
       setFileName(null);
     } finally {
       setParsing(false);
+    }
+  }
+
+  async function loadDraft(id: string) {
+    setError(null);
+    setParsing(true);
+    try {
+      const draft = await getImportDraft(id);
+      applyDraft(draft);
+      setDraftId(id);
+      setFileName(draft.file_name ?? null);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  async function onDiscardDraft(id: string) {
+    if (!window.confirm('¿Descartar este pedido pendiente de revisión?')) return;
+    try {
+      await discardImportDraft(id);
+      if (draftId === id) {
+        setDraftId(null);
+        setLines(null);
+      }
+      refreshDrafts();
+    } catch (err) {
+      setError(errorMessage(err));
     }
   }
 
@@ -150,19 +210,22 @@ export default function OrderImportPage() {
       product_id: l.product_id ?? undefined,
     }));
 
+    const payload = {
+      erp_order_number: folio.trim(),
+      customer: customer.trim() || undefined,
+      customer_rut: rut.trim() || undefined,
+      order_date: docDate.trim() || undefined,
+      doc_type: docType || undefined,
+      lines: payloadLines,
+    };
     setCreating(true);
     setError(null);
     try {
-      const created = await confirmOrderImport({
-        erp_order_number: folio.trim(),
-        customer: customer.trim() || undefined,
-        customer_rut: rut.trim() || undefined,
-        order_date: docDate.trim() || undefined,
-        doc_type: docType || undefined,
-        lines: payloadLines,
-      });
+      const created = draftId
+        ? await confirmImportDraft(draftId, payload)
+        : await confirmOrderImport(payload);
       navigate('/orders', {
-        state: { notice: `Pedido ${created.erp_order_number} creado desde PDF · sincronización encolada` },
+        state: { notice: `Pedido ${created.erp_order_number} creado desde PDF` },
       });
     } catch (err) {
       setError(errorMessage(err));
@@ -186,6 +249,49 @@ export default function OrderImportPage() {
       />
 
       {error && <ErrorBox message={error} />}
+
+      {/* Cola de revisión: PDFs auto-ingestados desde la carpeta con líneas a resolver */}
+      {drafts.length > 0 && (
+        <div className="card mb-4 border border-amber-200 bg-amber-50">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold text-amber-800">Pedidos por revisar ({drafts.length})</h2>
+            <span className="text-xs text-amber-700">
+              Auto-ingestados desde la carpeta; resuelve las líneas y créalos
+            </span>
+          </div>
+          <ul className="divide-y divide-amber-200">
+            {drafts.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <div className="text-sm">
+                  <span className="font-medium">N° {d.erp_order_number ?? '—'}</span>
+                  <span className="text-slate-600"> · {d.customer ?? 'Sin cliente'}</span>
+                  <span className="text-slate-500"> · {d.line_count ?? 0} líneas</span>
+                  {(d.problem_lines ?? 0) > 0 && (
+                    <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                      {d.problem_lines} a resolver
+                    </span>
+                  )}
+                  {d.file_name && <span className="ml-2 text-xs text-slate-400">{d.file_name}</span>}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => loadDraft(d.id)}
+                    className="rounded bg-brand px-3 py-1 text-sm font-medium text-white hover:opacity-90"
+                  >
+                    Revisar
+                  </button>
+                  <button
+                    onClick={() => onDiscardDraft(d.id)}
+                    className="rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
+                  >
+                    Descartar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Upload */}
       <div className="card mb-4">
@@ -345,10 +451,12 @@ export default function OrderImportPage() {
 
           <div className="mt-4 flex items-center gap-3">
             <button onClick={handleCreate} className="btn-success" disabled={creating}>
-              {creating ? 'Creando…' : `Crear pedido (${includedCount} líneas)`}
+              {creating
+                ? 'Creando…'
+                : `${draftId ? 'Confirmar pedido revisado' : 'Crear pedido'} (${includedCount} líneas)`}
             </button>
             <span className="text-xs text-slate-400">
-              El pedido se crea en estado “imported” y se encola la sincronización con el ERP.
+              El pedido se crea en estado “imported”, listo para generar el picking.
             </span>
           </div>
         </>

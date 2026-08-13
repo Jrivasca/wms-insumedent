@@ -17,6 +17,8 @@ export default function ReceptionPage() {
   const [locationId, setLocationId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [reference, setReference] = useState('');
+  const [lot, setLot] = useState('');
+  const [expiration, setExpiration] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ qty: number; syncJob?: string | null } | null>(null);
@@ -42,10 +44,14 @@ export default function ReceptionPage() {
         location_id: locationId,
         quantity: Number(quantity),
         reference: reference.trim() || undefined,
+        lot_number: lot.trim() || undefined,
+        expiration_date: expiration || undefined,
       });
       setDone({ qty: Number(quantity), syncJob: res.sync_job_id });
       setQuantity('');
       setReference('');
+      setLot('');
+      setExpiration('');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -102,6 +108,10 @@ export default function ReceptionPage() {
           required
         />
         <Field label="Cantidad" type="number" value={quantity} onChange={setQuantity} required />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Field label="Lote (opc.)" value={lot} onChange={setLot} placeholder="Ej: L-2026-07" />
+          <Field label="Vencimiento (opc.)" type="date" value={expiration} onChange={setExpiration} />
+        </div>
         <Field
           label="Referencia (OC / guía proveedor, opc.)"
           value={reference}
