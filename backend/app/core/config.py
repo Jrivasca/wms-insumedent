@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     intake_inbound_dir: str = ""
     intake_tenant_id: str = ""
     intake_interval_seconds: int = 120
+    # Folder-watch de productos (Excel). Por defecto OFF: el catálogo se importa solo
+    # de forma MANUAL (botón "Importar Excel"). El folder-watch de pedidos es aparte.
+    intake_products_enabled: bool = False
 
     # Lotes y vencimiento (Plan 1 Fase 5). ``expiry_alert_days`` = ventana para avisar
     # "por vencer"; el worker revisa cada ``expiry_check_interval_seconds``.
