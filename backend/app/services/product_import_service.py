@@ -1,7 +1,9 @@
 """Excel catalog importer (Plan 1, Fase 2).
 
 Replaces the Defontana ``sync_products`` pull: the product master is exported from
-the ERP to an ``.xlsx`` and imported here (manual upload or folder-watch). Rules:
+the ERP and imported here (manual upload or folder-watch). Acepta ``.xlsx``/``.xlsm``,
+el ``.xls`` binario viejo y el HTML-disfrazado-de-``.xls`` del reporte "Informe de
+Artículos" de Defontana (ver ``_defontana_records``). Rules:
 
 - headers are matched by name (accent/case-insensitive synonyms); the **code (SKU)
   column is mandatory**;
@@ -12,9 +14,11 @@ the ERP to an ``.xlsx`` and imported here (manual upload or folder-watch). Rules
 Also keeps a per-tenant last-import timestamp so a "no lo cargaste en 24 h" reminder
 can fire (``catalog_staleness_check``).
 """
+import hashlib
 import io
 import unicodedata
 from datetime import timedelta, timezone
+from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
@@ -78,17 +82,68 @@ def _map_headers(row: Tuple) -> Dict[int, str]:
 
 # OLE2 compound-file signature = formato viejo .xls (Excel 97-2003, BIFF).
 _XLS_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+# Pistas de HTML: el export "Informe de Artículos" de Defontana es HTML con
+# extensión .xls (ni OLE2 ni ZIP), por eso openpyxl fallaba con "File is not a zip file".
+_HTML_HINTS = (b"<html", b"<table", b"<!doctype html", b"<tr")
+
+
+def _looks_like_html(data: bytes) -> bool:
+    head = data[:4096].lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    return head[:1] == b"<" and any(hint in head for hint in _HTML_HINTS)
+
+
+class _HTMLTableRows(HTMLParser):
+    """Extrae filas ``<tr>`` como tuplas de texto de celda, sin dependencias
+    externas. colspan/rowspan se ignoran: se toman las celdas tal como vienen
+    (el reporte de Defontana trae una fila plana de 8 columnas por producto)."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: List[Tuple] = []
+        self._row: Optional[List[str]] = None
+        self._cell: Optional[List[str]] = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self._row = []
+        elif tag in ("td", "th") and self._row is not None:
+            self._cell = []
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self._cell is not None and self._row is not None:
+            self._row.append("".join(self._cell).replace("\xa0", " ").strip())
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            self.rows.append(tuple(self._row))
+            self._row = None
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+
+
+def _rows_from_html(data: bytes) -> List[Tuple]:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = data.decode("cp1252", errors="replace")  # encoding típico de Defontana
+    parser = _HTMLTableRows()
+    parser.feed(text)
+    return parser.rows
 
 
 def _rows_from_bytes(data: bytes) -> List[Tuple]:
     """Extrae las filas de la primera hoja como tuplas, soportando .xlsx/.xlsm
-    (openpyxl) y el formato viejo .xls (xlrd), detectado por magic bytes."""
+    (openpyxl), el .xls binario viejo (xlrd) y el HTML-disfrazado-de-.xls que
+    exporta Defontana (parser stdlib), detectados por los bytes de cabecera."""
     if data[:8] == _XLS_MAGIC:
-        import xlrd  # solo se importa si llega un .xls
+        import xlrd  # solo se importa si llega un .xls binario
 
         book = xlrd.open_workbook(file_contents=data)
         sheet = book.sheet_by_index(0)
         return [tuple(sheet.row_values(r)) for r in range(sheet.nrows)]
+    if _looks_like_html(data):
+        return _rows_from_html(data)
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb.active
     rows = [tuple(row) for row in ws.iter_rows(values_only=True)]
@@ -96,11 +151,85 @@ def _rows_from_bytes(data: bytes) -> List[Tuple]:
     return rows
 
 
-def _parse(data: bytes) -> Tuple[bool, Dict[int, str], List[Tuple]]:
+# ---------------------------------------------------------------------------
+# Layout específico: export "Informe de Artículos" de Defontana
+# ---------------------------------------------------------------------------
+# La columna 0 ("Artículo - Descripción") trae el código y el nombre pegados con
+# guion y NO hay columna de código de barras / unidad / categoría / precio. El
+# nombre es siempre multi-palabra y el código puede llevar guiones (ej. el prefijo
+# 3M-70-2014-1). Se separa por el "primer segmento con espacio" (0 colisiones vs.
+# el split ingenuo por primer guion) y se genera un EAN13 interno determinístico.
+
+
+def _split_code_name(raw: Any) -> Tuple[str, Optional[str]]:
+    text = " ".join(str(raw or "").split())
+    if not text:
+        return "", None
+    segments = text.split("-")
+    for i in range(1, len(segments)):
+        if " " in segments[i].strip():  # 1er segmento multi-palabra => empieza el nombre
+            return "-".join(segments[:i]).strip(), ("-".join(segments[i:]).strip() or None)
+    if len(segments) > 1:  # hay guion pero ningún segmento multi-palabra
+        return segments[0].strip(), ("-".join(segments[1:]).strip() or None)
+    if " " in text:  # sin guion: separa por el primer espacio
+        code, name = text.split(" ", 1)
+        return code.strip(), (name.strip() or None)
+    return text, None
+
+
+def _ean13_check_digit(digits12: str) -> str:
+    total = sum((3 if i % 2 else 1) * int(c) for i, c in enumerate(digits12))
+    return str((10 - total % 10) % 10)
+
+
+def _internal_ean13(sku: str) -> str:
+    """EAN13 interno determinístico (prefijo 20 = uso interno, no colisiona con GTIN
+    reales). Determinístico por SKU => re-importar NO duplica códigos de barras."""
+    seq = int(hashlib.sha1(sku.encode("utf-8")).hexdigest(), 16) % (10 ** 10)
+    base = "20" + str(seq).zfill(10)  # 12 dígitos
+    return base + _ean13_check_digit(base)
+
+
+def _is_defontana_header(cell: Any) -> bool:
+    norm = _norm(cell)
+    return norm.startswith("articulo") and "descrip" in norm
+
+
+def _defontana_records(rows: List[Tuple]) -> Optional[List[Dict[str, Any]]]:
+    """Si ``rows`` es el 'Informe de Artículos' de Defontana devuelve los productos
+    (código + nombre + flag para generar barcode interno). Si no reconoce el
+    layout devuelve ``None`` para que siga el importador genérico por cabeceras."""
+    code_col = header_idx = None
+    for r_idx, row in enumerate(rows):
+        for c_idx, cell in enumerate(row):
+            if _is_defontana_header(cell):
+                code_col, header_idx = c_idx, r_idx
+                break
+        if code_col is not None:
+            break
+    if code_col is None:
+        return None
+
+    records: List[Dict[str, Any]] = []
+    for row in rows[header_idx + 1:]:
+        if code_col >= len(row):
+            continue
+        raw = str(row[code_col] or "").strip()
+        if not raw or _is_defontana_header(raw):
+            continue
+        if "-" not in raw and " " not in raw:
+            continue  # línea suelta (subtotal/encabezado repetido), no es un producto
+        code, name = _split_code_name(raw)
+        if code:
+            records.append({"sku": code, "name": name, "_gen_barcode": True})
+    return records
+
+
+def _parse_generic(rows: List[Tuple]) -> Tuple[bool, Dict[int, str], List[Tuple]]:
     header_map: Dict[int, str] = {}
     header_found = False
     data_rows: List[Tuple] = []
-    for row in _rows_from_bytes(data):
+    for row in rows:
         if not header_found:
             candidate = _map_headers(row)
             if "sku" in candidate.values():
@@ -112,34 +241,43 @@ def _parse(data: bytes) -> Tuple[bool, Dict[int, str], List[Tuple]]:
 
 
 async def import_xlsx(tenant_id: str, data: bytes, actor: str, source: str = "upload") -> Dict[str, Any]:
-    """Parse and upsert the catalog. Returns a report; never partially applies."""
+    """Parse and upsert the catalog. Returns a report; never partially applies.
+
+    Acepta tres formatos: .xlsx/.xlsm, .xls binario y el HTML-.xls de Defontana.
+    El reporte de Defontana ("Informe de Artículos") se detecta por su columna
+    "Artículo - Descripción" y se importa como catálogo (código + nombre + EAN13
+    interno); NO trae stock, así que el stock no se toca."""
     try:
-        header_found, header_map, rows = _parse(data)
-    except Exception as exc:  # noqa: BLE001 - archivo corrupto / no es xlsx
+        rows = _rows_from_bytes(data)
+    except Exception as exc:  # noqa: BLE001 - archivo corrupto / formato no soportado
         return {"applied": False, "rows": 0, "error": f"No se pudo leer el Excel: {exc}"}
 
-    if not header_found:
-        return {"applied": False, "rows": 0,
-                "error": "No se encontró la columna de código (SKU) en el Excel."}
+    defontana = _defontana_records(rows)
+    if defontana is not None:
+        records = defontana
+    else:
+        header_found, header_map, data_rows = _parse_generic(rows)
+        if not header_found:
+            return {"applied": False, "rows": 0,
+                    "error": "No se encontró la columna de código (SKU) en el Excel."}
+        records = []
+        rejected: List[Dict[str, Any]] = []
+        for i, row in enumerate(data_rows, start=1):
+            rec: Dict[str, Any] = {}
+            for idx, field in header_map.items():
+                rec[field] = row[idx] if idx < len(row) else None
+            if not any(v not in (None, "") for v in rec.values()):
+                continue  # fila vacía
+            sku = str(rec.get("sku")).strip() if rec.get("sku") not in (None, "") else ""
+            if not sku:
+                rejected.append({"row": i, "reason": "Sin código (SKU)"})
+                continue
+            rec["sku"] = sku
+            records.append(rec)
+        if rejected:
+            return {"applied": False, "rows": len(records) + len(rejected), "rejected": rejected,
+                    "error": f"{len(rejected)} fila(s) sin código; no se aplicó ningún cambio."}
 
-    records: List[Dict[str, Any]] = []
-    rejected: List[Dict[str, Any]] = []
-    for i, row in enumerate(rows, start=1):
-        rec: Dict[str, Any] = {}
-        for idx, field in header_map.items():
-            rec[field] = row[idx] if idx < len(row) else None
-        if not any(v not in (None, "") for v in rec.values()):
-            continue  # fila vacía
-        sku = str(rec.get("sku")).strip() if rec.get("sku") not in (None, "") else ""
-        if not sku:
-            rejected.append({"row": i, "reason": "Sin código (SKU)"})
-            continue
-        rec["sku"] = sku
-        records.append(rec)
-
-    if rejected:
-        return {"applied": False, "rows": len(records) + len(rejected), "rejected": rejected,
-                "error": f"{len(rejected)} fila(s) sin código; no se aplicó ningún cambio."}
     if not records:
         return {"applied": False, "rows": 0, "error": "El Excel no tiene filas de productos."}
 
@@ -153,6 +291,16 @@ async def import_xlsx(tenant_id: str, data: bytes, actor: str, source: str = "up
         barcode = rec.get("barcode")
         if barcode not in (None, ""):
             if await _add_barcode(db, tenant_id, product_id, str(barcode).strip(), actor, now):
+                barcodes_added += 1
+        elif rec.get("_gen_barcode"):
+            # Solo si el producto aún no tiene NINGÚN código de barras (idempotente).
+            has_bc = await db[Collections.BARCODES].find_one(
+                {"tenant_id": tenant_id, "product_id": product_id}, {"_id": 1}
+            )
+            if not has_bc and await _add_barcode(
+                db, tenant_id, product_id, _internal_ean13(rec["sku"]), actor, now,
+                bc_type=BarcodeType.INTERNAL.value, barcode_source=BarcodeSource.GENERATED.value,
+            ):
                 barcodes_added += 1
 
     report = {"applied": True, "rows": len(records), "created": created,
@@ -202,22 +350,25 @@ async def _upsert_product(db, tenant_id: str, rec: Dict[str, Any], actor: str, n
     return "created", str(result.inserted_id)
 
 
-async def _add_barcode(db, tenant_id: str, product_id: str, barcode: str, actor: str, now) -> bool:
+async def _add_barcode(db, tenant_id: str, product_id: str, barcode: str, actor: str, now,
+                       bc_type: Optional[str] = None,
+                       barcode_source: str = BarcodeSource.MANUAL.value) -> bool:
     if not barcode:
         return False
     existing = await db[Collections.BARCODES].find_one({"tenant_id": tenant_id, "barcode": barcode})
     if existing:
         return False
-    bc_type = (
-        BarcodeType.EAN13.value if barcode.isdigit() and len(barcode) == 13
-        else BarcodeType.SUPPLIER.value
-    )
+    if bc_type is None:
+        bc_type = (
+            BarcodeType.EAN13.value if barcode.isdigit() and len(barcode) == 13
+            else BarcodeType.SUPPLIER.value
+        )
     await db[Collections.BARCODES].insert_one({
         "tenant_id": tenant_id,
         "product_id": product_id,
         "barcode": barcode,
         "type": bc_type,
-        "source": BarcodeSource.MANUAL.value,
+        "source": barcode_source,
         "is_active": True,
         "created_at": now,
         "updated_at": now,
