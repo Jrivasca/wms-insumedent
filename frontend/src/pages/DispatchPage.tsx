@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { cancelDispatch, dispatchOrder, listDispatches } from '../api/dispatch';
+import { cancelOneDispatch, dispatchOrder, listDispatches } from '../api/dispatch';
 import { listOrders } from '../api/orders';
 import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
@@ -9,10 +9,23 @@ import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
 import { can } from '../permissions';
 import { useAuth } from '../store/auth';
-import type { Dispatch, Order } from '../types';
+import type { Dispatch, Order, OrderLine } from '../types';
 
 const PAGE = 50;
 const CANCELLABLE = ['pending', 'sent_to_defontana', 'completed'];
+const READY_STATES = ['ready_to_dispatch', 'partially_dispatched'];
+
+function lineRemaining(l: OrderLine): number {
+  return (l.packed_quantity ?? 0) - (l.dispatched_quantity ?? 0);
+}
+function remainingLines(o: Order) {
+  return (o.lines ?? [])
+    .map((l) => ({ sku: l.sku, name: l.name, remaining: lineRemaining(l) }))
+    .filter((x) => x.remaining > 0);
+}
+function totalRemaining(o: Order): number {
+  return (o.lines ?? []).reduce((s, l) => s + Math.max(0, lineRemaining(l)), 0);
+}
 
 export default function DispatchPage() {
   const navigate = useNavigate();
@@ -33,6 +46,8 @@ export default function DispatchPage() {
   const [carrierOther, setCarrierOther] = useState('');
   const [tracking, setTracking] = useState('');
   const [busy, setBusy] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);
+  const [lineQtys, setLineQtys] = useState<Record<string, string>>({});
 
   const carrierValue = carrierChoice === 'Otro' ? carrierOther.trim() : carrierChoice;
 
@@ -48,7 +63,7 @@ export default function DispatchPage() {
       setDispatches(d?.items ?? []);
       setDispTotal(d?.total ?? 0);
       setDispOffset(off);
-      setReadyOrders((orders?.items ?? []).filter((o) => o.status === 'ready_to_dispatch'));
+      setReadyOrders((orders?.items ?? []).filter((o) => READY_STATES.includes(o.status)));
       const map: Record<string, string> = {};
       for (const t of tasks?.items ?? []) map[t.order_id] = t.id;
       setTaskByOrder(map);
@@ -69,22 +84,42 @@ export default function DispatchPage() {
     else setNotice('No hay etiquetas de packing para este pedido.');
   }
 
-  async function confirmDispatch(orderId: string) {
+  function openConfirm(o: Order) {
+    setActiveOrder(o.id);
+    setSplitMode(false);
+    const init: Record<string, string> = {};
+    for (const l of remainingLines(o)) init[l.sku] = String(l.remaining);
+    setLineQtys(init);
+    setGuide('');
+    setCarrierChoice('Bluexpress');
+    setCarrierOther('');
+    setTracking('');
+  }
+
+  async function confirmDispatch(o: Order) {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await dispatchOrder(orderId, {
+      let lines: { sku: string; quantity: number }[] | undefined;
+      if (splitMode) {
+        lines = remainingLines(o)
+          .map((l) => ({ sku: l.sku, quantity: parseInt(lineQtys[l.sku] || '0', 10) || 0 }))
+          .filter((l) => l.quantity > 0);
+        if (lines.length === 0) {
+          setError('Ingresá al menos una cantidad a despachar.');
+          setBusy(false);
+          return;
+        }
+      }
+      await dispatchOrder(o.id, {
         guide_number: guide.trim() || undefined,
         carrier: carrierValue || undefined,
         tracking_number: tracking.trim() || undefined,
+        lines,
       });
-      setNotice('Despacho confirmado');
+      setNotice(splitMode ? 'Despacho parcial confirmado' : 'Despacho confirmado');
       setActiveOrder(null);
-      setGuide('');
-      setCarrierChoice('Bluexpress');
-      setCarrierOther('');
-      setTracking('');
       load(dispOffset);
     } catch (err) {
       setError(errorMessage(err));
@@ -93,13 +128,13 @@ export default function DispatchPage() {
     }
   }
 
-  async function handleCancelDispatch(orderId: string) {
+  async function handleCancelGuide(dispatchId: string) {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await cancelDispatch(orderId);
-      setNotice('Despacho anulado. El pedido volvió a «listo para despacho».');
+      await cancelOneDispatch(dispatchId);
+      setNotice('Guía anulada. Se revirtió su inventario y el pedido se recalculó.');
       load(dispOffset);
     } catch (err) {
       setError(errorMessage(err));
@@ -128,8 +163,15 @@ export default function DispatchPage() {
             <div key={o.id} className="card">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="font-bold">{o.erp_order_number}</div>
-                  <div className="text-sm text-slate-500">{o.customer}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold">{o.erp_order_number}</span>
+                    {o.status === 'partially_dispatched' && (
+                      <span className="badge bg-orange-100 text-orange-800">Parcialmente despachado</span>
+                    )}
+                  </div>
+                  <div className="text-sm text-slate-500">
+                    {o.customer} · quedan {totalRemaining(o)} ítems por despachar
+                  </div>
                 </div>
                 {activeOrder === o.id ? null : (
                   <div className="flex gap-2">
@@ -138,7 +180,7 @@ export default function DispatchPage() {
                         Etiquetas (QR)
                       </button>
                     )}
-                    <button onClick={() => setActiveOrder(o.id)} className="btn-primary">
+                    <button onClick={() => openConfirm(o)} className="btn-primary">
                       Confirmar despacho
                     </button>
                   </div>
@@ -146,7 +188,37 @@ export default function DispatchPage() {
               </div>
 
               {activeOrder === o.id && (
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="mt-3 space-y-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={splitMode}
+                      onChange={(e) => setSplitMode(e.target.checked)}
+                    />
+                    Despacho parcial: elegir cantidades por producto (podés emitir varias guías)
+                  </label>
+                  {splitMode && (
+                    <div className="space-y-1 rounded-md border border-slate-200 p-2">
+                      {remainingLines(o).map((l) => (
+                        <div key={l.sku} className="flex items-center gap-2">
+                          <span className="flex-1 text-sm">
+                            {l.name}{' '}
+                            <span className="font-mono text-xs text-slate-400">{l.sku}</span>
+                          </span>
+                          <span className="text-xs text-slate-400">quedan {l.remaining}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={l.remaining}
+                            value={lineQtys[l.sku] ?? ''}
+                            onChange={(e) => setLineQtys((s) => ({ ...s, [l.sku]: e.target.value }))}
+                            className="input w-20"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                   <div>
                     <label className="label">N° guía de despacho</label>
                     <input
@@ -184,12 +256,13 @@ export default function DispatchPage() {
                     <input value={tracking} onChange={(e) => setTracking(e.target.value)} className="input" />
                   </div>
                   <div className="flex items-end gap-2">
-                    <button onClick={() => confirmDispatch(o.id)} className="btn-success" disabled={busy}>
+                    <button onClick={() => confirmDispatch(o)} className="btn-success" disabled={busy}>
                       {busy ? 'Despachando…' : 'Despachar'}
                     </button>
                     <button onClick={() => setActiveOrder(null)} className="btn-secondary">
                       Cancelar
                     </button>
+                  </div>
                   </div>
                 </div>
               )}
@@ -233,11 +306,11 @@ export default function DispatchPage() {
                       )}
                       {canRevert && CANCELLABLE.includes(d.status) && (
                         <button
-                          onClick={() => handleCancelDispatch(d.order_id)}
+                          onClick={() => handleCancelGuide(d.id)}
                           className="btn-danger"
                           disabled={busy}
                         >
-                          Anular despacho
+                          Anular guía
                         </button>
                       )}
                     </div>

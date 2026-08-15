@@ -81,9 +81,11 @@ export interface DashboardStats {
     por_procesar: number;
     en_proceso: number;
     listos_despacho: number;
+    despacho_parcial: number;
     despachados: number;
     despachados_hoy: number;
     error_cancelados: number;
+    parciales: number;
     por_estado: Record<string, number>;
   };
   inventory: {
@@ -135,9 +137,12 @@ export type OrderStatus =
   | 'packing'
   | 'packed'
   | 'ready_to_dispatch'
+  | 'partially_dispatched'
   | 'dispatched'
   | 'cancelled'
   | string;
+
+export type OrderFulfillment = 'complete' | 'partial' | string;
 
 export interface OrderLine {
   line_id: string;
@@ -148,6 +153,7 @@ export interface OrderLine {
   ordered_quantity: number;
   picked_quantity: number;
   packed_quantity: number;
+  dispatched_quantity?: number;
   status?: string;
 }
 
@@ -156,6 +162,7 @@ export interface Order {
   erp_order_number: string;
   customer: string;
   status: OrderStatus;
+  fulfillment?: OrderFulfillment;
   order_date?: string;
   delivery_date?: string;
   lines: OrderLine[];
@@ -278,6 +285,13 @@ export interface PackingTask {
   lines: PackingLine[];
 }
 
+export interface DispatchLine {
+  line_id?: string;
+  product_id?: string | null;
+  sku: string;
+  quantity: number;
+}
+
 export interface Dispatch {
   id: string;
   order_id: string;
@@ -285,6 +299,8 @@ export interface Dispatch {
   guide_number?: string;
   carrier?: string;
   tracking_number?: string;
+  lines?: DispatchLine[];
+  package_ids?: string[];
 }
 
 export interface SyncJob {

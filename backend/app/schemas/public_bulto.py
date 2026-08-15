@@ -15,6 +15,7 @@ class PublicBultoDispatch(BaseModel):
     carrier: Optional[str] = None
     tracking_number: Optional[str] = None
     dispatch_date: Optional[str] = None
+    guide_number: Optional[str] = None
 
 
 class PublicBultoView(BaseModel):

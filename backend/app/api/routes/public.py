@@ -63,17 +63,26 @@ async def get_bulto_public(token: str) -> PublicBultoView:
     if order:
         customer = order.get("customer")
 
-    # Dispatch info, if the order was already dispatched (best-effort).
+    # Dispatch info: la guía de ESTE bulto si ya fue despachado; si el bulto todavía no
+    # tiene guía asignada, se cae al último despacho activo del pedido (best-effort).
     dispatch = PublicBultoDispatch()
-    disp = await db[Collections.DISPATCHES].find_one(
-        {"tenant_id": tenant_id, "order_id": task.get("order_id")}
-    )
-    if disp:
+    disp = None
+    if pkg.get("dispatch_id"):
+        disp = await db[Collections.DISPATCHES].find_one(
+            {"_id": to_object_id(pkg["dispatch_id"]), "tenant_id": tenant_id}
+        )
+    if not disp:
+        disp = await db[Collections.DISPATCHES].find_one(
+            {"tenant_id": tenant_id, "order_id": task.get("order_id"),
+             "status": {"$nin": ["cancelled", "error"]}}
+        )
+    if disp and disp.get("status") != "cancelled":
         dispatch = PublicBultoDispatch(
             dispatched=True,
             carrier=disp.get("carrier"),
             tracking_number=disp.get("tracking_number"),
             dispatch_date=_iso(disp.get("dispatch_date")),
+            guide_number=pkg.get("guide_number") or disp.get("guide_number"),
         )
 
     return PublicBultoView(
