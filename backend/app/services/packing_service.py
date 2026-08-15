@@ -12,7 +12,7 @@ from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
 from app.models.packing import PackingLineStatus, PackingTaskStatus
-from app.services import inventory_service
+from app.services import inventory_service, order_service
 from app.services.order_service import _expected_barcodes
 
 
@@ -95,6 +95,7 @@ async def create_packing_task_from_picking(
         )
         lines.append(
             {
+                "line_id": line.get("line_id"),
                 "product_id": line.get("product_id"),
                 "sku": line.get("sku"),
                 "name": line.get("name"),
@@ -142,6 +143,9 @@ async def list_tasks(
         query["assigned_to"] = user.id
     elif assigned_to:
         query["assigned_to"] = assigned_to
+    # Las tareas canceladas (p. ej. al reabrir picking) quedan como registro de auditoría
+    # pero no deben aparecer en las listas de trabajo.
+    query["status"] = {"$ne": PackingTaskStatus.CANCELLED.value}
     if user.warehouse_scoped:
         query["warehouse_id"] = {"$in": list(user.allowed_warehouse_ids)}
     limit = max(1, min(limit, 500))
@@ -429,6 +433,8 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
         {"_id": to_object_id(task["order_id"]), "tenant_id": tenant_id},
         {"$set": {"status": OrderStatus.READY_TO_DISPATCH.value, "updated_at": now}},
     )
+    # Reconciliar cantidades empacadas + fulfillment en el pedido (fuente de verdad).
+    await order_service.reconcile_order_from_packing(tenant_id, task["order_id"], task)
     return serialize(await _load_task(tenant_id, task_id))
 
 
@@ -471,4 +477,6 @@ async def reopen_packing(tenant_id: str, order_id: str, user: CurrentUser) -> Di
         {"_id": order["_id"]},
         {"$set": {"status": OrderStatus.PACKING.value, "updated_at": now}},
     )
+    # Resetear solo lo empacado en el pedido (el picking se conserva).
+    await order_service.reset_order_reconciliation(tenant_id, order_id, stage="packing")
     return serialize(await _load_task(tenant_id, str(task["_id"]))) if task else {"status": "reverted"}

@@ -56,7 +56,7 @@ export default function MyPackingTasksPage() {
                 className="card flex items-center justify-between active:bg-slate-50"
               >
                 <div>
-                  <div className="text-lg font-bold">Pedido {t.order_id}</div>
+                  <div className="text-lg font-bold">Pedido {t.erp_order_number ?? t.order_id}</div>
                   <div className="text-sm text-slate-500">
                     {t.lines.length} líneas · {packed}/{total} unidades · {t.packages.length} bultos
                   </div>

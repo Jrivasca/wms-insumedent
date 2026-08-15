@@ -11,3 +11,4 @@ class BarcodeType(str, Enum):
 class BarcodeSource(str, Enum):
     DEFONTANA = "defontana"
     MANUAL = "manual"
+    GENERATED = "generated"  # EAN13 interno generado por el WMS (catálogo sin barcode)

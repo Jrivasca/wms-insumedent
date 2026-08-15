@@ -147,7 +147,10 @@ async def test_dispatch_emits_notification():
     sales = await _user(a, "sales")
     db = tenant_db(a)
     order = await db[Collections.ORDERS].insert_one(
-        {"erp_order_number": "5005", "customer": "ACME", "status": "ready_to_dispatch", "lines": []}
+        {"erp_order_number": "5005", "customer": "ACME", "status": "ready_to_dispatch",
+         "lines": [{"line_id": "L1", "product_id": None, "sku": "X", "name": "X",
+                    "ordered_quantity": 2, "picked_quantity": 2, "packed_quantity": 2,
+                    "dispatched_quantity": 0, "status": "packed"}]}
     )
     actor = make_user({"_id": ObjectId(), "tenant_id": a, "role": "dispatcher"})
     await dispatch_service.confirm_dispatch(a, str(order.inserted_id), actor, carrier="Correos")

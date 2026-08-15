@@ -25,6 +25,19 @@ import type { Order, PickingTask, Product } from '../types';
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
 const PAGE = 50;
 
+/** Marca visible de pedido incompleto por falta de stock (eje fulfillment). */
+function PartialPill({ order }: { order: Order }) {
+  if (order.fulfillment !== 'partial') return null;
+  return (
+    <span
+      className="badge bg-orange-100 text-orange-800"
+      title="Pedido incompleto: se cumplió menos de lo pedido por falta de stock"
+    >
+      Parcial
+    </span>
+  );
+}
+
 export default function OrdersPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -324,7 +337,10 @@ export default function OrdersPage() {
                       <td className="font-mono text-xs">{o.erp_order_number}</td>
                       <td>{o.customer}</td>
                       <td>
-                        <StatusBadge status={o.status} />
+                        <div className="flex flex-wrap items-center gap-1">
+                          <StatusBadge status={o.status} />
+                          <PartialPill order={o} />
+                        </div>
                       </td>
                       <td>
                         <button onClick={() => openDetail(o.id)} className="btn-secondary">
@@ -357,7 +373,10 @@ export default function OrdersPage() {
                   <h2 className="text-lg font-bold">Pedido {selected.erp_order_number}</h2>
                   <p className="text-sm text-slate-500">{selected.customer}</p>
                 </div>
-                <StatusBadge status={selected.status} />
+                <div className="flex flex-wrap items-center gap-1">
+                  <StatusBadge status={selected.status} />
+                  <PartialPill order={selected} />
+                </div>
               </div>
 
               <div className="mb-3 text-xs text-slate-500">
@@ -376,17 +395,25 @@ export default function OrdersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {selected.lines.map((l) => (
-                    <tr key={l.line_id}>
-                      <td className="font-mono text-xs">{l.sku}</td>
-                      <td>{l.name}</td>
-                      <td>
-                        {l.ordered_quantity} {l.unit ?? ''}
-                      </td>
-                      <td>{l.picked_quantity}</td>
-                      <td>{l.packed_quantity}</td>
-                    </tr>
-                  ))}
+                  {selected.lines.map((l) => {
+                    const missing = Math.max(0, l.ordered_quantity - (l.picked_quantity ?? 0));
+                    return (
+                      <tr key={l.line_id} className={missing > 0 ? 'bg-orange-50' : ''}>
+                        <td className="font-mono text-xs">{l.sku}</td>
+                        <td>{l.name}</td>
+                        <td>
+                          {l.ordered_quantity} {l.unit ?? ''}
+                        </td>
+                        <td className={missing > 0 ? 'font-medium text-orange-700' : ''}>
+                          {l.picked_quantity}
+                          {missing > 0 && (
+                            <span className="ml-1 text-xs text-orange-600">(faltan {missing})</span>
+                          )}
+                        </td>
+                        <td>{l.packed_quantity}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -413,7 +440,7 @@ export default function OrdersPage() {
                   >
                     Ir a packing →
                   </button>
-                ) : selected.status === 'ready_to_dispatch' ? (
+                ) : ['ready_to_dispatch', 'partially_dispatched'].includes(selected.status) ? (
                   <button onClick={() => navigate('/dispatch')} className="btn-primary">
                     Ir a despacho →
                   </button>
@@ -427,7 +454,7 @@ export default function OrdersPage() {
 
               {/* Retroceso de etapa (solo admin/supervisor). */}
               {canEdit &&
-                ['picked', 'packing', 'packed', 'ready_to_dispatch', 'dispatched'].includes(
+                ['picked', 'packing', 'packed', 'ready_to_dispatch', 'partially_dispatched', 'dispatched'].includes(
                   selected.status
                 ) && (
                   <div className="mt-3 border-t border-slate-200 pt-3">
@@ -435,13 +462,13 @@ export default function OrdersPage() {
                       Retroceso
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {selected.status === 'dispatched' && (
+                      {['dispatched', 'partially_dispatched'].includes(selected.status) && (
                         <button
                           onClick={() => handleRevert('dispatch', selected.id)}
                           className="btn-danger"
                           disabled={busy}
                         >
-                          ↩ Anular despacho
+                          ↩ Anular despacho{selected.status === 'partially_dispatched' ? ' (todas las guías)' : ''}
                         </button>
                       )}
                       {selected.status === 'ready_to_dispatch' && (
