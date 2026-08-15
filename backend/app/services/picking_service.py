@@ -10,7 +10,7 @@ from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
 from app.models.packing import PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
-from app.services import inventory_service, packing_service
+from app.services import inventory_service, order_service, packing_service
 
 
 async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
@@ -305,13 +305,16 @@ async def complete(
     if pending and not allow_partial:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Picking has pending lines. A supervisor must authorize partial picking.",
+            detail="Hay líneas pendientes. Confirmá el cierre parcial para continuar.",
         )
-    if pending and allow_partial and not user.is_supervisor:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a supervisor can authorize partial picking",
-        )
+
+    # Trazabilidad del faltante: toda línea sin pickear (0) que no esté ya marcada como
+    # faltante se auto-marca 'missing' con motivo, para que el corto quede auditable.
+    for line in task["lines"]:
+        if (line.get("quantity_picked", 0) == 0
+                and line.get("status") != PickingLineStatus.MISSING.value):
+            line["status"] = PickingLineStatus.MISSING.value
+            line.setdefault("missing_reason", "Sin stock (cierre parcial)")
 
     warehouse_id = task["warehouse_id"]
     staging_id = await _location_id_by_type(tenant_id, warehouse_id, "staging")
@@ -344,6 +347,7 @@ async def complete(
         {
             "$set": {
                 "status": new_status,
+                "lines": task["lines"],
                 "completed_at": now,
                 "updated_at": now,
                 "updated_by": user.id,
@@ -354,6 +358,8 @@ async def complete(
         {"_id": to_object_id(task["order_id"]), "tenant_id": tenant_id},
         {"$set": {"status": OrderStatus.PICKED.value, "updated_at": now}},
     )
+    # Reconciliar cantidades pickeadas + fulfillment en el pedido (fuente de verdad).
+    await order_service.reconcile_order_from_picking(tenant_id, task["order_id"], task)
 
     # Section 8.2: packing becomes available once picking is closed.
     task = await _load_task(tenant_id, task_id)
@@ -420,4 +426,7 @@ async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Di
         {"_id": order["_id"]},
         {"$set": {"status": OrderStatus.PICKING.value, "updated_at": now}},
     )
+    # Resetear cantidades reconciliadas (pickeado/empacado/despachado) para no dejar
+    # cantidades fantasma; se re-reconcilian al recompletar.
+    await order_service.reset_order_reconciliation(tenant_id, order_id, stage="picking")
     return serialize(await _load_task(tenant_id, str(task["_id"]))) if task else {"status": "reverted"}

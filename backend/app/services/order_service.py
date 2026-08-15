@@ -6,7 +6,7 @@ from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
-from app.models.order import OrderLineStatus, OrderStatus
+from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
@@ -155,6 +155,7 @@ async def create_order_from_lines(
                 "ordered_quantity": getattr(line, "ordered_quantity"),
                 "picked_quantity": 0,
                 "packed_quantity": 0,
+                "dispatched_quantity": 0,
                 "status": OrderLineStatus.PENDING.value,
             }
         )
@@ -166,6 +167,7 @@ async def create_order_from_lines(
         "erp_document_id": None,
         "customer": customer,
         "status": OrderStatus.IMPORTED.value,
+        "fulfillment": OrderFulfillment.COMPLETE.value,
         "order_date": now,
         "delivery_date": None,
         "lines": built,
@@ -304,3 +306,116 @@ async def create_picking_task(
         {"$set": {"status": OrderStatus.PENDING_PICKING.value, "updated_at": now}},
     )
     return serialize(task)
+
+
+# ---------------------------------------------------------------------------
+# Reconciliación pedido ↔ tareas (Plan: fulfillment parcial)
+# ---------------------------------------------------------------------------
+# El documento del pedido es la fuente de verdad de cantidades. Estas funciones
+# copian lo realmente pickeado/empacado de la tarea a ``order.lines[]`` (matcheando
+# por ``line_id``) y derivan el estado de línea + el ``fulfillment`` del pedido.
+
+
+def _line_status_for(qty: int, ordered: int, full_status: str) -> str:
+    """Estado de la línea del pedido según la cantidad cumplida vs. la pedida."""
+    if ordered > 0 and qty >= ordered:
+        return full_status
+    if qty > 0:
+        return OrderLineStatus.PARTIAL.value
+    return OrderLineStatus.MISSING.value
+
+
+def compute_fulfillment(lines: List[Dict[str, Any]]) -> str:
+    """``partial`` si alguna línea quedó corta (pickeado < pedido); si no ``complete``."""
+    for line in lines:
+        if line.get("picked_quantity", 0) < line.get("ordered_quantity", 0):
+            return OrderFulfillment.PARTIAL.value
+    return OrderFulfillment.COMPLETE.value
+
+
+async def reconcile_order_from_picking(
+    tenant_id: str, order_id: str, picking_task: Dict[str, Any]
+) -> None:
+    db = tenant_db(tenant_id)
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        return
+    picked_by_line = {
+        l.get("line_id"): l.get("quantity_picked", 0) for l in picking_task.get("lines", [])
+    }
+    lines = order.get("lines", [])
+    for ol in lines:
+        picked = picked_by_line.get(ol.get("line_id"))
+        if picked is None:
+            continue
+        ol["picked_quantity"] = picked
+        ol["status"] = _line_status_for(picked, ol.get("ordered_quantity", 0),
+                                        OrderLineStatus.PICKED.value)
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"lines": lines, "fulfillment": compute_fulfillment(lines),
+                  "updated_at": now_utc()}},
+    )
+
+
+async def reconcile_order_from_packing(
+    tenant_id: str, order_id: str, packing_task: Dict[str, Any]
+) -> None:
+    db = tenant_db(tenant_id)
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        return
+    packed_by_line = {
+        l.get("line_id"): l.get("quantity_packed", 0) for l in packing_task.get("lines", [])
+    }
+    lines = order.get("lines", [])
+    for ol in lines:
+        packed = packed_by_line.get(ol.get("line_id"))
+        if packed is None:
+            continue  # línea faltante (no llegó a packing): conserva su estado del picking
+        ol["packed_quantity"] = packed
+        ol["status"] = _line_status_for(packed, ol.get("ordered_quantity", 0),
+                                        OrderLineStatus.PACKED.value)
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"lines": lines, "fulfillment": compute_fulfillment(lines),
+                  "updated_at": now_utc()}},
+    )
+
+
+async def reset_order_reconciliation(
+    tenant_id: str, order_id: str, *, stage: str
+) -> None:
+    """Retroceso: al reabrir picking/packing, resetear las cantidades reconciliadas de
+    ``order.lines`` para no dejar cantidades fantasma. ``stage='picking'`` resetea
+    pickeado+empacado+despachado (vuelve todo a pendiente); ``stage='packing'`` resetea
+    solo lo empacado (el picking se conserva)."""
+    db = tenant_db(tenant_id)
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        return
+    lines = order.get("lines", [])
+    for ol in lines:
+        ol["packed_quantity"] = 0
+        if stage == "picking":
+            ol["picked_quantity"] = 0
+            ol["dispatched_quantity"] = 0
+            ol["status"] = OrderLineStatus.PENDING.value
+        else:  # packing: el pickeado se mantiene, se re-deriva el estado
+            ol["status"] = _line_status_for(ol.get("picked_quantity", 0),
+                                            ol.get("ordered_quantity", 0),
+                                            OrderLineStatus.PICKED.value)
+    # Al reabrir el picking el pedido vuelve a 'pending' → el fulfillment se desconoce
+    # otra vez (complete por defecto); al reabrir solo packing, el picking sigue válido.
+    fulfillment = (OrderFulfillment.COMPLETE.value if stage == "picking"
+                   else compute_fulfillment(lines))
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"lines": lines, "fulfillment": fulfillment, "updated_at": now_utc()}},
+    )

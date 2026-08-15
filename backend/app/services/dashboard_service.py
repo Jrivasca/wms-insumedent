@@ -9,7 +9,7 @@ from typing import Any, Dict
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc
 from app.models import Collections
-from app.models.order import OrderStatus
+from app.models.order import OrderFulfillment, OrderStatus
 from app.models.packing import PackingTaskStatus
 from app.models.picking import PickingTaskStatus
 from app.models.sync_job import SyncJobStatus
@@ -41,7 +41,10 @@ async def get_stats(tenant_id: str) -> Dict[str, Any]:
     )
     listos = by_status.get(OrderStatus.READY_TO_DISPATCH.value, 0)
     despachados = by_status.get(OrderStatus.DISPATCHED.value, 0)
+    despacho_parcial = by_status.get(OrderStatus.PARTIALLY_DISPATCHED.value, 0)
     error_cancelados = grp(OrderStatus.SYNC_ERROR.value, OrderStatus.CANCELLED.value)
+    # Pedidos que quedaron cortos por falta de stock (eje 'fulfillment', ortogonal al status).
+    parciales = await orders.count_documents(q(fulfillment=OrderFulfillment.PARTIAL.value))
 
     start_today = now_utc().replace(hour=0, minute=0, second=0, microsecond=0)
     despachados_hoy = await db[Collections.DISPATCHES].count_documents(
@@ -89,9 +92,11 @@ async def get_stats(tenant_id: str) -> Dict[str, Any]:
             "por_procesar": por_procesar,
             "en_proceso": en_proceso,
             "listos_despacho": listos,
+            "despacho_parcial": despacho_parcial,
             "despachados": despachados,
             "despachados_hoy": despachados_hoy,
             "error_cancelados": error_cancelados,
+            "parciales": parciales,
             "por_estado": by_status,
         },
         "inventory": {

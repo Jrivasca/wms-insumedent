@@ -8,7 +8,7 @@ from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, serialize, to_object_id
 from app.models import Collections
 from app.models.notification import NotificationType
-from app.models.order import OrderLineStatus, OrderStatus
+from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
 from app.models.sync_job import SyncJobType
 from app.schemas.order import OrderCreate, OrderUpdate
 from app.services import (
@@ -61,6 +61,7 @@ async def create_order(
                 "ordered_quantity": line.ordered_quantity,
                 "picked_quantity": 0,
                 "packed_quantity": 0,
+                "dispatched_quantity": 0,
                 "status": OrderLineStatus.PENDING.value,
             }
         )
@@ -72,6 +73,7 @@ async def create_order(
         "erp_document_id": None,
         "customer": payload.customer,
         "status": OrderStatus.IMPORTED.value,
+        "fulfillment": OrderFulfillment.COMPLETE.value,
         "order_date": now,
         "delivery_date": None,
         "lines": lines,
@@ -141,6 +143,7 @@ async def _build_lines(tenant_id: str, lines_input) -> list:
                 "ordered_quantity": line.ordered_quantity,
                 "picked_quantity": 0,
                 "packed_quantity": 0,
+                "dispatched_quantity": 0,
                 "status": OrderLineStatus.PENDING.value,
             }
         )

@@ -60,6 +60,8 @@ export default function DashboardPage() {
           <Card title="Por procesar" value={o.por_procesar} accent="amber" />
           <Card title="En proceso" value={o.en_proceso} accent="blue" />
           <Card title="Listos p/ despacho" value={o.listos_despacho} accent="violet" />
+          <Card title="Parciales / con faltante" value={o.parciales} accent={o.parciales > 0 ? 'amber' : undefined} />
+          <Card title="Despacho parcial" value={o.despacho_parcial} accent={o.despacho_parcial > 0 ? 'amber' : undefined} />
           <Card title="Despachados" value={o.despachados} accent="emerald" />
           <Card title="Despachados hoy" value={o.despachados_hoy} accent="emerald" />
         </div>

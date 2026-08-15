@@ -20,6 +20,8 @@ const COLORS: Record<string, string> = {
   retrying: 'bg-amber-100 text-amber-800',
 
   partial: 'bg-orange-100 text-orange-800',
+  partially_dispatched: 'bg-orange-100 text-orange-800',
+  completed_with_differences: 'bg-orange-100 text-orange-800',
   missing: 'bg-red-100 text-red-800',
   rejected: 'bg-red-100 text-red-800',
   failed: 'bg-red-100 text-red-800',
