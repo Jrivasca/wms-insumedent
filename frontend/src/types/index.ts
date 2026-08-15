@@ -278,6 +278,7 @@ export interface PackingLine {
 export interface PackingTask {
   id: string;
   order_id: string;
+  erp_order_number?: string | null;
   picking_task_id?: string;
   assigned_to?: string;
   status: string;

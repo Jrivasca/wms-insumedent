@@ -56,6 +56,9 @@ async def list_tasks(
         query["assigned_to"] = assigned_to
     if status_filter:
         query["status"] = status_filter
+    else:
+        # Ocultar las canceladas (quedan solo como auditoría) de las listas de trabajo.
+        query["status"] = {"$ne": PickingTaskStatus.CANCELLED.value}
     if user.warehouse_scoped:
         query["warehouse_id"] = {"$in": list(user.allowed_warehouse_ids)}
     limit = max(1, min(limit, 500))
