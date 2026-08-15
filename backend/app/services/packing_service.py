@@ -143,6 +143,9 @@ async def list_tasks(
         query["assigned_to"] = user.id
     elif assigned_to:
         query["assigned_to"] = assigned_to
+    # Las tareas canceladas (p. ej. al reabrir picking) quedan como registro de auditoría
+    # pero no deben aparecer en las listas de trabajo.
+    query["status"] = {"$ne": PackingTaskStatus.CANCELLED.value}
     if user.warehouse_scoped:
         query["warehouse_id"] = {"$in": list(user.allowed_warehouse_ids)}
     limit = max(1, min(limit, 500))

@@ -587,6 +587,38 @@ async def test_revert_flow_dispatch_packing_picking():
     assert pk_after["status"] == "cancelled"
 
 
+async def test_list_tasks_hides_cancelled_after_reopen():
+    """Al reabrir picking se cancela la tarea de packing; no debe seguir apareciendo en las
+    listas de trabajo, y al recompletar no debe quedar duplicada (bug de las dos tarjetas)."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order, plan = await _order_scan_plan(tenant_id)
+    order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
+    await picking_service.complete(tenant_id, task["id"], admin)
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
+    await packing_service.start_task(tenant_id, pk["id"], admin)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
+    await packing_service.complete(tenant_id, pk["id"], admin)
+
+    # Reabrir picking -> la tarea de packing queda cancelada y NO debe listarse.
+    await picking_service.reopen_picking(tenant_id, order_id, admin)
+    assert (await packing_service.list_tasks(tenant_id, admin))["items"] == []
+
+    # La tarea de picking (in_progress) sí se lista; recompletar no duplica el packing.
+    pick_list = (await picking_service.list_tasks(tenant_id, admin))["items"]
+    assert len(pick_list) == 1 and pick_list[0]["status"] != "cancelled"
+    await picking_service.complete(tenant_id, pick_list[0]["id"], admin)
+    packing_list = (await packing_service.list_tasks(tenant_id, admin))["items"]
+    assert len(packing_list) == 1 and packing_list[0]["status"] != "cancelled"
+
+
 async def test_reopen_restores_inventory():
     """Reabrir picking revierte el movimiento de inventario (la ubicación de origen
     recupera su stock) y al recompletar no se descuenta dos veces."""
