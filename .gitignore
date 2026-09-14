@@ -24,3 +24,7 @@ frontend/dist/
 .idea/
 .vscode/
 *.log
+
+# Entregables binarios (Word/PowerPoint) — se mantienen fuera del repo
+docs/entregables/*.docx
+docs/entregables/*.pptx
