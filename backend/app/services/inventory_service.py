@@ -18,7 +18,7 @@ from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
-from app.services import notification_service, sync_job_service
+from app.services import notification_service, replenishment_alert_service, sync_job_service
 
 logger = get_logger(__name__)
 
@@ -357,6 +357,12 @@ async def create_reception(
         reference_id=reference,
         reason="Recepción de mercadería",
         created_by=created_by,
+    )
+
+    # Avisar a bodega si este ingreso destraba pedidos que quedaron parciales.
+    await replenishment_alert_service.notify_after_receipt(
+        tenant_id=tenant_id, product_id=product_id, warehouse_id=warehouse_id,
+        actor_id=created_by,
     )
 
     job = None

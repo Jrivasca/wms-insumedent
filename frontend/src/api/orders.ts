@@ -1,5 +1,5 @@
 import { http } from './http';
-import type { Order, Page, PickingTask } from '../types';
+import type { CompletableOrder, Order, Page, PickingTask } from '../types';
 
 export async function listOrders(params?: {
   status?: string;
@@ -47,5 +47,17 @@ export async function reopenPacking(orderId: string): Promise<unknown> {
 
 export async function reopenPicking(orderId: string): Promise<unknown> {
   const { data } = await http.post(`/orders/${orderId}/reopen-picking`);
+  return data;
+}
+
+/** Pedidos parciales que ya se pueden completar porque llegó stock. */
+export async function listCompletableOrders(): Promise<CompletableOrder[]> {
+  const { data } = await http.get<{ items: CompletableOrder[] }>('/orders/completable');
+  return data.items;
+}
+
+/** "Completar faltante": reabre el picking del pedido parcial y lo asigna a quien lo retoma. */
+export async function resumePartialOrder(orderId: string): Promise<PickingTask> {
+  const { data } = await http.post<PickingTask>(`/orders/${orderId}/resume-partial`);
   return data;
 }
