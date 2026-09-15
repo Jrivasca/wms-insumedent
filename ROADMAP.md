@@ -86,6 +86,49 @@ modelo de datos es **multi-tenant** (`tenant_id` en todo, JWT que lo lleva), est
 
 ---
 
+## Integración Defontana (en curso)
+
+Contexto: APIs contratadas = **Pedidos, Inventario y Guías de Despacho** (Ventas no).
+Soporte: canal Slack `integracion-insumedent` con Luis Lopez (Defontana). Detalle técnico y
+hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
+
+- **Flujo 1 — Extraer pedidos por despachar** *(implementado; esperando respuesta de Luis)*.
+  `Order/List` + `Order/Get`, importa estados `E..`, ventana `DEFONTANA_ORDERS_WINDOW_DAYS`
+  (90), reconcilia anulados/cerrados/despachados fuera del WMS. Consultas enviadas: si el
+  filtro `Status` acepta varios códigos, si un pedido aprobado pasa solo a `E..`, cómo
+  detectar cambios sin reprocesar, refresco del ambiente de pruebas y qué proceso usa hoy el
+  usuario `INTEGRACION`.
+- **Flujo 2 — Recepción → `Inventory/Insert`** *(estructura probada en pruebas; faltan
+  definiciones)*. Funcionó con motivo `COMPRA` y centro de negocio `EMPNEGVTAVTA000`. Pendiente
+  confirmar tipo de documento (`PE` / `MOV001` / `XAJ_ENT_UN`, impacto contable), motivo,
+  centro de negocio y si va el RUT del proveedor. El payload que arma hoy el WMS
+  (`inventory_service.create_reception`) aún NO tiene el formato real.
+- **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(pendiente de valores)*. Falta el
+  mapeo de `dispatchInfo` (tipo de bien `1` "Constituye una venta", tipo de despacho `1` "Por
+  cuenta del cliente") y `originStorageInfo.motive`.
+- **Reemplazo de productos en picking → `Order/UpdateOrder`** *(propuesta; esperando a Luis)*.
+  Pedido del cliente: las cancelaciones son raras y casi siempre es un producto sin stock que
+  se reemplaza por uno equivalente. Diseño propuesto:
+  1. En picking, en una línea sin stock, el operario marca **"Reemplazar"** y escanea/busca el
+     sustituto (el match por % del Requerimiento 2 puede sugerir candidatos con stock).
+  2. El reemplazo queda **pendiente de aprobación** (supervisor / ventas): cambia lo que el
+     cliente recibe y paga.
+  3. Al aprobarse: la línea de picking pasa al producto nuevo (se recalcula la ubicación
+     sugerida) y el pedido guarda el producto original para trazabilidad.
+  4. Se encola `UpdateOrder` hacia Defontana; la guía de despacho solo se emite después de que
+     Defontana confirme la actualización (la guía sale de las líneas del pedido).
+
+  **Factible por API**, con dudas abiertas: (a) si `UpdateOrder` acepta pedidos `E..` o los
+  devuelve a aprobación comercial/financiera; (b) si exige reenviar el pedido completo;
+  (c) `priceListId` es obligatorio y `Order/Get` no lo devuelve, y qué precio lleva el
+  sustituto; (d) que `DispatchOrder` tome las líneas actualizadas. Opción de des-arriesgo:
+  probar `UpdateOrder` en pruebas con un pedido sin cambios para ver si cambia su estado
+  (requiere autorización). Tamaño estimado: mediano.
+- **Botones "Sync productos" y "Sync bodegas"**: usan `Sale/*` (no contratado); fallarán en
+  producción. Ocultarlos fuera del ambiente de pruebas.
+
+---
+
 ## Pendiente (funcional)
 
 - **Endpoints reales de Defontana para crear producto / crear pedido.** La
@@ -96,7 +139,10 @@ modelo de datos es **multi-tenant** (`tenant_id` en todo, JWT que lo lleva), est
   ocultas en la UI (flag `ERP_CREATE_ENABLED` en `frontend/src/config.ts`). Cuando
   se confirmen los endpoints reales, conectarlos en `DefontanaConnector.create_product`
   / `create_order` (`backend/app/integrations/defontana/client.py`) y poner el flag en true.
-  *(La recepción → `Inventory/Insert` sí sincroniza de verdad.)*
+  *(Actualización 2026-09: Pedidos sí expone `Order/SaveOrder` / `UpdateOrder`; crear productos
+  es `Sale/SaveProduct`, del módulo Ventas, no contratado. La recepción → `Inventory/Insert`
+  está probada en pruebas pero el payload del WMS aún no tiene el formato real: ver
+  "Integración Defontana".)*
 
 - **Nombre y logo del producto.** Pendiente de definir (lo verá el dueño). Cuando esté,
   aplicar en: ícono/logo, nombre en el menú (`Layout.tsx`) y favicon.
