@@ -21,7 +21,6 @@ from app.integrations.defontana import (
     inventory_sync,
     order_sync,
     product_sync,
-    warehouse_sync,
 )
 from app.integrations.defontana.client import DefontanaConnector
 
@@ -102,10 +101,6 @@ async def _handle_sync_products(job: Dict[str, Any]) -> Dict[str, Any]:
     return await product_sync.sync_products(job["tenant_id"])
 
 
-async def _handle_sync_warehouses(job: Dict[str, Any]) -> Dict[str, Any]:
-    return await warehouse_sync.sync_warehouses(job["tenant_id"])
-
-
 async def _handle_sync_orders(job: Dict[str, Any]) -> Dict[str, Any]:
     return await order_sync.sync_orders(job["tenant_id"])
 
@@ -116,7 +111,6 @@ HANDLERS = {
     SyncJobType.CREATE_PRODUCT.value: _handle_create_product,
     SyncJobType.CREATE_ORDER.value: _handle_create_order,
     SyncJobType.SYNC_PRODUCTS.value: _handle_sync_products,
-    SyncJobType.SYNC_WAREHOUSES.value: _handle_sync_warehouses,
     SyncJobType.SYNC_ORDERS.value: _handle_sync_orders,
 }
 

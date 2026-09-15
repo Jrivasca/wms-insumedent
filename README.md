@@ -108,7 +108,7 @@ plano ni se exponen al frontend.
 
 Endpoints Defontana implementados inicialmente: `auth`, `auth/emailLogin`,
 `Auth/check`, `Company`, `sale/GetProducts`, `sale/GetSimpleProducts`,
-`sale/GetProductsPOSByBarCode`, `sale/GetProductsPOSByCode`, `sale/GetStorages`,
+`sale/GetProductsPOSByBarCode`, `sale/GetProductsPOSByCode`,
 `Order/List`, `Order/DispatchOrder`, `Inventory/Insert`,
 `Inventory/GetDocumentByExternalDocumentID`.
 
@@ -143,8 +143,8 @@ logs y auditoría. Las acciones críticas quedan en `audit_logs`.
 `sync_worker.py` usa MongoDB como cola simple: toma jobs `pending`/`retrying`,
 los marca `processing`, ejecuta la operación, y ante fallo incrementa `attempts`
 con backoff exponencial hasta `max_attempts` (luego `failed`). Tipos:
-`sync_products`, `sync_warehouses`, `sync_orders`, `dispatch_order`,
-`create_inventory_document`.
+`sync_products`, `sync_orders`, `dispatch_order`, `create_inventory_document`.
+Las bodegas se administran solo en el WMS (no se sincronizan desde Defontana).
 
 ## Desarrollo y pruebas del backend
 

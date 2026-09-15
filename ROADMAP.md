@@ -140,9 +140,10 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 
   El paso 4 (`UpdateOrder`) queda descartado para pedidos aprobados; el tramo hacia Defontana
   depende de la alternativa que se elija.
-- **Botones "Sync productos" y "Sync bodegas"** *(hecho)*: usan `Sale/*` (no contratado). Fuera
-  del ambiente de pruebas el backend los rechaza y la pantalla los oculta, salvo
-  `DEFONTANA_SALE_API_ENABLED=true`.
+- **Botón "Sync productos"** *(hecho)*: usa `Sale/*` (no contratado). Fuera del ambiente de
+  pruebas el backend lo rechaza y la pantalla lo oculta, salvo `DEFONTANA_SALE_API_ENABLED=true`.
+- **Bodegas** *(hecho)*: se administran **solo en el WMS**; se eliminó la sincronización de
+  bodegas desde Defontana (botón, endpoint, job y conector).
 
 ---
 

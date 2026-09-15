@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     defontana_orders_sync_hours: str = "08:00-19:00"
     defontana_orders_sync_weekdays_only: bool = True
     defontana_timezone: str = "America/Santiago"
-    # Ventas (Sale/*: productos, bodegas) no está contratado: esos sync por API solo se
+    # Ventas (Sale/*: productos) no está contratado: ese sync por API solo se
     # permiten en el ambiente de pruebas, salvo que se active este flag.
     defontana_sale_api_enabled: bool = False
     # Recepción → Inventory/Insert. Estructura probada en pruebas; los valores (tipo de

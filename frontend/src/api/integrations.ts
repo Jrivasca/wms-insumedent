@@ -34,11 +34,6 @@ export async function syncProducts(): Promise<{ status: string; summary?: unknow
   return data;
 }
 
-export async function syncWarehouses(): Promise<{ status: string; summary?: unknown }> {
-  const { data } = await http.post('/integrations/defontana/sync-warehouses');
-  return data;
-}
-
 export async function syncOrders(): Promise<{ status: string; summary?: unknown }> {
   const { data } = await http.post('/integrations/defontana/sync-orders');
   return data;

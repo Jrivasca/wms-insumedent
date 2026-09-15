@@ -102,8 +102,6 @@ async def test_sale_api_blocked_in_production_but_allowed_in_test(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await integration_service.run_sync_products(prod, "admin")
     assert exc.value.status_code == 409 and "Ventas" in exc.value.detail
-    with pytest.raises(HTTPException):
-        await integration_service.run_sync_warehouses(prod, "admin")
 
     assert (await integration_service.get_status(prod))["sale_api_available"] is False
     assert (await integration_service.get_status(test))["sale_api_available"] is True

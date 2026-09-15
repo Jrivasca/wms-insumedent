@@ -84,17 +84,6 @@ class DefontanaMapper:
         }
 
     @staticmethod
-    def map_warehouse(raw: Dict[str, Any]) -> Dict[str, Any]:
-        code = raw.get("code")
-        return {
-            "erp_storage_code": str(code),
-            "name": raw.get("description") or str(code),
-            "sale_available": _yes(raw.get("saleAvailable")),
-            "is_active": _yes(raw.get("active")),
-            "raw_erp_data": raw,
-        }
-
-    @staticmethod
     def map_order(header: Dict[str, Any], order: Dict[str, Any]) -> Dict[str, Any]:
         """``header`` = ítem de ``Order/List``; ``order`` = ``orderData`` de ``Order/Get``."""
         client = order.get("client") or {}

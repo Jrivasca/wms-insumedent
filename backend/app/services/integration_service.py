@@ -10,13 +10,13 @@ from app.models import Collections
 from app.models.integration import ErpConnectionStatus, ErpProvider
 from app.schemas.integration import DefontanaConfigRequest
 from app.integrations.defontana.client import DefontanaConnector
-from app.integrations.defontana import order_sync, product_sync, warehouse_sync
+from app.integrations.defontana import order_sync, product_sync
 
 ERP = ErpProvider.DEFONTANA.value
 
 
 def sale_api_available(connection: Optional[Dict[str, Any]]) -> bool:
-    """``Sale/*`` (productos, bodegas) es del módulo Ventas, que Insumedent no contrató: solo
+    """``Sale/*`` (productos) es del módulo Ventas, que Insumedent no contrató: solo
     se permite en el ambiente de pruebas, en modo simulado o con
     ``DEFONTANA_SALE_API_ENABLED``."""
     if settings.defontana_sale_api_enabled or settings.defontana_mock:
@@ -44,7 +44,7 @@ async def _require_sale_api(tenant_id: str) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 "La API de Ventas de Defontana (Sale/*) no está contratada: los productos se "
-                "cargan con el importador de Excel y las bodegas en el mantenedor."
+                "cargan con el importador de Excel."
             ),
         )
 
@@ -192,12 +192,6 @@ async def run_sync_products(tenant_id: str, actor: str) -> Dict[str, Any]:
     await _require_sale_api(tenant_id)
     summary = await product_sync.sync_products(tenant_id, actor)
     return {"status": "ok", "type": "sync_products", "summary": summary}
-
-
-async def run_sync_warehouses(tenant_id: str, actor: str) -> Dict[str, Any]:
-    await _require_sale_api(tenant_id)
-    summary = await warehouse_sync.sync_warehouses(tenant_id, actor)
-    return {"status": "ok", "type": "sync_warehouses", "summary": summary}
 
 
 async def run_sync_orders(tenant_id: str, actor: str) -> Dict[str, Any]:

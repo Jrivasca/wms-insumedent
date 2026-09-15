@@ -20,8 +20,9 @@ Pedidos**. **Ventas (`Sale/*`) no se contrató.**
 Consecuencias:
 - `Sale/GetStorages`, `Sale/GetSimpleProducts` y `Sale/GetProductsPOSByBarCode` responden en
   el ambiente de pruebas pero **no estarán disponibles en producción**. Los productos siguen
-  por el importador de Excel y las bodegas por el mantenedor; los botones "Sync productos" y
-  "Sync bodegas" solo sirven en pruebas.
+  por el importador de Excel y las bodegas por el mantenedor del WMS; el botón "Sync
+  productos" solo sirve en pruebas. La sincronización de bodegas por API se eliminó: las
+  bodegas se administran solo en el WMS.
 - Pedidos sí: lectura (`Order/List` + `Order/Get`) y despacho (`Order/DispatchOrder`).
 
 ### Hallazgos verificados contra `replapi.defontana.com` (ya corregidos en el conector)
@@ -190,7 +191,7 @@ De ahí la regla de decisión:
 |---|---|---|---|
 | `get_products` | `GET /sale/GetSimpleProducts` | Ventas | Sincronizar catálogo |
 | `get_product_by_barcode` | `GET /sale/GetProductsPOSByBarCode` | Ventas | Buscar producto al escanear |
-| `get_warehouses` | `GET /sale/GetStorages` | Ventas | Sincronizar bodegas |
+| `get_warehouses` | `GET /sale/GetStorages` | Ventas | Sincronizar bodegas *(eliminado 2026-09: las bodegas se administran solo en el WMS)* |
 | `get_orders` | `GET /Order/List` | Pedidos | Traer pedidos a preparar |
 | `dispatch_order` | `POST /Order/DispatchOrder` | Pedidos | Confirmar despacho |
 | `create_inventory_document` | `PUT /Inventory/Insert` | Inventario | Recepción / ajuste / transferencia |

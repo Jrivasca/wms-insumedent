@@ -361,7 +361,7 @@ export interface DefontanaStatus {
     has_password: boolean;
     has_email_password: boolean;
   };
-  /** Ventas (Sale/*) no contratado: sync de productos/bodegas por API solo en pruebas. */
+  /** Ventas (Sale/*) no contratado: sync de productos por API solo en pruebas. */
   sale_api_available?: boolean;
   orders_auto_sync?: {
     enabled: boolean;

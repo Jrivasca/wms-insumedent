@@ -145,15 +145,6 @@ class DefontanaConnector(ERPConnector):
         items = (data or {}).get("productList") or []
         return items[0] if items else None
 
-    async def get_warehouses(self) -> List[Dict[str, Any]]:
-        """Bodegas de la empresa (``Sale/GetStorages``)."""
-        if self.mock:
-            return list(mock_data.MOCK_STORAGES)
-        return await self._paged(
-            "/Sale/GetStorages", "storageList", {},
-            page_param="pageNumber", size_param="itemsPerPage", first_page=1,
-        )
-
     async def get_orders(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
         """Encabezados de pedidos de la ventana: ``number``, ``creationDate``,
         ``clientFileId`` y ``status``. Las líneas vienen en :meth:`get_order`."""

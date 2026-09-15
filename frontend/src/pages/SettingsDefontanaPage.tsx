@@ -5,7 +5,6 @@ import {
   getDefontanaStatus,
   syncOrders,
   syncProducts,
-  syncWarehouses,
 } from '../api/integrations';
 import type { DefontanaConfig } from '../api/integrations';
 import { errorMessage } from '../api/http';
@@ -150,12 +149,12 @@ export default function SettingsDefontanaPage() {
     }
   }
 
-  async function runSync(kind: 'products' | 'warehouses' | 'orders') {
+  async function runSync(kind: 'products' | 'orders') {
     setBusy(kind);
     setError(null);
     setNotice(null);
     try {
-      const fn = kind === 'products' ? syncProducts : kind === 'warehouses' ? syncWarehouses : syncOrders;
+      const fn = kind === 'products' ? syncProducts : syncOrders;
       const res = await fn();
       setNotice(`Sincronización ${kind}: ${res.status}`);
     } catch (err) {
@@ -210,16 +209,12 @@ export default function SettingsDefontanaPage() {
           <button onClick={handleCheck} className="btn-secondary" disabled={busy === 'check'}>
             {busy === 'check' ? 'Verificando…' : 'Verificar conexión'}
           </button>
-          {/* Productos y bodegas usan Sale/* (Ventas, no contratado): solo en pruebas. */}
+          {/* Productos usa Sale/* (Ventas, no contratado): solo en pruebas. Las bodegas se
+              administran solo en el WMS. */}
           {status?.sale_api_available !== false && (
-            <>
-              <button onClick={() => runSync('products')} className="btn-primary" disabled={busy === 'products'}>
-                {busy === 'products' ? '…' : 'Sync productos'}
-              </button>
-              <button onClick={() => runSync('warehouses')} className="btn-primary" disabled={busy === 'warehouses'}>
-                {busy === 'warehouses' ? '…' : 'Sync bodegas'}
-              </button>
-            </>
+            <button onClick={() => runSync('products')} className="btn-primary" disabled={busy === 'products'}>
+              {busy === 'products' ? '…' : 'Sync productos'}
+            </button>
           )}
           <button onClick={() => runSync('orders')} className="btn-primary" disabled={busy === 'orders'}>
             {busy === 'orders' ? '…' : 'Sync pedidos'}
@@ -227,8 +222,8 @@ export default function SettingsDefontanaPage() {
         </div>
         {status?.sale_api_available === false && (
           <p className="mt-2 text-xs text-slate-500">
-            Productos y bodegas no se sincronizan por API (Ventas no está contratado): usa el
-            importador de Excel y el mantenedor de bodegas.
+            Los productos no se sincronizan por API (Ventas no está contratado): usa el
+            importador de Excel.
           </p>
         )}
         {status?.orders_auto_sync && (

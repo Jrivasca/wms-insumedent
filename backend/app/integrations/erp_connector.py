@@ -26,10 +26,6 @@ class ERPConnector(ABC):
         ...
 
     @abstractmethod
-    async def get_warehouses(self) -> List[Dict[str, Any]]:
-        ...
-
-    @abstractmethod
     async def get_orders(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
         """Order headers in the window (all pages)."""
         ...

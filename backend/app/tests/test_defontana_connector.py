@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.database import get_database
 from app.core.tenant_db import tenant_db
 from app.integrations.defontana import client as client_module
-from app.integrations.defontana import order_sync, product_sync, warehouse_sync
+from app.integrations.defontana import order_sync, product_sync
 from app.integrations.defontana.client import (
     DefontanaApiError,
     DefontanaConnector,
@@ -51,28 +51,25 @@ async def test_success_false_is_an_error_not_an_empty_list():
     assert _check_envelope({"success": True, "storageList": []}, "/x") == {"success": True, "storageList": []}
 
 
-async def test_warehouse_sync_reads_every_page_and_maps_real_fields(monkeypatch):
+async def test_paged_listing_reads_every_page(monkeypatch):
     monkeypatch.setattr(client_module, "PAGE_SIZE", 2)
-    storages = [
-        {"code": "BODEGACENTRAL", "description": "BODEGA CENTRAL", "saleAvailable": "S", "active": "S"},
-        {"code": "B3215", "description": "BODEGA 3215", "saleAvailable": "N", "active": "N"},
-        {"code": "B9", "description": "BODEGA 9", "saleAvailable": "S", "active": "S"},
+    products = [
+        {"active": "S", "code": f"P{i}", "name": f"Producto {i}", "type": "A", "unit": "UN"}
+        for i in range(3)
     ]
 
     def handler(method, path, params, json):
         page = params["pageNumber"]
-        return _envelope("storageList", storages[(page - 1) * 2: page * 2], total=3)
+        return _envelope("productList", products[(page - 1) * 2: page * 2], total=3)
 
     calls = _fake_api(monkeypatch, handler)
     tenant_id = await _tenant()
-    summary = await warehouse_sync.sync_warehouses(tenant_id)
+    summary = await product_sync.sync_products(tenant_id)
 
-    assert summary == {"synced": 3, "created": 3, "updated": 0}
+    assert summary["synced"] == 3 and summary["created"] == 3
     assert [c[2]["pageNumber"] for c in calls] == [1, 2]
     assert all(c[2]["itemsPerPage"] == 2 for c in calls)
-    b3215 = await tenant_db(tenant_id)[Collections.WAREHOUSES].find_one({"erp_storage_code": "B3215"})
-    assert b3215["name"] == "BODEGA 3215"
-    assert b3215["is_active"] is False and b3215["sale_available"] is False
+    assert await tenant_db(tenant_id)[Collections.PRODUCTS].count_documents({}) == 3
 
 
 async def test_product_sync_maps_active_products_without_clobbering_excel_fields(monkeypatch):

@@ -44,11 +44,6 @@ async def sync_products(user: CurrentUser = Depends(require_supervisor)):
     return await integration_service.run_sync_products(user.tenant_id, user.id)
 
 
-@router.post("/sync-warehouses")
-async def sync_warehouses(user: CurrentUser = Depends(require_supervisor)):
-    return await integration_service.run_sync_warehouses(user.tenant_id, user.id)
-
-
 @router.post("/sync-orders")
 async def sync_orders(user: CurrentUser = Depends(require_supervisor)):
     return await integration_service.run_sync_orders(user.tenant_id, user.id)

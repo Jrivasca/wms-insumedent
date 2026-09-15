@@ -46,12 +46,6 @@ MOCK_BARCODES = {
     "2000000000059": "ANES009",
 }
 
-# ``Sale/GetStorages.storageList``
-MOCK_STORAGES = [
-    {"code": "01", "description": "BODEGA CENTRAL", "saleAvailable": "S", "active": "S"},
-    {"code": "02", "description": "BODEGA SECUNDARIA", "saleAvailable": "S", "active": "S"},
-]
-
 # ``Order/List.items``: only headers. One order still in dispatch (imported) and one
 # already dispatched (ignored by the sync).
 MOCK_ORDERS = [
