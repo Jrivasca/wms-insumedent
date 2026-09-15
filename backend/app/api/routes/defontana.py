@@ -10,7 +10,10 @@ router = APIRouter(prefix="/integrations/defontana", tags=["defontana"])
 
 @router.get("/status")
 async def status(user: CurrentUser = Depends(get_current_user)):
-    return await integration_service.get_status(user.tenant_id)
+    # Los identificadores de la conexión solo se muestran a supervisores (nunca contraseñas).
+    return await integration_service.get_status(
+        user.tenant_id, include_credentials=user.is_supervisor
+    )
 
 
 @router.post("/configure")

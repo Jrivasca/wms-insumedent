@@ -38,6 +38,51 @@ async def test_configure_test_environment_points_to_replapi_and_encrypts_passwor
     assert conn["password_encrypted"] and conn["password_encrypted"] != "secreto"
 
 
+async def test_saving_without_ids_keeps_stored_credentials_and_never_exposes_password():
+    tenant_id = await _tenant()
+    await integration_service.configure(
+        tenant_id,
+        DefontanaConfigRequest(environment="test", client="C1", company="E1", user="INTEGRACION",
+                               password="secreto"),
+        actor="admin",
+    )
+    # Guardar cambiando solo el entorno (sin reescribir los IDs) antes los dejaba en null.
+    status = await integration_service.configure(
+        tenant_id, DefontanaConfigRequest(environment="production"), actor="admin"
+    )
+
+    assert status["environment"] == "production"
+    assert status["credentials"] == {
+        "client": "C1", "company": "E1", "user": "INTEGRACION", "email": None,
+        "has_password": True, "has_email_password": False,
+    }
+    assert "secreto" not in str(status) and "password_encrypted" not in str(status)
+    # Sin permiso de supervisor el estado no incluye los identificadores.
+    assert "credentials" not in await integration_service.get_status(tenant_id)
+
+
+async def test_token_is_discarded_only_when_credentials_change():
+    tenant_id = await _tenant()
+    base = DefontanaConfigRequest(environment="test", client="C1", company="E1", user="INTEGRACION",
+                                  password="secreto")
+    await integration_service.configure(tenant_id, base, actor="admin")
+    tokens = get_database()[Collections.ERP_TOKENS]
+    await tokens.insert_one({"tenant_id": tenant_id, "erp": "defontana", "status": "active"})
+
+    # Guardar sin cambios (mismos IDs, sin contraseña nueva) conserva el token.
+    await integration_service.configure(
+        tenant_id, DefontanaConfigRequest(environment="test", client="C1", company="E1", user="INTEGRACION"),
+        actor="admin",
+    )
+    assert await tokens.count_documents({"tenant_id": tenant_id}) == 1
+
+    # Otro usuario de API: el token guardado ya no corresponde.
+    await integration_service.configure(
+        tenant_id, DefontanaConfigRequest(environment="test", user="APPTOMATOR"), actor="admin"
+    )
+    assert await tokens.count_documents({"tenant_id": tenant_id}) == 0
+
+
 async def test_inventory_insert_uses_post(monkeypatch):
     monkeypatch.setattr(settings, "defontana_mock", False)
     connector = DefontanaConnector(str(ObjectId()))

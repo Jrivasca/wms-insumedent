@@ -352,6 +352,15 @@ export interface DefontanaStatus {
   environment?: string;
   auth_mode?: string;
   base_url?: string;
+  /** Identificadores guardados (solo supervisores). La contraseña nunca viaja: solo si existe. */
+  credentials?: {
+    client?: string | null;
+    company?: string | null;
+    user?: string | null;
+    email?: string | null;
+    has_password: boolean;
+    has_email_password: boolean;
+  };
   /** Ventas (Sale/*) no contratado: sync de productos/bodegas por API solo en pruebas. */
   sale_api_available?: boolean;
   orders_auto_sync?: {

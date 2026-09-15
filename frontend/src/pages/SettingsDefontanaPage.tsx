@@ -13,37 +13,60 @@ import { ErrorBox, Loading, PageHeader } from '../components/Async';
 import StatusBadge from '../components/StatusBadge';
 import type { DefontanaStatus } from '../types';
 
+const ENVIRONMENT_LABEL: Record<string, string> = {
+  test: 'Pruebas (replapi.defontana.com)',
+  production: 'Producción (api.defontana.com)',
+};
+
+const AUTH_MODE_LABEL: Record<string, string> = {
+  client_company_user: 'Cliente / Empresa / Usuario',
+  email_login: 'Email',
+};
+
+// Valores que acepta el backend (ErpEnvironment / ErpAuthMode).
+const EMPTY_FORM: DefontanaConfig = {
+  environment: 'test',
+  client: '',
+  company: '',
+  user: '',
+  password: '',
+  email: '',
+  email_password: '',
+  auth_mode: 'client_company_user',
+};
+
+/** Campo de solo lectura con el mismo aspecto que un input. */
+function ReadOnlyField({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input
+        className="input cursor-default bg-slate-50 text-slate-600"
+        value={value || '—'}
+        readOnly
+        tabIndex={-1}
+      />
+    </div>
+  );
+}
+
 export default function SettingsDefontanaPage() {
   const [status, setStatus] = useState<DefontanaStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-
-  // Valores que acepta el backend (ErpEnvironment / ErpAuthMode).
-  const [form, setForm] = useState<DefontanaConfig>({
-    environment: 'test',
-    client: '',
-    company: '',
-    user: '',
-    password: '',
-    email: '',
-    email_password: '',
-    auth_mode: 'client_company_user',
-  });
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<DefontanaConfig>(EMPTY_FORM);
   const emailLogin = form.auth_mode === 'email_login';
+  // Sin configuración todavía, el formulario se muestra directo; si ya existe, solo con "Editar".
+  const showForm = !status?.configured || editing;
 
   async function loadStatus() {
     setLoading(true);
     setError(null);
     try {
-      const s = await getDefontanaStatus();
-      setStatus(s);
-      setForm((f) => ({
-        ...f,
-        environment: s.environment ?? f.environment,
-        auth_mode: s.auth_mode ?? f.auth_mode,
-      }));
+      setStatus(await getDefontanaStatus());
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -57,6 +80,28 @@ export default function SettingsDefontanaPage() {
 
   function update<K extends keyof DefontanaConfig>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function startEdit() {
+    const creds = status?.credentials;
+    // Precarga lo guardado; las contraseñas quedan vacías (vacío = mantener la guardada).
+    setForm({
+      ...EMPTY_FORM,
+      environment: status?.environment ?? EMPTY_FORM.environment,
+      auth_mode: status?.auth_mode ?? EMPTY_FORM.auth_mode,
+      client: creds?.client ?? '',
+      company: creds?.company ?? '',
+      user: creds?.user ?? '',
+      email: creds?.email ?? '',
+    });
+    setNotice(null);
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setForm(EMPTY_FORM);
+    setEditing(false);
   }
 
   async function handleConfigure(e: React.FormEvent) {
@@ -80,7 +125,9 @@ export default function SettingsDefontanaPage() {
       }
       const s = await configureDefontana(payload);
       setStatus(s);
-      setNotice('Configuración guardada');
+      setForm(EMPTY_FORM);
+      setEditing(false);
+      setNotice('Configuración guardada. Usa «Verificar conexión» para probarla.');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -119,6 +166,9 @@ export default function SettingsDefontanaPage() {
   }
 
   if (loading) return <Loading />;
+
+  const creds = status?.credentials;
+  const savedEmailLogin = status?.auth_mode === 'email_login';
 
   return (
     <div>
@@ -204,79 +254,140 @@ export default function SettingsDefontanaPage() {
         )}
       </div>
 
-      <form onSubmit={handleConfigure} className="card grid grid-cols-1 gap-3 md:grid-cols-2">
-        <h2 className="md:col-span-2 text-lg font-semibold">Credenciales</h2>
-        <div>
-          <label className="label">Entorno</label>
-          <select
-            value={form.environment}
-            onChange={(e) => update('environment', e.target.value)}
-            className="input"
-          >
-            <option value="test">Pruebas (replapi.defontana.com)</option>
-            <option value="production">Producción (api.defontana.com)</option>
-          </select>
+      {!showForm && status?.configured && (
+        <div className="card">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">Credenciales</h2>
+            <button onClick={startEdit} className="btn-secondary">
+              Editar
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <ReadOnlyField
+              label="Entorno"
+              value={ENVIRONMENT_LABEL[status.environment ?? ''] ?? status.environment}
+            />
+            <ReadOnlyField
+              label="Modo de autenticación"
+              value={AUTH_MODE_LABEL[status.auth_mode ?? ''] ?? status.auth_mode}
+            />
+            {savedEmailLogin ? (
+              <>
+                <ReadOnlyField label="Email" value={creds?.email} />
+                <ReadOnlyField
+                  label="Contraseña"
+                  value={creds?.has_email_password ? '•••••••• (guardada)' : 'Sin contraseña'}
+                />
+              </>
+            ) : (
+              <>
+                <ReadOnlyField label="IDCliente" value={creds?.client} />
+                <ReadOnlyField label="IDEmpresa" value={creds?.company} />
+                <ReadOnlyField label="IDUsuario" value={creds?.user} />
+                <ReadOnlyField
+                  label="Contraseña"
+                  value={creds?.has_password ? '•••••••• (guardada)' : 'Sin contraseña'}
+                />
+              </>
+            )}
+          </div>
+          <p className="mt-3 text-xs text-slate-400">
+            Por seguridad las credenciales se muestran en solo lectura y la contraseña nunca se
+            muestra. Usa «Editar» para cambiarlas.
+          </p>
         </div>
-        <div>
-          <label className="label">Modo de autenticación</label>
-          <select
-            value={form.auth_mode}
-            onChange={(e) => update('auth_mode', e.target.value)}
-            className="input"
-          >
-            <option value="client_company_user">Cliente / Empresa / Usuario</option>
-            <option value="email_login">Email</option>
-          </select>
-        </div>
-        {emailLogin ? (
-          <>
-            <div>
-              <label className="label">Email</label>
-              <input type="email" value={form.email ?? ''} onChange={(e) => update('email', e.target.value)} className="input" />
-            </div>
-            <div>
-              <label className="label">Contraseña</label>
-              <input
-                type="password"
-                value={form.email_password ?? ''}
-                onChange={(e) => update('email_password', e.target.value)}
-                className="input"
-                placeholder={status?.configured ? 'Vacío = mantener la guardada' : ''}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <div>
-              <label className="label">IDCliente</label>
-              <input value={form.client ?? ''} onChange={(e) => update('client', e.target.value)} className="input" />
-            </div>
-            <div>
-              <label className="label">IDEmpresa</label>
-              <input value={form.company ?? ''} onChange={(e) => update('company', e.target.value)} className="input" />
-            </div>
-            <div>
-              <label className="label">IDUsuario</label>
-              <input value={form.user ?? ''} onChange={(e) => update('user', e.target.value)} className="input" />
-            </div>
-            <div>
-              <label className="label">Contraseña</label>
-              <input
-                type="password"
-                value={form.password ?? ''}
-                onChange={(e) => update('password', e.target.value)}
-                className="input"
-                placeholder={status?.configured ? 'Vacío = mantener la guardada' : ''}
-              />
-            </div>
-          </>
-        )}
-        <div className="md:col-span-2">
-          <button type="submit" className="btn-success" disabled={busy === 'configure'}>
-            {busy === 'configure' ? 'Guardando…' : 'Guardar configuración'}
-          </button>
-        </div>
-      </form>
+      )}
+
+      {showForm && (
+        <form onSubmit={handleConfigure} className="card grid grid-cols-1 gap-3 md:grid-cols-2">
+          <h2 className="md:col-span-2 text-lg font-semibold">
+            {editing ? 'Editar credenciales' : 'Credenciales'}
+          </h2>
+          <div>
+            <label className="label">Entorno</label>
+            <select
+              value={form.environment}
+              onChange={(e) => update('environment', e.target.value)}
+              className="input"
+            >
+              <option value="test">{ENVIRONMENT_LABEL.test}</option>
+              <option value="production">{ENVIRONMENT_LABEL.production}</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Modo de autenticación</label>
+            <select
+              value={form.auth_mode}
+              onChange={(e) => update('auth_mode', e.target.value)}
+              className="input"
+            >
+              <option value="client_company_user">{AUTH_MODE_LABEL.client_company_user}</option>
+              <option value="email_login">{AUTH_MODE_LABEL.email_login}</option>
+            </select>
+          </div>
+          {emailLogin ? (
+            <>
+              <div>
+                <label className="label">Email</label>
+                <input type="email" value={form.email ?? ''} onChange={(e) => update('email', e.target.value)} className="input" />
+              </div>
+              <div>
+                <label className="label">Contraseña</label>
+                <input
+                  type="password"
+                  value={form.email_password ?? ''}
+                  onChange={(e) => update('email_password', e.target.value)}
+                  className="input"
+                  autoComplete="new-password"
+                  placeholder={creds?.has_email_password ? 'Vacío = mantener la guardada' : ''}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="label">IDCliente</label>
+                <input value={form.client ?? ''} onChange={(e) => update('client', e.target.value)} className="input" />
+              </div>
+              <div>
+                <label className="label">IDEmpresa</label>
+                <input value={form.company ?? ''} onChange={(e) => update('company', e.target.value)} className="input" />
+              </div>
+              <div>
+                <label className="label">IDUsuario</label>
+                <input value={form.user ?? ''} onChange={(e) => update('user', e.target.value)} className="input" />
+              </div>
+              <div>
+                <label className="label">Contraseña</label>
+                <input
+                  type="password"
+                  value={form.password ?? ''}
+                  onChange={(e) => update('password', e.target.value)}
+                  className="input"
+                  autoComplete="new-password"
+                  placeholder={creds?.has_password ? 'Vacío = mantener la guardada' : ''}
+                />
+              </div>
+            </>
+          )}
+          {editing && (
+            <p className="md:col-span-2 text-xs text-slate-500">
+              Si cambias el entorno o las credenciales, el token actual se descarta y habrá que
+              verificar la conexión de nuevo.
+            </p>
+          )}
+          <div className="md:col-span-2 flex gap-2">
+            <button type="submit" className="btn-success" disabled={busy === 'configure'}>
+              {busy === 'configure' ? 'Guardando…' : 'Guardar configuración'}
+            </button>
+            {editing && (
+              <button type="button" onClick={cancelEdit} className="btn-secondary" disabled={busy === 'configure'}>
+                Cancelar
+              </button>
+            )}
+          </div>
+        </form>
+      )}
     </div>
   );
 }
