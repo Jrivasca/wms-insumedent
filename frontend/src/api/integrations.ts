@@ -1,5 +1,5 @@
 import { http } from './http';
-import type { DefontanaStatus } from '../types';
+import type { DefontanaStatus, ErpStockComparison } from '../types';
 
 export interface DefontanaConfig {
   environment: string;
@@ -36,5 +36,23 @@ export async function syncProducts(): Promise<{ status: string; summary?: unknow
 
 export async function syncOrders(): Promise<{ status: string; summary?: unknown }> {
   const { data } = await http.post('/integrations/defontana/sync-orders');
+  return data;
+}
+
+/** Trae la foto de stock de Defontana (no modifica el stock del WMS). */
+export async function syncStock(): Promise<{ status: string; summary?: { products: number; rows: number } }> {
+  const { data } = await http.post('/integrations/defontana/sync-stock');
+  return data;
+}
+
+export async function getStockComparison(params: {
+  only_diff?: boolean;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ErpStockComparison> {
+  const { data } = await http.get<ErpStockComparison>('/integrations/defontana/stock-comparison', {
+    params,
+  });
   return data;
 }

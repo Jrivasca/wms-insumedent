@@ -19,10 +19,17 @@ Pedidos**. **Ventas (`Sale/*`) no se contrató.**
 
 Consecuencias:
 - `Sale/GetStorages`, `Sale/GetSimpleProducts` y `Sale/GetProductsPOSByBarCode` responden en
-  el ambiente de pruebas pero **no estarán disponibles en producción**. Los productos siguen
-  por el importador de Excel y las bodegas por el mantenedor del WMS; el botón "Sync
-  productos" solo sirve en pruebas. La sincronización de bodegas por API se eliminó: las
-  bodegas se administran solo en el WMS.
+  el ambiente de pruebas pero **no estarán disponibles en producción**; el WMS ya no los usa.
+- **Inventario (contratado) cubre lotes y stock, pero no el maestro completo**:
+  `Inventory/GetBatchesInfo` trae código, nombre, unidad, activo, uso de lotes/series, precio,
+  stock por bodega y lotes con vencimiento **solo de los artículos que manejan lotes** (536 en
+  pruebas, aunque su `totalItems` informa 3.359; página desde **0**, máx. 100 por página).
+  `Inventory/GetFutureStockInfo` trae **los 3.359 productos** (incluidos inactivos) con
+  descripción y stock actual, reservado, por recibir y futuro por bodega, pero sin unidad,
+  estado ni uso de lotes (página desde **1**; si se piden más de 100 los recorta sin avisar).
+  "Sync lotes" usa `GetBatchesInfo`; el informe "Stock ERP vs WMS" usa `GetFutureStockInfo`. El
+  catálogo completo, los códigos de barra, la marca y la familia siguen por el importador de
+  Excel. Las bodegas se administran solo en el WMS (se eliminó su sincronización).
 - Pedidos sí: lectura (`Order/List` + `Order/Get`) y despacho (`Order/DispatchOrder`).
 
 ### Hallazgos verificados contra `replapi.defontana.com` (ya corregidos en el conector)

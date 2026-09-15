@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   checkDefontana,
   configureDefontana,
@@ -156,7 +157,16 @@ export default function SettingsDefontanaPage() {
     try {
       const fn = kind === 'products' ? syncProducts : syncOrders;
       const res = await fn();
-      setNotice(`Sincronización ${kind}: ${res.status}`);
+      const s = (res.summary ?? {}) as Record<string, number>;
+      setNotice(
+        kind === 'products'
+          ? `Artículos con lote: ${s.synced ?? 0} leídos (${s.created ?? 0} nuevos, ${
+              s.updated ?? 0
+            } actualizados, ${s.deactivated ?? 0} desactivados) · ${s.batches ?? 0} lotes`
+          : `Pedidos: ${s.created ?? 0} nuevos, ${s.updated ?? 0} actualizados, ${
+              s.cancelled ?? 0
+            } cancelados, ${s.flagged ?? 0} por revisar`
+      );
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -209,23 +219,23 @@ export default function SettingsDefontanaPage() {
           <button onClick={handleCheck} className="btn-secondary" disabled={busy === 'check'}>
             {busy === 'check' ? 'Verificando…' : 'Verificar conexión'}
           </button>
-          {/* Productos usa Sale/* (Ventas, no contratado): solo en pruebas. Las bodegas se
-              administran solo en el WMS. */}
-          {status?.sale_api_available !== false && (
-            <button onClick={() => runSync('products')} className="btn-primary" disabled={busy === 'products'}>
-              {busy === 'products' ? '…' : 'Sync productos'}
-            </button>
-          )}
+          <button onClick={() => runSync('products')} className="btn-primary" disabled={busy === 'products'}>
+            {busy === 'products' ? '…' : 'Sync lotes'}
+          </button>
           <button onClick={() => runSync('orders')} className="btn-primary" disabled={busy === 'orders'}>
             {busy === 'orders' ? '…' : 'Sync pedidos'}
           </button>
         </div>
-        {status?.sale_api_available === false && (
-          <p className="mt-2 text-xs text-slate-500">
-            Los productos no se sincronizan por API (Ventas no está contratado): usa el
-            importador de Excel.
-          </p>
-        )}
+        <p className="mt-2 text-xs text-slate-500">
+          «Sync lotes» lee del módulo Inventario de Defontana los artículos que manejan lotes, con
+          sus lotes y vencimientos; no modifica el stock ni los códigos de barra, marca o familia.
+          El catálogo completo sigue por el importador de Excel y las bodegas se administran solo
+          en el WMS. Para comparar stock, ve a{' '}
+          <Link to="/inventory/erp-stock" className="text-brand underline">
+            Inventario · Stock ERP vs WMS
+          </Link>
+          .
+        </p>
         {status?.orders_auto_sync && (
           <p className="mt-2 text-xs text-slate-500">
             Sincronización automática de pedidos:{' '}

@@ -6,11 +6,11 @@ real connector without any network call.
 """
 
 # Dental products (subset of the real INSUMEDENT catalog), as returned inside
-# ``Sale/GetSimpleProducts.productList``.
+# ``Inventory/GetBatchesInfo.productDetail``. Storage code "01" matches the seed warehouse.
 _ANEST_DESC = "Agente/insumo anestésico para procedimientos dentales sin dolor."
 
 
-def _product(code: str, name: str) -> dict:
+def _product(code: str, name: str, batches=None) -> dict:
     return {
         "active": "S",
         "code": code,
@@ -20,31 +20,44 @@ def _product(code: str, name: str) -> dict:
         "detailedDescription": _ANEST_DESC,
         "coinID": "PESO",
         "sellPrice": 0.0,
-        "stock": 0.0,
+        "stock": sum(b["stock"] for b in batches or []),
         "type": "A",
         "unit": "UN",
-        "usesLotes": False,
+        "usesLotes": bool(batches),
         "usesSeries": False,
+        "storageDetail": [
+            {"storageID": "01", "stock": sum(b["stock"] for b in batches), "batchDetail": batches}
+        ] if batches else [],
     }
 
 
 MOCK_PRODUCTS = [
-    _product("ANES008", "ANESTESIA ALPHACAINE 2%"),
+    _product("ANES008", "ANESTESIA ALPHACAINE 2%", batches=[
+        {"batchNumber": "MOCK-L1", "stock": 10.0, "expirationDate": "2027-06-30T00:00:00", "storageID": "01"},
+    ]),
     _product("ANES012", "ANESTESIA ARTICAINE 4% DFL"),
     _product("ANES002", "ANESTESIA ISOCAINE 3%"),
     _product("ANES016", "ANESTESIA MEPIADRE MEPIVACAINA AL 2% DFL"),
     _product("ANES009", "ANESTESIA MEPISV 3%"),
 ]
 
-# Barcode → product code for the mock barcode lookup. Match the seed
-# (app/data/demo_catalog.json) so the mock stays consistent with the demo data.
-MOCK_BARCODES = {
-    "2000000000013": "ANES008",
-    "2000000000022": "ANES012",
-    "2000000000031": "ANES002",
-    "2000000000040": "ANES016",
-    "2000000000059": "ANES009",
-}
+# ``Inventory/GetFutureStockInfo.productsDetail``
+MOCK_STOCK = [
+    {
+        "productCode": p["code"],
+        "description": p["name"],
+        "currentStock": 10.0,
+        "reservedStock": 0,
+        "stockToReceive": 0,
+        "futureStock": 10.0,
+        "storageInfo": [{
+            "storageCode": "01", "productCode": p["code"], "currentStock": 10.0,
+            "reservedStock": 0, "maximumStockToReceive": 0,
+            "maximumFutureStock": 10.0, "minimumFutureStock": 10.0,
+        }],
+    }
+    for p in MOCK_PRODUCTS
+]
 
 # ``Order/List.items``: only headers. One order still in dispatch (imported) and one
 # already dispatched (ignored by the sync).

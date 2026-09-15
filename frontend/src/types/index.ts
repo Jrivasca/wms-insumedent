@@ -178,6 +178,40 @@ export interface Order {
   cancel_reason?: string | null;
 }
 
+/** Lote informado por Defontana (referencia; no mueve stock del WMS). */
+export interface ErpStockLot {
+  lot_number: string;
+  stock: number;
+  expiration_date?: string | null;
+}
+
+/** Stock de Defontana vs stock del WMS para un SKU en una bodega. */
+export interface ErpStockRow {
+  sku: string;
+  name?: string | null;
+  storage_code: string;
+  erp_stock: number | null;
+  erp_reserved: number | null;
+  erp_to_receive: number | null;
+  wms_stock: number;
+  difference: number;
+  in_erp: boolean;
+  in_wms_catalog: boolean;
+  erp_lots: ErpStockLot[];
+}
+
+export interface ErpStockComparison extends Page<ErpStockRow> {
+  summary: {
+    rows: number;
+    with_difference: number;
+    erp_only: number;
+    wms_only: number;
+    snapshot_at?: string | null;
+    unmapped_warehouses: string[];
+    unknown_storage_codes: string[];
+  };
+}
+
 /** Línea corta de un pedido parcial cuyo faltante ya está cubierto por stock. */
 export interface CompletableOrderLine {
   line_id: string;
@@ -361,8 +395,8 @@ export interface DefontanaStatus {
     has_password: boolean;
     has_email_password: boolean;
   };
-  /** Ventas (Sale/*) no contratado: sync de productos por API solo en pruebas. */
-  sale_api_available?: boolean;
+  /** Última foto de stock traída de Defontana (Inventory/GetFutureStockInfo). */
+  last_stock_sync_at?: string | null;
   orders_auto_sync?: {
     enabled: boolean;
     interval_minutes: number;

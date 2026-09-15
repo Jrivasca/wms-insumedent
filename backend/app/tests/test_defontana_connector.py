@@ -47,11 +47,11 @@ def _envelope(list_key, items, total=None, **extra):
 # ---------------------------------------------------------------------------
 async def test_success_false_is_an_error_not_an_empty_list():
     with pytest.raises(DefontanaApiError, match="Credenciales"):
-        _check_envelope({"success": False, "message": "Credenciales inválidas"}, "/Sale/GetStorages")
-    assert _check_envelope({"success": True, "storageList": []}, "/x") == {"success": True, "storageList": []}
+        _check_envelope({"success": False, "message": "Credenciales inválidas"}, "/Inventory/GetBatchesInfo")
+    assert _check_envelope({"success": True, "productDetail": []}, "/x") == {"success": True, "productDetail": []}
 
 
-async def test_paged_listing_reads_every_page(monkeypatch):
+async def test_paged_listing_reads_every_page_starting_at_zero(monkeypatch):
     monkeypatch.setattr(client_module, "PAGE_SIZE", 2)
     products = [
         {"active": "S", "code": f"P{i}", "name": f"Producto {i}", "type": "A", "unit": "UN"}
@@ -59,44 +59,50 @@ async def test_paged_listing_reads_every_page(monkeypatch):
     ]
 
     def handler(method, path, params, json):
-        page = params["pageNumber"]
-        return _envelope("productList", products[(page - 1) * 2: page * 2], total=3)
+        page = params["pageNumber"]  # GetBatchesInfo parte en la página 0
+        return _envelope("productDetail", products[page * 2: (page + 1) * 2], total=3)
 
     calls = _fake_api(monkeypatch, handler)
     tenant_id = await _tenant()
     summary = await product_sync.sync_products(tenant_id)
 
     assert summary["synced"] == 3 and summary["created"] == 3
-    assert [c[2]["pageNumber"] for c in calls] == [1, 2]
-    assert all(c[2]["itemsPerPage"] == 2 for c in calls)
+    assert [c[2]["pageNumber"] for c in calls] == [0, 1]
+    assert all(c[1] == "/Inventory/GetBatchesInfo" and c[2]["itemsPerPage"] == 2 for c in calls)
     assert await tenant_db(tenant_id)[Collections.PRODUCTS].count_documents({}) == 3
 
 
-async def test_product_sync_maps_active_products_without_clobbering_excel_fields(monkeypatch):
+async def test_product_sync_uses_inventory_catalog_keeps_excel_fields_and_stores_lots(monkeypatch):
     products = [
         {"active": "S", "code": "0004357", "name": "KIT DE FRESAS MICRODONT ULTRA FINO",
-         "detailedDescription": None, "type": "A", "unit": "UN", "stock": 2.0,
-         "usesLotes": True, "usesSeries": False},
-        {"active": "S", "code": "SERV01", "name": "INSTALACION", "type": "S", "unit": "UN",
-         "usesLotes": False, "usesSeries": False},
+         "detailedDescription": None, "type": "A", "unit": "UN", "usesLotes": True, "usesSeries": False,
+         "storageDetail": [{"storageID": "BODEGACENTRAL", "stock": 3.0, "batchDetail": [
+             {"batchNumber": "L-26", "stock": 3.0, "expirationDate": "2027-06-30T00:00:00",
+              "storageID": "BODEGACENTRAL"}]}]},
+        {"active": "N", "code": "VIEJO", "name": "DESCONTINUADO", "type": "A", "unit": "UN"},
+        {"active": "N", "code": "NUNCA", "name": "INACTIVO SIN CREAR", "type": "A", "unit": "UN"},
     ]
-    calls = _fake_api(monkeypatch, lambda m, p, params, j: _envelope("productList", products, total=2))
+    calls = _fake_api(monkeypatch, lambda m, p, params, j: _envelope("productDetail", products, total=3))
     tenant_id = await _tenant()
     db = tenant_db(tenant_id)
     await db[Collections.PRODUCTS].insert_one(
         {"sku": "0004357", "name": "viejo", "brand": "MICRODONT", "category": "Fresas"}
     )
+    await db[Collections.PRODUCTS].insert_one({"sku": "VIEJO", "name": "DESCONTINUADO", "is_active": True})
 
     summary = await product_sync.sync_products(tenant_id)
 
-    assert summary["synced"] == 2 and summary["created"] == 1 and summary["updated"] == 1
-    assert calls[0][1] == "/Sale/GetSimpleProducts" and calls[0][2]["status"] == 1
+    assert summary == {"synced": 3, "created": 0, "updated": 1, "deactivated": 1, "skipped": 1, "batches": 1}
+    assert calls[0][1] == "/Inventory/GetBatchesInfo"
     kit = await db[Collections.PRODUCTS].find_one({"sku": "0004357"})
     assert kit["name"] == "KIT DE FRESAS MICRODONT ULTRA FINO"
     assert kit["uses_lots"] is True and kit["is_active"] is True
     assert kit["brand"] == "MICRODONT" and kit["category"] == "Fresas"  # no se pisan
-    serv = await db[Collections.PRODUCTS].find_one({"sku": "SERV01"})
-    assert serv["is_service"] is True
+    assert (await db[Collections.PRODUCTS].find_one({"sku": "VIEJO"}))["is_active"] is False
+    assert not await db[Collections.PRODUCTS].find_one({"sku": "NUNCA"})  # inactivo: no se crea
+    lot = await db[Collections.ERP_BATCHES].find_one({"sku": "0004357"})
+    assert lot["lot_number"] == "L-26" and lot["storage_code"] == "BODEGACENTRAL" and lot["stock"] == 3.0
+    assert lot["expiration_date"].year == 2027
 
 
 async def test_order_sync_imports_only_orders_in_dispatch_with_their_lines(monkeypatch):
@@ -159,17 +165,6 @@ async def test_external_document_not_found_is_none_but_other_errors_raise(monkey
     assert await connector.get_inventory_document_by_external_id("WMS-NUEVO") is None
     with pytest.raises(DefontanaApiError):
         await connector.get_inventory_document_by_external_id("WMS-OTRO")
-
-
-async def test_barcode_lookup_posts_code_list(monkeypatch):
-    product = {"code": "0004357", "name": "KIT", "active": "S"}
-    calls = _fake_api(monkeypatch, lambda m, p, params, j: _envelope("productList", [product]))
-    connector = DefontanaConnector(await _tenant())
-
-    assert await connector.get_product_by_barcode("7801234567890") == product
-    method, path, params, body = calls[0]
-    assert (method, path) == ("POST", "/Sale/GetProductsPOSByBarCode")
-    assert body == {"code": ["7801234567890"]} and params["pageNumber"] == 1
 
 
 @pytest.mark.parametrize(

@@ -26,6 +26,7 @@ const NAV: NavItem[] = [
       { to: '/inventory/recepcion', label: 'Recepción' },
       { to: '/inventory/transferencia', label: 'Transferencia' },
       { to: '/inventory/ajuste', label: 'Ajuste' },
+      { to: '/inventory/erp-stock', label: 'Stock ERP vs WMS' },
     ],
   },
   { to: '/orders', label: 'Pedidos', roles: ['sales'] },

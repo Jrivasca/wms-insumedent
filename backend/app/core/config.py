@@ -41,9 +41,6 @@ class Settings(BaseSettings):
     defontana_orders_sync_hours: str = "08:00-19:00"
     defontana_orders_sync_weekdays_only: bool = True
     defontana_timezone: str = "America/Santiago"
-    # Ventas (Sale/*: productos) no está contratado: ese sync por API solo se
-    # permiten en el ambiente de pruebas, salvo que se active este flag.
-    defontana_sale_api_enabled: bool = False
     # Recepción → Inventory/Insert. Estructura probada en pruebas; los valores (tipo de
     # documento, motivo, centro de negocio) están PENDIENTES de confirmar con Defontana,
     # por eso el envío tiene su propio flag además de ``erp_sync_enabled``.

@@ -3,8 +3,19 @@
 Campos reales (camelCase) verificados contra la API de pruebas. Defontana marca los
 indicadores de maestro como ``"S"``/``"N"``.
 """
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    """Fecha ISO de Defontana (``2027-12-31T00:00:00``) → datetime UTC; vacía o inválida → None."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _qty(value: Any) -> Any:
@@ -82,6 +93,42 @@ class DefontanaMapper:
             "is_active": _yes(raw.get("active")),
             "raw_erp_data": raw,
         }
+
+    @staticmethod
+    def map_batches(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Lotes de un artículo de ``Inventory/GetBatchesInfo`` (por bodega, con stock y
+        vencimiento). Referencia de Defontana: no mueve stock del WMS."""
+        sku = raw.get("code")
+        batches: List[Dict[str, Any]] = []
+        for storage in raw.get("storageDetail") or []:
+            for batch in storage.get("batchDetail") or []:
+                if not batch.get("batchNumber"):
+                    continue
+                batches.append({
+                    "sku": sku,
+                    "storage_code": batch.get("storageID") or storage.get("storageID"),
+                    "lot_number": batch.get("batchNumber"),
+                    "stock": batch.get("stock") or 0,
+                    "expiration_date": _parse_datetime(batch.get("expirationDate")),
+                })
+        return batches
+
+    @staticmethod
+    def map_stock(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Filas por bodega de ``Inventory/GetFutureStockInfo``: stock actual, reservado,
+        por recibir y futuro según Defontana."""
+        return [
+            {
+                "sku": storage.get("productCode") or raw.get("productCode"),
+                "name": raw.get("description"),
+                "storage_code": storage.get("storageCode"),
+                "erp_stock": storage.get("currentStock") or 0,
+                "erp_reserved": storage.get("reservedStock") or 0,
+                "erp_to_receive": storage.get("maximumStockToReceive") or 0,
+                "erp_future_stock": storage.get("maximumFutureStock") or 0,
+            }
+            for storage in raw.get("storageInfo") or []
+        ]
 
     @staticmethod
     def map_order(header: Dict[str, Any], order: Dict[str, Any]) -> Dict[str, Any]:

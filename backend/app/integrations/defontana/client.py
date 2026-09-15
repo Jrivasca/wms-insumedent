@@ -6,11 +6,14 @@ simulated success can never be mistaken for a real one (section 18).
 
 Formas reales de la API (verificadas contra replapi.defontana.com, 2026-09-15):
 - JSON en camelCase. Cada respuesta viene en un sobre ``{success, message,
-  exceptionMessage, ...}`` con la lista bajo una clave propia (``storageList``,
-  ``productList``, ``items``).
-- Los listados son paginados y los parámetros de página son obligatorios.
+  exceptionMessage, ...}`` con la lista bajo una clave propia (``productDetail``,
+  ``productsDetail``, ``items``).
+- Los listados son paginados, con máximo 100 ítems por página, y la página inicial
+  cambia según el método (``GetBatchesInfo`` parte en 0; ``GetFutureStockInfo`` en 1).
 - ``success: false`` con HTTP 200 es un error: se levanta ``DefontanaApiError`` para que
   una sincronización nunca termine "ok" con 0 registros por un fallo silencioso.
+
+Solo se usan módulos contratados por Insumedent: Pedidos, Inventario y Guías de Despacho.
 """
 from typing import Any, Dict, List, Optional
 
@@ -26,12 +29,10 @@ from app.integrations.defontana.token_manager import DefontanaTokenManager
 
 logger = get_logger(__name__)
 
+# Máximo que aceptan los listados de Defontana (más da error o se recorta en silencio).
 PAGE_SIZE = 100
 # Tope de seguridad por si la API no corta la paginación como se espera.
 MAX_PAGES = 500
-
-# GetSimpleProducts ``status``: 0 = todos, 1 = activos, 2 = inactivos.
-PRODUCT_STATUS_ACTIVE = 1
 
 
 class DefontanaApiError(Exception):
@@ -126,24 +127,26 @@ class DefontanaConnector(ERPConnector):
         return await self.token_manager.check_token(self.tenant_id)
 
     async def get_products(self) -> List[Dict[str, Any]]:
-        """Artículos activos de la empresa (``Sale/GetSimpleProducts``)."""
+        """Artículos que manejan lotes, desde el módulo Inventario (``Inventory/GetBatchesInfo``):
+        código, nombre, unidad, activo, uso de lotes/series, y por bodega el stock y los lotes
+        con vencimiento. NO es el catálogo completo: en pruebas devolvió 536 artículos (todos
+        con lotes registrados) aunque ``totalItems`` informa 3.359. La página parte en 0."""
         if self.mock:
             return list(mock_data.MOCK_PRODUCTS)
         return await self._paged(
-            "/Sale/GetSimpleProducts", "productList", {"status": PRODUCT_STATUS_ACTIVE},
-            page_param="pageNumber", size_param="itemsPerPage", first_page=1,
+            "/Inventory/GetBatchesInfo", "productDetail", {},
+            page_param="pageNumber", size_param="itemsPerPage", first_page=0,
         )
 
-    async def get_product_by_barcode(self, barcode: str) -> Optional[Dict[str, Any]]:
+    async def get_stock_levels(self) -> List[Dict[str, Any]]:
+        """Stock por producto y bodega (``Inventory/GetFutureStockInfo``): actual, reservado,
+        por recibir y futuro. La página parte en 1."""
         if self.mock:
-            code = mock_data.MOCK_BARCODES.get(barcode)
-            return next((p for p in mock_data.MOCK_PRODUCTS if p["code"] == code), None)
-        data = await self._request(
-            "POST", "/Sale/GetProductsPOSByBarCode",
-            params={"itemsPerPage": 10, "pageNumber": 1}, json={"code": [barcode]},
+            return list(mock_data.MOCK_STOCK)
+        return await self._paged(
+            "/Inventory/GetFutureStockInfo", "productsDetail", {},
+            page_param="Page", size_param="ItemsPerPage", first_page=1,
         )
-        items = (data or {}).get("productList") or []
-        return items[0] if items else None
 
     async def get_orders(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
         """Encabezados de pedidos de la ventana: ``number``, ``creationDate``,

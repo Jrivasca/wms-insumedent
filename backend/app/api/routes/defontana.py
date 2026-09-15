@@ -1,8 +1,10 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends
 
 from app.api.deps import CurrentUser, get_current_user, require_supervisor
 from app.schemas.integration import DefontanaConfigRequest
-from app.services import integration_service
+from app.services import erp_stock_service, integration_service
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/integrations/defontana", tags=["defontana"])
@@ -47,3 +49,23 @@ async def sync_products(user: CurrentUser = Depends(require_supervisor)):
 @router.post("/sync-orders")
 async def sync_orders(user: CurrentUser = Depends(require_supervisor)):
     return await integration_service.run_sync_orders(user.tenant_id, user.id)
+
+
+@router.post("/sync-stock")
+async def sync_stock(user: CurrentUser = Depends(require_supervisor)):
+    """Trae la foto de stock de Defontana (solo lectura: no modifica el stock del WMS)."""
+    return await integration_service.run_sync_stock(user.tenant_id, user.id)
+
+
+@router.get("/stock-comparison")
+async def stock_comparison(
+    only_diff: bool = True,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    user: CurrentUser = Depends(require_supervisor),
+):
+    """Stock de Defontana vs stock del WMS por SKU y bodega (informativo)."""
+    return await erp_stock_service.compare(
+        user.tenant_id, only_diff=only_diff, q=q, limit=limit, offset=offset
+    )

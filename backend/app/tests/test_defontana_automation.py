@@ -1,10 +1,8 @@
 """Automatizaciones de Defontana: horario del sync automático de pedidos, su corrida por
-empresa, bloqueo de Sale/* (Ventas no contratado) fuera de pruebas y payload real de la
-recepción hacia Inventory/Insert."""
+empresa y payload real de la recepción hacia Inventory/Insert."""
 from datetime import date, datetime
 
 import pytest
-from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.database import get_database
@@ -87,27 +85,6 @@ async def test_status_reports_auto_sync_state(monkeypatch):
     status = await integration_service.get_status(tenant_id)
     auto = status["orders_auto_sync"]
     assert auto["enabled"] is True and auto["interval_minutes"] == settings.defontana_orders_sync_interval_minutes
-
-
-# ---------------------------------------------------------------------------
-# Sale/* (Ventas no contratado)
-# ---------------------------------------------------------------------------
-async def test_sale_api_blocked_in_production_but_allowed_in_test(monkeypatch):
-    monkeypatch.setattr(settings, "defontana_mock", False)
-    monkeypatch.setattr(settings, "defontana_sale_api_enabled", False)
-    prod, test = await _tenant(), await _tenant()
-    await _connection(prod, environment="production")
-    await _connection(test, environment="test")
-
-    with pytest.raises(HTTPException) as exc:
-        await integration_service.run_sync_products(prod, "admin")
-    assert exc.value.status_code == 409 and "Ventas" in exc.value.detail
-
-    assert (await integration_service.get_status(prod))["sale_api_available"] is False
-    assert (await integration_service.get_status(test))["sale_api_available"] is True
-
-    monkeypatch.setattr(settings, "defontana_sale_api_enabled", True)  # si algún día se contrata
-    assert (await integration_service.get_status(prod))["sale_api_available"] is True
 
 
 # ---------------------------------------------------------------------------

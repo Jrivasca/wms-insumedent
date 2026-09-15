@@ -17,6 +17,7 @@ import InventoryPage from './pages/InventoryPage';
 import ReceptionPage from './pages/ReceptionPage';
 import InventoryTransferPage from './pages/InventoryTransferPage';
 import InventoryAdjustmentPage from './pages/InventoryAdjustmentPage';
+import ErpStockPage from './pages/ErpStockPage';
 import OrdersPage from './pages/OrdersPage';
 import OrderImportPage from './pages/OrderImportPage';
 import PickingPage from './pages/PickingPage';
@@ -162,6 +163,16 @@ export default function App() {
           <Shell>
             <SupervisorOnly>
               <InventoryAdjustmentPage />
+            </SupervisorOnly>
+          </Shell>
+        }
+      />
+      <Route
+        path="/inventory/erp-stock"
+        element={
+          <Shell>
+            <SupervisorOnly>
+              <ErpStockPage />
             </SupervisorOnly>
           </Shell>
         }

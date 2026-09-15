@@ -140,8 +140,21 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 
   El paso 4 (`UpdateOrder`) queda descartado para pedidos aprobados; el tramo hacia Defontana
   depende de la alternativa que se elija.
-- **Botón "Sync productos"** *(hecho)*: usa `Sale/*` (no contratado). Fuera del ambiente de
-  pruebas el backend lo rechaza y la pantalla lo oculta, salvo `DEFONTANA_SALE_API_ENABLED=true`.
+- **Lotes desde Inventario** *(hecho)*: "Sync lotes" usa `Inventory/GetBatchesInfo` (módulo
+  contratado; funciona en producción). **Solo trae los artículos que manejan lotes** (536 de
+  3.359 en pruebas, aunque `totalItems` diga 3.359): los crea/actualiza, desactiva los inactivos
+  existentes, no toca códigos de barra/marca/familia y guarda los lotes con vencimiento en
+  `erp_batches` como referencia. Ya no se usa ningún endpoint de Ventas.
+- **Catálogo completo de productos** *(sin API disponible)*: con lo contratado no hay un
+  endpoint con el maestro completo. `Inventory/GetFutureStockInfo` trae los 3.359 códigos con
+  descripción y stock, pero sin unidad, estado activo ni uso de lotes. **El catálogo sigue por el
+  importador de Excel**; decidir si además se crean desde ahí los productos que falten (solo
+  código y nombre).
+- **Informe "Stock ERP vs WMS"** *(hecho, informativo)*: "Traer stock de Defontana"
+  (`Inventory/GetFutureStockInfo`: actual, reservado, por recibir) guarda una foto en
+  `erp_stock`; Inventario → Stock ERP vs WMS la cruza con los saldos del WMS por SKU y bodega
+  (vía `erp_storage_code`). **Decisión pendiente: quién manda sobre el stock** (WMS o
+  Defontana); hasta entonces nada de esto modifica saldos.
 - **Bodegas** *(hecho)*: se administran **solo en el WMS**; se eliminó la sincronización de
   bodegas desde Defontana (botón, endpoint, job y conector).
 

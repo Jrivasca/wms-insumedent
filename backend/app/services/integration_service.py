@@ -1,7 +1,5 @@
 from typing import Any, Dict, Optional
 
-from fastapi import HTTPException, status
-
 from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.security import encrypt_secret
@@ -10,19 +8,9 @@ from app.models import Collections
 from app.models.integration import ErpConnectionStatus, ErpProvider
 from app.schemas.integration import DefontanaConfigRequest
 from app.integrations.defontana.client import DefontanaConnector
-from app.integrations.defontana import order_sync, product_sync
+from app.integrations.defontana import order_sync, product_sync, stock_sync
 
 ERP = ErpProvider.DEFONTANA.value
-
-
-def sale_api_available(connection: Optional[Dict[str, Any]]) -> bool:
-    """``Sale/*`` (productos) es del módulo Ventas, que Insumedent no contrató: solo
-    se permite en el ambiente de pruebas, en modo simulado o con
-    ``DEFONTANA_SALE_API_ENABLED``."""
-    if settings.defontana_sale_api_enabled or settings.defontana_mock:
-        return True
-    environment = (connection or {}).get("environment") or settings.defontana_env
-    return str(environment).lower() not in ("production", "prod")
 
 
 def _orders_auto_sync(connection: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -38,15 +26,6 @@ def _orders_auto_sync(connection: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-async def _require_sale_api(tenant_id: str) -> None:
-    if not sale_api_available(await _connection(tenant_id)):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "La API de Ventas de Defontana (Sale/*) no está contratada: los productos se "
-                "cargan con el importador de Excel."
-            ),
-        )
 
 
 async def _connection(tenant_id: str) -> Dict[str, Any]:
@@ -66,7 +45,7 @@ async def get_status(tenant_id: str, include_credentials: bool = False) -> Dict[
             "mock": settings.defontana_mock,
             "last_check_at": None,
             "last_error": None,
-            "sale_api_available": sale_api_available(None),
+            "last_stock_sync_at": None,
             "orders_auto_sync": _orders_auto_sync(None),
         }
     data = serialize(conn)
@@ -79,7 +58,7 @@ async def get_status(tenant_id: str, include_credentials: bool = False) -> Dict[
         "mock": settings.defontana_mock,
         "last_check_at": data.get("last_check_at"),
         "last_error": data.get("last_error"),
-        "sale_api_available": sale_api_available(data),
+        "last_stock_sync_at": data.get("last_stock_sync_at"),
         "orders_auto_sync": _orders_auto_sync(data),
     }
     if include_credentials:
@@ -189,9 +168,13 @@ async def check(tenant_id: str) -> Dict[str, Any]:
 
 
 async def run_sync_products(tenant_id: str, actor: str) -> Dict[str, Any]:
-    await _require_sale_api(tenant_id)
     summary = await product_sync.sync_products(tenant_id, actor)
     return {"status": "ok", "type": "sync_products", "summary": summary}
+
+
+async def run_sync_stock(tenant_id: str, actor: str) -> Dict[str, Any]:
+    summary = await stock_sync.sync_erp_stock(tenant_id, actor)
+    return {"status": "ok", "type": "sync_stock", "summary": summary}
 
 
 async def run_sync_orders(tenant_id: str, actor: str) -> Dict[str, Any]:

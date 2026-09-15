@@ -22,7 +22,8 @@ class ERPConnector(ABC):
         ...
 
     @abstractmethod
-    async def get_product_by_barcode(self, barcode: str) -> Optional[Dict[str, Any]]:
+    async def get_stock_levels(self) -> List[Dict[str, Any]]:
+        """Stock per product and warehouse as the ERP sees it."""
         ...
 
     @abstractmethod
