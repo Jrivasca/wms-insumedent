@@ -20,6 +20,9 @@ class NotificationType(str, Enum):
     # Entró stock que permite completar pedidos que quedaron parciales (levantamiento
     # de alertas, Req. 1): el operario los retoma sin esperar aviso del jefe.
     RECEIPT_UNBLOCKS_ORDER = "receipt_unblocks_order"
+    # Un pedido importado de Defontana se anuló / cerró / despachó allá: se canceló solo en
+    # el WMS o, si ya estaba en preparación, requiere revisión de un supervisor.
+    ERP_ORDER_CHANGED = "erp_order_changed"
 
 
 # Which roles receive each event. ``admin`` and ``supervisor`` always see
@@ -33,4 +36,5 @@ NOTIFICATION_AUDIENCE = {
     NotificationType.CATALOG_IMPORT.value: {"admin", "supervisor"},
     NotificationType.STOCK_EXPIRING.value: {"admin", "supervisor"},
     NotificationType.RECEIPT_UNBLOCKS_ORDER.value: {"admin", "supervisor", "picker", "packer"},
+    NotificationType.ERP_ORDER_CHANGED.value: {"admin", "supervisor"},
 }

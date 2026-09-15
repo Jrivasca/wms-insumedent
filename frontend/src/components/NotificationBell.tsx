@@ -16,6 +16,7 @@ const TYPE_ICON: Record<string, string> = {
   order_dispatched: '🚚',
   stock_zero: '⚠️',
   receipt_unblocks_order: '📥',
+  erp_order_changed: '🔄',
 };
 
 function timeAgo(iso: string): string {

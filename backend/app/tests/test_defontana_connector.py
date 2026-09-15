@@ -130,7 +130,8 @@ async def test_order_sync_imports_only_orders_in_dispatch_with_their_lines(monke
     tenant_id = await _tenant()
     summary = await order_sync.sync_orders(tenant_id, "2026-09-01", "2026-09-16")
 
-    assert summary == {"listed": 2, "synced": 1, "skipped_not_pending": 1, "created": 1, "updated": 0}
+    assert summary == {"listed": 2, "synced": 1, "skipped_not_pending": 1, "created": 1, "updated": 0,
+                       "cancelled": 0, "flagged": 0}
     list_call = calls[0]
     assert list_call[2]["PageNumber"] == 0 and list_call[2]["FromDate"] == "2026-09-01"
     order = await tenant_db(tenant_id)[Collections.ORDERS].find_one({"erp_order_number": "5001"})

@@ -23,6 +23,16 @@ def _yes(value: Any, default: bool = True) -> bool:
     return bool(value)
 
 
+# Estados de cierre de un pedido (confirmados por soporte Defontana, 2026-09-15).
+_WITHDRAWN_ORDER_CODES = {
+    "N": "anulado",
+    "M": "cerrado manualmente",
+    "RC": "rechazado comercialmente",
+    "RF": "rechazado financieramente",
+}
+_APPROVAL_ORDER_CODES = {"P", "A", "AC", "AF"}
+
+
 class DefontanaMapper:
     @staticmethod
     def order_status_code(status: Optional[str]) -> str:
@@ -35,6 +45,23 @@ class DefontanaMapper:
         prepara), ``D`` = ya despachado. La 2ª es facturación y la 3ª prestación."""
         code = DefontanaMapper.order_status_code(status)
         return code[:1] == "E"
+
+    @staticmethod
+    def order_no_longer_pending_reason(status: Optional[str]) -> Optional[str]:
+        """Motivo por el que un pedido ya NO debe prepararse en el WMS, o ``None`` si sigue
+        pendiente de guía (``E..``) o si el estado viene vacío (no se actúa a ciegas)."""
+        code = DefontanaMapper.order_status_code(status)
+        if not code or code[:1] == "E":
+            return None
+        if code in _WITHDRAWN_ORDER_CODES:
+            return f"Pedido {_WITHDRAWN_ORDER_CODES[code]} en Defontana ({code})"
+        if code[:1] == "D":
+            return f"Guía de despacho ya emitida en Defontana ({code})"
+        if code[:1] == "X":
+            return f"Pedido sin despacho pendiente en Defontana ({code})"
+        if code in _APPROVAL_ORDER_CODES:
+            return f"Pedido volvió a aprobación en Defontana ({code})"
+        return f"Pedido sin despacho pendiente en Defontana ({code})"
 
     @staticmethod
     def map_product(raw: Dict[str, Any]) -> Dict[str, Any]:

@@ -171,6 +171,11 @@ export interface Order {
   order_date?: string;
   delivery_date?: string;
   lines: OrderLine[];
+  /** Estado del pedido en Defontana (p. ej. "EEX (EN_DESPACHO_EN_FACTURACION)"). */
+  erp_status?: string | null;
+  /** Cambió en Defontana mientras estaba en preparación: requiere revisión. */
+  erp_attention?: { reason: string; erp_status?: string; detected_at?: string } | null;
+  cancel_reason?: string | null;
 }
 
 /** Línea corta de un pedido parcial cuyo faltante ya está cubierto por stock. */

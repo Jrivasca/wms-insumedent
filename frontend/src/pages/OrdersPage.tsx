@@ -38,6 +38,16 @@ function PartialPill({ order }: { order: Order }) {
   );
 }
 
+/** El pedido cambió en Defontana (anulado, cerrado, guía emitida allá…) estando en preparación. */
+function ErpChangedPill({ order }: { order: Order }) {
+  if (!order.erp_attention) return null;
+  return (
+    <span className="badge bg-amber-100 text-amber-800" title={order.erp_attention.reason}>
+      Cambió en Defontana
+    </span>
+  );
+}
+
 export default function OrdersPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -340,6 +350,7 @@ export default function OrdersPage() {
                         <div className="flex flex-wrap items-center gap-1">
                           <StatusBadge status={o.status} />
                           <PartialPill order={o} />
+                          <ErpChangedPill order={o} />
                         </div>
                       </td>
                       <td>
@@ -382,7 +393,20 @@ export default function OrdersPage() {
               <div className="mb-3 text-xs text-slate-500">
                 {selected.order_date && <span>Fecha: {selected.order_date} </span>}
                 {selected.delivery_date && <span>· Entrega: {selected.delivery_date}</span>}
+                {selected.erp_status && <span> · Defontana: {selected.erp_status}</span>}
               </div>
+
+              {selected.erp_attention && (
+                <div className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {selected.erp_attention.reason}. El pedido ya está en preparación: revisa si hay
+                  que retrocederlo.
+                </div>
+              )}
+              {selected.status === 'cancelled' && selected.cancel_reason && (
+                <div className="mb-3 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                  Cancelado: {selected.cancel_reason}
+                </div>
+              )}
 
               <table className="table w-full">
                 <thead>
