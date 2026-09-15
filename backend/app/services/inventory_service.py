@@ -14,6 +14,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
+from app.integrations.defontana.mapper import DefontanaMapper
+from app.integrations.defontana.schedule import local_now
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.notification import NotificationType
@@ -366,7 +368,10 @@ async def create_reception(
     )
 
     job = None
-    if sync_erp and settings.erp_sync_enabled:
+    # Recepción → Defontana (Inventory/Insert). Doble llave: el push al ERP en general y el
+    # de recepciones en particular, cuyos valores (tipo de documento, motivo, centro de
+    # negocio) siguen pendientes de confirmar con Defontana.
+    if sync_erp and settings.erp_sync_enabled and settings.defontana_reception_sync_enabled:
         db = tenant_db(tenant_id)
         product = await db[Collections.PRODUCTS].find_one(
             {"_id": to_object_id(product_id), "tenant_id": tenant_id}
@@ -374,19 +379,25 @@ async def create_reception(
         warehouse = await db[Collections.WAREHOUSES].find_one(
             {"_id": to_object_id(warehouse_id), "tenant_id": tenant_id}
         )
-        payload = {
-            "externalDocumentID": f"WMS-REC-{movement['_id']}",
-            "storageCode": (warehouse or {}).get("erp_storage_code"),
-            "type": "entrada",
-            "detail": [
-                {
-                    "code": (product or {}).get("sku"),
-                    "quantity": quantity,
-                    "lotNumber": lot_number,
-                    "serialNumber": serial_number,
-                }
-            ],
-        }
+        payload = DefontanaMapper.build_inventory_entry(
+            external_document_id=f"WMS-REC-{movement['_id']}",
+            document_type=settings.defontana_reception_document_type,
+            reason_id=settings.defontana_reception_reason_id,
+            business_center=settings.defontana_business_center,
+            centralizable=settings.defontana_reception_centralizable,
+            storage_code=(warehouse or {}).get("erp_storage_code"),
+            movement_date=local_now().date(),
+            gloss=f"Recepción WMS {reference}".strip() if reference else "Recepción WMS",
+            lines=[{
+                "code": (product or {}).get("sku"),
+                "description": (product or {}).get("name"),
+                "count": quantity,
+                "price": (product or {}).get("cost") or 0,
+                "lot_number": lot_number,
+                "expiration_date": expiration_date,
+                "serial_number": serial_number,
+            }],
+        )
         job = await sync_job_service.enqueue(
             tenant_id=tenant_id,
             job_type=SyncJobType.CREATE_INVENTORY_DOCUMENT.value,

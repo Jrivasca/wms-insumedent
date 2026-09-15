@@ -3,6 +3,7 @@
 Campos reales (camelCase) verificados contra la API de pruebas. Defontana marca los
 indicadores de maestro como ``"S"``/``"N"``.
 """
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 
@@ -117,6 +118,75 @@ class DefontanaMapper:
             "delivery_date": order.get("expirationDate"),
             "lines": lines,
             "raw_erp_data": {"header": header, "order": order},
+        }
+
+    @staticmethod
+    def build_inventory_entry(
+        *,
+        external_document_id: str,
+        document_type: str,
+        reason_id: str,
+        business_center: str,
+        centralizable: bool,
+        storage_code: Optional[str],
+        movement_date: date,
+        gloss: str,
+        lines: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Payload de ``Inventory/Insert`` para una ENTRADA de mercadería.
+
+        Estructura verificada en el ambiente de pruebas (documento grabado, encontrado por
+        ``externalDocumentID`` y eliminado): el centro de negocio va en el análisis de la
+        cabecera y de cada línea, y cliente/proveedor/bodega de origen van nulos. Cada
+        línea: ``code``, ``count``, ``price`` y opcionalmente ``description``,
+        ``lot_number``, ``expiration_date`` y ``serial_number``.
+        """
+
+        def analysis() -> Dict[str, Any]:
+            return {
+                "againstEBusinessCenter": business_center, "againstEFile": "",
+                "againstEFileFieldName": "", "businessCenter": business_center,
+                "clasifier1": "", "clasifier2": "", "file": "", "fileFieldName": "",
+            }
+
+        details = []
+        for line in lines:
+            count = _qty(line["count"])
+            lot = line.get("lot_number")
+            expiration = line.get("expiration_date")
+            details.append({
+                "articleId": line["code"],
+                "description": line.get("description") or "",
+                "count": count,
+                "coinId": "PESO",
+                "comment": "",
+                "price": line.get("price") or 0,
+                "serials": [line["serial_number"]] if line.get("serial_number") else [],
+                "lotes": [{
+                    "batchNumber": lot,
+                    "amount": count,
+                    "expirationDate": f"{expiration:%Y-%m-%d}T00:00:00" if expiration else None,
+                }] if lot else [],
+                "analysis": analysis(),
+            })
+        return {
+            "folio": 0,  # 0 = correlativo del ERP
+            "documentTypeId": document_type,
+            "fiscalYear": str(movement_date.year),
+            "clientId": None,
+            "providerId": None,
+            "gloss": gloss,
+            "originStowageId": None,
+            "destinationStowageId": storage_code,
+            "reasonId": reason_id,
+            "total": sum(d["count"] * d["price"] for d in details),
+            "isCentralizable": centralizable,
+            "analysis": analysis(),
+            "referenceDocumentFolio": 0,
+            "referenceDocumentType": None,
+            "date": f"{movement_date:%Y-%m-%d}T00:00:00",
+            "externalDocumentID": external_document_id,
+            "details": details,
         }
 
     @staticmethod

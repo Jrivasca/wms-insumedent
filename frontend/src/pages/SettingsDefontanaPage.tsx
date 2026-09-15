@@ -160,16 +160,48 @@ export default function SettingsDefontanaPage() {
           <button onClick={handleCheck} className="btn-secondary" disabled={busy === 'check'}>
             {busy === 'check' ? 'Verificando…' : 'Verificar conexión'}
           </button>
-          <button onClick={() => runSync('products')} className="btn-primary" disabled={busy === 'products'}>
-            {busy === 'products' ? '…' : 'Sync productos'}
-          </button>
-          <button onClick={() => runSync('warehouses')} className="btn-primary" disabled={busy === 'warehouses'}>
-            {busy === 'warehouses' ? '…' : 'Sync bodegas'}
-          </button>
+          {/* Productos y bodegas usan Sale/* (Ventas, no contratado): solo en pruebas. */}
+          {status?.sale_api_available !== false && (
+            <>
+              <button onClick={() => runSync('products')} className="btn-primary" disabled={busy === 'products'}>
+                {busy === 'products' ? '…' : 'Sync productos'}
+              </button>
+              <button onClick={() => runSync('warehouses')} className="btn-primary" disabled={busy === 'warehouses'}>
+                {busy === 'warehouses' ? '…' : 'Sync bodegas'}
+              </button>
+            </>
+          )}
           <button onClick={() => runSync('orders')} className="btn-primary" disabled={busy === 'orders'}>
             {busy === 'orders' ? '…' : 'Sync pedidos'}
           </button>
         </div>
+        {status?.sale_api_available === false && (
+          <p className="mt-2 text-xs text-slate-500">
+            Productos y bodegas no se sincronizan por API (Ventas no está contratado): usa el
+            importador de Excel y el mantenedor de bodegas.
+          </p>
+        )}
+        {status?.orders_auto_sync && (
+          <p className="mt-2 text-xs text-slate-500">
+            Sincronización automática de pedidos:{' '}
+            {status.orders_auto_sync.enabled
+              ? `cada ${status.orders_auto_sync.interval_minutes} min, ${status.orders_auto_sync.hours}${
+                  status.orders_auto_sync.weekdays_only ? ' (lunes a viernes)' : ''
+                }`
+              : 'desactivada (DEFONTANA_ORDERS_SYNC_ENABLED)'}
+            {status.orders_auto_sync.last_run_at &&
+              ` · última: ${new Date(status.orders_auto_sync.last_run_at).toLocaleString()}`}
+            {status.orders_auto_sync.last_summary &&
+              ` · ${status.orders_auto_sync.last_summary.created ?? 0} nuevos, ${
+                status.orders_auto_sync.last_summary.cancelled ?? 0
+              } cancelados, ${status.orders_auto_sync.last_summary.flagged ?? 0} por revisar`}
+          </p>
+        )}
+        {status?.orders_auto_sync?.last_error && (
+          <p className="mt-1 text-xs text-red-600">
+            Error en la última sincronización automática: {status.orders_auto_sync.last_error}
+          </p>
+        )}
       </div>
 
       <form onSubmit={handleConfigure} className="card grid grid-cols-1 gap-3 md:grid-cols-2">

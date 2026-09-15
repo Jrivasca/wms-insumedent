@@ -352,6 +352,17 @@ export interface DefontanaStatus {
   environment?: string;
   auth_mode?: string;
   base_url?: string;
+  /** Ventas (Sale/*) no contratado: sync de productos/bodegas por API solo en pruebas. */
+  sale_api_available?: boolean;
+  orders_auto_sync?: {
+    enabled: boolean;
+    interval_minutes: number;
+    hours: string;
+    weekdays_only: boolean;
+    last_run_at?: string | null;
+    last_summary?: Record<string, number> | null;
+    last_error?: string | null;
+  };
   mock?: boolean;
   last_check_at?: string;
   last_error?: string;

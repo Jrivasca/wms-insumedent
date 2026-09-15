@@ -104,8 +104,16 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 - **Flujo 2 — Recepción → `Inventory/Insert`** *(estructura probada en pruebas; faltan
   definiciones)*. Funcionó con motivo `COMPRA` y centro de negocio `EMPNEGVTAVTA000`. Pendiente
   confirmar tipo de documento (`PE` / `MOV001` / `XAJ_ENT_UN`, impacto contable), motivo,
-  centro de negocio y si va el RUT del proveedor. El payload que arma hoy el WMS
-  (`inventory_service.create_reception`) aún NO tiene el formato real.
+  centro de negocio y si va el RUT del proveedor. El WMS ya arma el payload real
+  (`DefontanaMapper.build_inventory_entry`, con lotes y vencimiento; probado en pruebas con
+  precio 0), pero el envío está **apagado** hasta confirmar valores:
+  `DEFONTANA_RECEPTION_SYNC_ENABLED` + `DEFONTANA_RECEPTION_DOCUMENT_TYPE` /
+  `_REASON_ID` / `DEFONTANA_BUSINESS_CENTER` / `_CENTRALIZABLE`.
+- **Sync automático de pedidos** *(listo, apagado por defecto)*. Tarea del worker
+  (`orders_watch`): cada `DEFONTANA_ORDERS_SYNC_INTERVAL_MINUTES` dentro de
+  `DEFONTANA_ORDERS_SYNC_HOURS` (hora de `DEFONTANA_TIMEZONE`, días hábiles), por empresa
+  conectada; la pantalla de Defontana muestra la última corrida. Activar con
+  `DEFONTANA_ORDERS_SYNC_ENABLED=true`.
 - **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(pendiente de valores)*. Falta el
   mapeo de `dispatchInfo` (tipo de bien `1` "Constituye una venta", tipo de despacho `1` "Por
   cuenta del cliente") y `originStorageInfo.motive`.
@@ -132,8 +140,9 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 
   El paso 4 (`UpdateOrder`) queda descartado para pedidos aprobados; el tramo hacia Defontana
   depende de la alternativa que se elija.
-- **Botones "Sync productos" y "Sync bodegas"**: usan `Sale/*` (no contratado); fallarán en
-  producción. Ocultarlos fuera del ambiente de pruebas.
+- **Botones "Sync productos" y "Sync bodegas"** *(hecho)*: usan `Sale/*` (no contratado). Fuera
+  del ambiente de pruebas el backend los rechaza y la pantalla los oculta, salvo
+  `DEFONTANA_SALE_API_ENABLED=true`.
 
 ---
 

@@ -195,11 +195,15 @@ async def run_forever() -> None:
 
 
 async def _run_all() -> None:
-    """Run the ERP sync-job drain, the folder-watch intake and the near-expiry watch."""
-    from app.workers import expiry_watch, folder_intake
+    """Run the ERP sync-job drain, the folder-watch intake, the near-expiry watch and the
+    Defontana orders auto-sync (off unless DEFONTANA_ORDERS_SYNC_ENABLED)."""
+    from app.workers import expiry_watch, folder_intake, orders_watch
 
     await asyncio.gather(
-        run_forever(), folder_intake.run_forever(), expiry_watch.run_forever()
+        run_forever(),
+        folder_intake.run_forever(),
+        expiry_watch.run_forever(),
+        orders_watch.run_forever(),
     )
 
 

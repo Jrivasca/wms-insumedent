@@ -34,6 +34,24 @@ class Settings(BaseSettings):
     defontana_prod_base_url: str = "https://api.defontana.com/api"
     # Días hacia atrás para traer pedidos EN DESPACHO desde Defontana (Order/List).
     defontana_orders_window_days: int = 90
+    # Sincronización automática de pedidos (worker). Apagada por defecto. Corre cada
+    # N minutos dentro del horario "HH:MM-HH:MM" (hora de ``defontana_timezone``).
+    defontana_orders_sync_enabled: bool = False
+    defontana_orders_sync_interval_minutes: int = 15
+    defontana_orders_sync_hours: str = "08:00-19:00"
+    defontana_orders_sync_weekdays_only: bool = True
+    defontana_timezone: str = "America/Santiago"
+    # Ventas (Sale/*: productos, bodegas) no está contratado: esos sync por API solo se
+    # permiten en el ambiente de pruebas, salvo que se active este flag.
+    defontana_sale_api_enabled: bool = False
+    # Recepción → Inventory/Insert. Estructura probada en pruebas; los valores (tipo de
+    # documento, motivo, centro de negocio) están PENDIENTES de confirmar con Defontana,
+    # por eso el envío tiene su propio flag además de ``erp_sync_enabled``.
+    defontana_reception_sync_enabled: bool = False
+    defontana_reception_document_type: str = "MOV001"
+    defontana_reception_reason_id: str = "COMPRA"
+    defontana_business_center: str = "EMPNEGVTAVTA000"
+    defontana_reception_centralizable: bool = False
 
     # Push de altas hacia el ERP (crear producto / pedido / documento de entrada).
     # En operación stand-alone (sin Defontana) va en false: el WMS opera solo y no
