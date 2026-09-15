@@ -226,6 +226,13 @@ class DefontanaConnector(ERPConnector):
                 "/Inventory/GetDocumentByExternalDocumentID",
                 params={"externalDocumentID": external_document_id},
             )
+        except DefontanaApiError as exc:
+            # Inexistente = HTTP 200 + success=false "No existe un documento con el ID
+            # externo …" (verificado en pruebas). Cualquier otro error sí se propaga, para
+            # no insertar a ciegas un posible duplicado.
+            if "no existe" in str(exc).lower():
+                return None
+            raise
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 return None

@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     defontana_env: str = "test"
     defontana_test_base_url: str = "https://replapi.defontana.com/api"
     defontana_prod_base_url: str = "https://api.defontana.com/api"
+    # Días hacia atrás para traer pedidos EN DESPACHO desde Defontana (Order/List).
+    defontana_orders_window_days: int = 90
 
     # Push de altas hacia el ERP (crear producto / pedido / documento de entrada).
     # En operación stand-alone (sin Defontana) va en false: el WMS opera solo y no

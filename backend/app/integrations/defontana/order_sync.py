@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
+from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc
 from app.models import Collections
@@ -9,9 +10,6 @@ from app.models.order import OrderLineStatus, OrderStatus
 from app.services import notification_service
 from app.integrations.defontana.client import DefontanaConnector
 from app.integrations.defontana.mapper import DefontanaMapper
-
-# Ventana por defecto: los pedidos en despacho son recientes; no recorrer años de historia.
-DEFAULT_WINDOW_DAYS = 30
 
 
 async def _resolve_product_id(tenant_id: str, sku: Optional[str]) -> Optional[str]:
@@ -30,11 +28,13 @@ async def sync_orders(
 ) -> Dict[str, Any]:
     """Importa los pedidos EN DESPACHO de Defontana (los ya despachados se ignoran: el
     WMS no tiene nada que preparar). ``Order/List`` solo trae encabezados, así que el
-    detalle de cada pedido pendiente se lee con ``Order/Get``."""
+    detalle de cada pedido pendiente se lee con ``Order/Get``. Sin fechas, la ventana es
+    ``DEFONTANA_ORDERS_WINDOW_DAYS`` hacia atrás (90 por defecto)."""
     db = tenant_db(tenant_id)
     connector = DefontanaConnector(tenant_id)
     today = date.today()
-    from_date = from_date or (today - timedelta(days=DEFAULT_WINDOW_DAYS)).isoformat()
+    window = timedelta(days=settings.defontana_orders_window_days)
+    from_date = from_date or (today - window).isoformat()
     to_date = to_date or (today + timedelta(days=1)).isoformat()
 
     headers = await connector.get_orders(from_date, to_date)

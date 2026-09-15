@@ -141,6 +141,28 @@ async def test_order_sync_imports_only_orders_in_dispatch_with_their_lines(monke
     assert not await tenant_db(tenant_id)[Collections.ORDERS].find_one({"erp_order_number": "5000"})
 
 
+async def test_order_sync_default_window_comes_from_settings(monkeypatch):
+    from datetime import date, timedelta
+
+    monkeypatch.setattr(settings, "defontana_orders_window_days", 7)
+    calls = _fake_api(monkeypatch, lambda m, p, params, j: {"success": True, "items": []})
+    await order_sync.sync_orders(await _tenant())
+    assert calls[0][2]["FromDate"] == (date.today() - timedelta(days=7)).isoformat()
+
+
+async def test_external_document_not_found_is_none_but_other_errors_raise(monkeypatch):
+    def handler(method, path, params, json):
+        if params["externalDocumentID"] == "WMS-NUEVO":
+            return _check_envelope({"success": False, "message": "No existe un documento con el ID externo WMS-NUEVO"}, path)
+        return _check_envelope({"success": False, "message": "Token inválido"}, path)
+
+    _fake_api(monkeypatch, handler)
+    connector = DefontanaConnector(await _tenant())
+    assert await connector.get_inventory_document_by_external_id("WMS-NUEVO") is None
+    with pytest.raises(DefontanaApiError):
+        await connector.get_inventory_document_by_external_id("WMS-OTRO")
+
+
 async def test_barcode_lookup_posts_code_list(monkeypatch):
     product = {"code": "0004357", "name": "KIT", "active": "S"}
     calls = _fake_api(monkeypatch, lambda m, p, params, j: _envelope("productList", [product]))
