@@ -12,6 +12,75 @@ las APIs que se decide no contratar.
 
 ---
 
+## Actualización v3 (2026-09-15) — contratación confirmada y prueba con credenciales reales
+
+**APIs contratadas** (empresa `20210930182429072002`): **Guías de Despacho, Inventario y
+Pedidos**. **Ventas (`Sale/*`) no se contrató.**
+
+Consecuencias:
+- `Sale/GetStorages`, `Sale/GetSimpleProducts` y `Sale/GetProductsPOSByBarCode` responden en
+  el ambiente de pruebas pero **no estarán disponibles en producción**. Los productos siguen
+  por el importador de Excel y las bodegas por el mantenedor; los botones "Sync productos" y
+  "Sync bodegas" solo sirven en pruebas.
+- Pedidos sí: lectura (`Order/List` + `Order/Get`) y despacho (`Order/DispatchOrder`).
+
+### Hallazgos verificados contra `replapi.defontana.com` (ya corregidos en el conector)
+
+| Tema | Lo que suponía el conector | Lo real |
+|---|---|---|
+| Respuestas | Lista directa, campos PascalCase | Sobre `{success, message, exceptionMessage}` con la lista en `storageList` / `productList` / `items`; campos camelCase; `success=false` con HTTP 200 es un error |
+| Paginación | Sin parámetros | Obligatoria: `GetStorages` / `GetSimpleProducts` desde página 1; `Order/List` con `PageNumber` desde 0 |
+| Pedidos | `Order/List` con líneas | `Order/List` trae solo número, fecha, cliente y estado; las líneas vienen en `Order/Get` (`orderData.details`) |
+| Estado del pedido | — | Código de 3 letras: 1ª = despacho (`E` en despacho, `D` despachado), 2ª = facturación, 3ª = prestación. El WMS importa solo `E..` en una ventana de `DEFONTANA_ORDERS_WINDOW_DAYS` (90 días por defecto) |
+| Idempotencia | 404 si no existe | `GetDocumentByExternalDocumentID` responde HTTP 200 + `success=false` "No existe un documento con el ID externo …" |
+| Token | 50 min fijos | `/api/Auth` entrega `expires_in` |
+| `Inventory/Insert` | `PUT` | `POST` (la wiki dice PUT y está desactualizada; manda el Swagger) |
+
+Prueba de lectura real en local: 2 bodegas, 3.044 productos activos, 29 pedidos en despacho
+(90 días) con 877 de 878 líneas enlazadas a productos del maestro.
+
+**Ojo con la copia de pruebas:** está desactualizada (último pedido del 2026-08-06, pese a que
+Defontana dice que se refresca semanalmente) y tiene 116 pedidos "en despacho" en 180 días,
+algunos desde marzo, que probablemente quedaron abiertos en el ERP.
+
+### Escrituras: bloqueadas por datos de configuración de la empresa
+
+- **`Inventory/Insert`**: según la wiki (Chile) toda la cabecera es obligatoria — `folio` (0 =
+  correlativo), `documentTypeId`, `fiscalYear`, `clientId` y `providerId` (RUT), `gloss`,
+  `originStowageId` / `destinationStowageId` (código de bodega), `reasonId` (motivo), `total`,
+  `isCentralizable`, `analysis` (centro de negocio, clasificadores, ficha) y `date`; en el detalle
+  `articleId`, `count`, `price` y lotes/series. Seis intentos de prueba (`MOV001` y `XAJ_ENT_UN`,
+  por `Insert` e `InsertSkipCentralization`) fallaron en el servidor ("Object reference not set to
+  an instance of an object" / "An error occurred while saving the entity changes") **sin crear
+  documentos**. Faltan valores que la API no expone: códigos de **motivo**, qué **RUT** usar como
+  proveedor/cliente en un movimiento interno, y si la empresa exige **centro de negocio /
+  clasificadores** en inventario.
+- **`Order/DispatchOrder`**: la wiki muestra la estructura pero no los valores válidos de
+  `dispatchInfo.assetsType` / `dispatchType` / `transactionType` ni de `originStorageInfo.motive`.
+  No se emitió guía de prueba (consume folio).
+
+Tipos de movimiento de inventario de la empresa (`Inventory/GetTypeInventoryInfo`), los
+candidatos para las recepciones del WMS:
+
+| Código | Nombre | Centralización contable |
+|---|---|---|
+| `PE` | Parte de entrada | (sin dato en la API) |
+| `MOV001` | Movimiento de inventario entrada | Sí (`INV_MOV001`) |
+| `XAJ_ENT_UN` | Ajuste entrada unidades | No ("Sin Centralización") |
+| `GDVELECT` | 52 Guía de Despacho Electrónica | Sí (`INV_GDVELECT`) |
+
+### Preguntas a Defontana (reemplazan las del §9)
+
+1. Un **payload válido de ejemplo** de `Inventory/Insert` para una entrada de mercadería en
+   `BODEGACENTRAL`: motivo, RUT de proveedor/cliente y análisis obligatorios para esta empresa.
+2. Qué **tipo de documento** corresponde a la recepción de mercadería desde el WMS: `PE`,
+   `MOV001` o `XAJ_ENT_UN` (impacto contable: centraliza o no).
+3. Valores de `dispatchInfo` (`assetsType`, `dispatchType`, `transactionType`) y `motive` para
+   emitir guía electrónica con `Order/DispatchOrder`.
+4. Por qué la copia de pruebas no se actualiza desde el 2026-08-06.
+
+---
+
 ## Actualización v2 (2026-08-13) — modelo "por archivos" ya implementado
 
 Tras revisar el Swagger y decidir minimizar APIs con automatizaciones por archivos, se
