@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
 from app.core.tenant_db import tenant_db
@@ -8,6 +9,9 @@ from app.models.order import OrderLineStatus, OrderStatus
 from app.services import notification_service
 from app.integrations.defontana.client import DefontanaConnector
 from app.integrations.defontana.mapper import DefontanaMapper
+
+# Ventana por defecto: los pedidos en despacho son recientes; no recorrer años de historia.
+DEFAULT_WINDOW_DAYS = 30
 
 
 async def _resolve_product_id(tenant_id: str, sku: Optional[str]) -> Optional[str]:
@@ -20,19 +24,30 @@ async def _resolve_product_id(tenant_id: str, sku: Optional[str]) -> Optional[st
 
 async def sync_orders(
     tenant_id: str,
-    from_date: str = "2020-01-01",
-    to_date: str = "2999-12-31",
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     actor: str = "system",
 ) -> Dict[str, Any]:
+    """Importa los pedidos EN DESPACHO de Defontana (los ya despachados se ignoran: el
+    WMS no tiene nada que preparar). ``Order/List`` solo trae encabezados, así que el
+    detalle de cada pedido pendiente se lee con ``Order/Get``."""
     db = tenant_db(tenant_id)
     connector = DefontanaConnector(tenant_id)
-    raw_orders = await connector.get_orders(from_date, to_date)
+    today = date.today()
+    from_date = from_date or (today - timedelta(days=DEFAULT_WINDOW_DAYS)).isoformat()
+    to_date = to_date or (today + timedelta(days=1)).isoformat()
+
+    headers = await connector.get_orders(from_date, to_date)
+    pending = [h for h in headers if DefontanaMapper.is_pending_dispatch(h.get("status"))]
 
     created = updated = 0
     now = now_utc()
 
-    for raw in raw_orders:
-        mapped = DefontanaMapper.map_order(raw)
+    for header in pending:
+        order = await connector.get_order(header.get("number"))
+        if not order:
+            continue
+        mapped = DefontanaMapper.map_order(header, order)
 
         lines = []
         for idx, line in enumerate(mapped["lines"], start=1):
@@ -58,6 +73,7 @@ async def sync_orders(
             "tenant_id": tenant_id,
             "erp_order_number": mapped["erp_order_number"],
             "erp_document_id": mapped.get("erp_document_id"),
+            "erp_status": mapped.get("erp_status"),
             "customer": mapped.get("customer"),
             "order_date": mapped.get("order_date"),
             "delivery_date": mapped.get("delivery_date"),
@@ -93,4 +109,10 @@ async def sync_orders(
                 metadata={"erp_order_number": mapped["erp_order_number"], "source": "defontana"},
             )
 
-    return {"synced": len(raw_orders), "created": created, "updated": updated}
+    return {
+        "listed": len(headers),
+        "synced": len(pending),
+        "skipped_not_pending": len(headers) - len(pending),
+        "created": created,
+        "updated": updated,
+    }

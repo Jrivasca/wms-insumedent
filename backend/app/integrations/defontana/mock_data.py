@@ -1,100 +1,100 @@
 """Simulated Defontana payloads used when DEFONTANA_MOCK=true.
 
-These mimic the shape of Defontana's responses closely enough for the WMS mapper
-to exercise the real sync path without any network call.
+Mirror the real API shapes (camelCase, "S"/"N" flags), as verified against
+replapi.defontana.com, so the mock exercises the same mapper and sync path as the
+real connector without any network call.
 """
 
-# Dental products (subset of the real INSUMEDENT catalog). Barcodes match the
-# seed (app/data/demo_catalog.json) so a mock sync stays consistent with what the
-# demo already has loaded.
+# Dental products (subset of the real INSUMEDENT catalog), as returned inside
+# ``Sale/GetSimpleProducts.productList``.
 _ANEST_DESC = "Agente/insumo anestésico para procedimientos dentales sin dolor."
 
+
+def _product(code: str, name: str) -> dict:
+    return {
+        "active": "S",
+        "code": code,
+        "externalCode": None,
+        "internalCode": None,
+        "name": name,
+        "detailedDescription": _ANEST_DESC,
+        "coinID": "PESO",
+        "sellPrice": 0.0,
+        "stock": 0.0,
+        "type": "A",
+        "unit": "UN",
+        "usesLotes": False,
+        "usesSeries": False,
+    }
+
+
 MOCK_PRODUCTS = [
-    {
-        "Id": "ERP-ANES008",
-        "Code": "ANES008",
-        "Name": "ANESTESIA ALPHACAINE 2%",
-        "Description": _ANEST_DESC,
-        "Unit": "UN",
-        "Brand": "",
-        "Family": "Anestesia",
-        "BarCode": "2000000000013",
-        "IsService": False,
-        "UseLot": False,
-        "UseSerial": False,
-    },
-    {
-        "Id": "ERP-ANES012",
-        "Code": "ANES012",
-        "Name": "ANESTESIA ARTICAINE 4% DFL",
-        "Description": _ANEST_DESC,
-        "Unit": "UN",
-        "Brand": "",
-        "Family": "Anestesia",
-        "BarCode": "2000000000022",
-        "IsService": False,
-        "UseLot": False,
-        "UseSerial": False,
-    },
-    {
-        "Id": "ERP-ANES002",
-        "Code": "ANES002",
-        "Name": "ANESTESIA ISOCAINE 3%",
-        "Description": _ANEST_DESC,
-        "Unit": "UN",
-        "Brand": "",
-        "Family": "Anestesia",
-        "BarCode": "2000000000031",
-        "IsService": False,
-        "UseLot": False,
-        "UseSerial": False,
-    },
-    {
-        "Id": "ERP-ANES016",
-        "Code": "ANES016",
-        "Name": "ANESTESIA MEPIADRE MEPIVACAINA AL 2% DFL",
-        "Description": _ANEST_DESC,
-        "Unit": "UN",
-        "Brand": "",
-        "Family": "Anestesia",
-        "BarCode": "2000000000040",
-        "IsService": False,
-        "UseLot": False,
-        "UseSerial": False,
-    },
-    {
-        "Id": "ERP-ANES009",
-        "Code": "ANES009",
-        "Name": "ANESTESIA MEPISV 3%",
-        "Description": _ANEST_DESC,
-        "Unit": "UN",
-        "Brand": "",
-        "Family": "Anestesia",
-        "BarCode": "2000000000059",
-        "IsService": False,
-        "UseLot": False,
-        "UseSerial": False,
-    },
+    _product("ANES008", "ANESTESIA ALPHACAINE 2%"),
+    _product("ANES012", "ANESTESIA ARTICAINE 4% DFL"),
+    _product("ANES002", "ANESTESIA ISOCAINE 3%"),
+    _product("ANES016", "ANESTESIA MEPIADRE MEPIVACAINA AL 2% DFL"),
+    _product("ANES009", "ANESTESIA MEPISV 3%"),
 ]
 
+# Barcode → product code for the mock barcode lookup. Match the seed
+# (app/data/demo_catalog.json) so the mock stays consistent with the demo data.
+MOCK_BARCODES = {
+    "2000000000013": "ANES008",
+    "2000000000022": "ANES012",
+    "2000000000031": "ANES002",
+    "2000000000040": "ANES016",
+    "2000000000059": "ANES009",
+}
+
+# ``Sale/GetStorages.storageList``
 MOCK_STORAGES = [
-    {"Code": "01", "Name": "BODEGA CENTRAL", "SaleAvailable": True},
-    {"Code": "02", "Name": "BODEGA SECUNDARIA", "SaleAvailable": True},
+    {"code": "01", "description": "BODEGA CENTRAL", "saleAvailable": "S", "active": "S"},
+    {"code": "02", "description": "BODEGA SECUNDARIA", "saleAvailable": "S", "active": "S"},
 ]
 
+# ``Order/List.items``: only headers. One order still in dispatch (imported) and one
+# already dispatched (ignored by the sync).
 MOCK_ORDERS = [
     {
-        "Number": 1001,
-        "DocumentId": "DOC-1001",
-        "Client": {"Name": "Clínica Dental Demo SPA"},
-        "Date": "2026-06-29",
-        "DeliveryDate": "2026-07-02",
-        "Detail": [
-            {"Code": "ANES008", "Name": "ANESTESIA ALPHACAINE 2%", "Unit": "UN", "Quantity": 5},
-            {"Code": "ANES012", "Name": "ANESTESIA ARTICAINE 4% DFL", "Unit": "UN", "Quantity": 3},
-        ],
-    }
+        "number": 1001,
+        "creationDate": "2026-06-29T00:00:00",
+        "clientFileId": "76123456-7",
+        "status": "EEX (EN_DESPACHO_EN_FACTURACION)",
+    },
+    {
+        "number": 998,
+        "creationDate": "2026-06-20T00:00:00",
+        "clientFileId": "76123456-7",
+        "status": "DFX (DESPACHADO_FACTURADO)",
+    },
 ]
+
+# ``Order/Get.orderData`` by order number.
+MOCK_ORDER_DETAILS = {
+    1001: {
+        "number": 1001,
+        "creationDate": "2026-06-29T00:00:00",
+        "expirationDate": "2026-07-02T00:00:00",
+        "status": "EEX (EN_DESPACHO_EN_FACTURACION)",
+        "client": {"fileId": "76123456-7", "name": "Clínica Dental Demo SPA"},
+        "details": [
+            {"line": 1, "code": "ANES008", "name": "ANESTESIA ALPHACAINE 2%", "count": 5,
+             "unit": "UN", "isService": False},
+            {"line": 2, "code": "ANES012", "name": "ANESTESIA ARTICAINE 4% DFL", "count": 3,
+             "unit": "UN", "isService": False},
+        ],
+    },
+    998: {
+        "number": 998,
+        "creationDate": "2026-06-20T00:00:00",
+        "status": "DFX (DESPACHADO_FACTURADO)",
+        "client": {"fileId": "76123456-7", "name": "Clínica Dental Demo SPA"},
+        "details": [
+            {"line": 1, "code": "ANES002", "name": "ANESTESIA ISOCAINE 3%", "count": 2,
+             "unit": "UN", "isService": False},
+        ],
+    },
+}
 
 
 def mock_dispatch_response(order_number: int) -> dict:

@@ -25,7 +25,6 @@ async def sync_warehouses(tenant_id: str, actor: str = "system") -> Dict[str, An
             **mapped,
             "tenant_id": tenant_id,
             "type": WarehouseType.ERP_STORAGE.value,
-            "is_active": True,
             "updated_at": now,
             "updated_by": actor,
         }
