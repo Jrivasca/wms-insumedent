@@ -40,24 +40,40 @@ Prueba de lectura real en local: 2 bodegas, 3.044 productos activos, 29 pedidos 
 (90 días) con 877 de 878 líneas enlazadas a productos del maestro.
 
 **Ojo con la copia de pruebas:** está desactualizada (último pedido del 2026-08-06, pese a que
-Defontana dice que se refresca semanalmente) y tiene 116 pedidos "en despacho" en 180 días,
-algunos desde marzo, que probablemente quedaron abiertos en el ERP.
+la guía de acceso de Defontana dice que se refresca cada fin de semana) y tiene 116 pedidos
+"en despacho" en 180 días, algunos desde marzo, que probablemente quedaron abiertos en el ERP.
 
-### Escrituras: bloqueadas por datos de configuración de la empresa
+### Escrituras
 
-- **`Inventory/Insert`**: según la wiki (Chile) toda la cabecera es obligatoria — `folio` (0 =
-  correlativo), `documentTypeId`, `fiscalYear`, `clientId` y `providerId` (RUT), `gloss`,
-  `originStowageId` / `destinationStowageId` (código de bodega), `reasonId` (motivo), `total`,
-  `isCentralizable`, `analysis` (centro de negocio, clasificadores, ficha) y `date`; en el detalle
-  `articleId`, `count`, `price` y lotes/series. Seis intentos de prueba (`MOV001` y `XAJ_ENT_UN`,
-  por `Insert` e `InsertSkipCentralization`) fallaron en el servidor ("Object reference not set to
-  an instance of an object" / "An error occurred while saving the entity changes") **sin crear
-  documentos**. Faltan valores que la API no expone: códigos de **motivo**, qué **RUT** usar como
-  proveedor/cliente en un movimiento interno, y si la empresa exige **centro de negocio /
-  clasificadores** en inventario.
-- **`Order/DispatchOrder`**: la wiki muestra la estructura pero no los valores válidos de
-  `dispatchInfo.assetsType` / `dispatchType` / `transactionType` ni de `originStorageInfo.motive`.
-  No se emitió guía de prueba (consume folio).
+**`Inventory/Insert` — funciona.** Grabado en pruebas un `MOV001` (folio 265, 1 unidad del
+artículo `0004357` en `BODEGACENTRAL`), encontrado por `externalDocumentID` y eliminado con
+`Inventory/Delete`; no quedó nada en el ambiente. Lo que faltaba (seis intentos previos fallaron
+en el servidor con "Object reference not set to an instance of an object" / "An error occurred
+while saving the entity changes") eran dos datos de la empresa:
+
+| Campo | Valor que funcionó | Origen |
+|---|---|---|
+| `reasonId` | `COMPRA` | Movimiento de inventario de una guía real |
+| `analysis.businessCenter` (cabecera y cada línea) | `EMPNEGVTAVTA000` | Ídem |
+| `clientId`, `providerId`, `originStowageId` | `null` en una entrada | — |
+| `isCentralizable` | `false` | — |
+
+Los valores salieron de leer una guía real ya emitida (`GDVELECT` folio 3355, vía
+`Sale/GetSalebyDate`, solo en pruebas) y su movimiento de inventario (`Inventory/GetDocument`):
+motivo `COMPRA`, bodega de origen `BODEGACENTRAL`, centro de negocio `EMPNEGVTAVTA000`, cuenta
+`4110101001`, cliente = RUT del cliente, proveedor vacío. Los centros de negocio **no se pueden
+listar por API**: `Accounting/*` responde "la empresa INSUMEDENT SPA no tiene habilitada la
+funcionalidad" (Contabilidad no contratada).
+
+**`Order/DispatchOrder` — pendiente de valores.** La guía real trae `dispatchTypeData` con tipo de
+bien `1` = "Constituye una venta" y tipo de despacho `1` = "Por cuenta del cliente", pero falta
+confirmar cómo se mapean a `dispatchInfo.assetsType` / `dispatchType` / `transactionType` y qué va
+en `originStorageInfo.motive`. No se emitió guía de prueba (consume folio).
+
+**Usuario `INTEGRACION`:** la guía real de junio fue emitida por el usuario de API
+`INTEGRACION`, que es el mismo IDUsuario entregado para esta integración (Defontana crea usuarios
+`APPTOMATOR` / `REPLICACION` / `INTEGRACION`). Hay que confirmar qué proceso emite hoy guías con ese
+usuario antes de que el WMS también lo haga, para no duplicarlas.
 
 Tipos de movimiento de inventario de la empresa (`Inventory/GetTypeInventoryInfo`), los
 candidatos para las recepciones del WMS:
@@ -71,13 +87,16 @@ candidatos para las recepciones del WMS:
 
 ### Preguntas a Defontana (reemplazan las del §9)
 
-1. Un **payload válido de ejemplo** de `Inventory/Insert` para una entrada de mercadería en
-   `BODEGACENTRAL`: motivo, RUT de proveedor/cliente y análisis obligatorios para esta empresa.
-2. Qué **tipo de documento** corresponde a la recepción de mercadería desde el WMS: `PE`,
-   `MOV001` o `XAJ_ENT_UN` (impacto contable: centraliza o no).
-3. Valores de `dispatchInfo` (`assetsType`, `dispatchType`, `transactionType`) y `motive` para
-   emitir guía electrónica con `Order/DispatchOrder`.
+1. **Recepción desde el WMS:** qué **tipo de documento** corresponde (`PE`, `MOV001` o
+   `XAJ_ENT_UN`; impacto contable), qué **motivo** usar para una entrada por compra (probamos
+   `COMPRA`) y dónde se consulta la lista, qué **centro de negocio** corresponde a inventario
+   (probamos `EMPNEGVTAVTA000`) y si se informa el RUT del proveedor en `providerId`.
+2. **Guía con `Order/DispatchOrder`:** mapeo de tipo de bien `1` / tipo de despacho `1` a
+   `dispatchInfo.assetsType` / `dispatchType` / `transactionType`, valor de
+   `originStorageInfo.motive` y campos realmente obligatorios; idealmente un JSON de ejemplo.
+3. **Usuario `INTEGRACION`:** qué proceso emite hoy guías de despacho con ese usuario.
 4. Por qué la copia de pruebas no se actualiza desde el 2026-08-06.
+5. Confirmar que `Sale/*` no estará disponible en producción al no haber contratado Ventas.
 
 ---
 
@@ -356,7 +375,9 @@ El conector hoy apunta a `replapi`, es decir al ambiente de pruebas.
 - Se **actualiza semanalmente** desde producción: todo lo creado o configurado en
   pruebas durante la semana **se pierde**. Por eso Defontana recomienda hacer las
   configuraciones y maestros directamente en producción, para que se repliquen.
-- **Disponible lunes a viernes, 09:00–20:00.** Sábado y domingo no disponible.
+- **Disponible lunes a viernes, 08:30–18:00** (según la "Guía paso a paso para el ingreso al
+  ERP y API de pruebas" de Defontana). Fines de semana no disponible; se refresca con datos de
+  producción cada fin de semana, con hasta una semana de desfase.
 
 **Autenticación:** token JWT vía `/api/auth` (parámetros `Client`, `Company`,
 `User`, `Password`). Cada token nuevo **invalida los anteriores del mismo usuario**,
