@@ -17,6 +17,9 @@ class NotificationType(str, Enum):
     CATALOG_IMPORT = "catalog_import"
     # A lot/batch is near its expiration date (Fase 5, FEFO).
     STOCK_EXPIRING = "stock_expiring"
+    # Entró stock que permite completar pedidos que quedaron parciales (levantamiento
+    # de alertas, Req. 1): el operario los retoma sin esperar aviso del jefe.
+    RECEIPT_UNBLOCKS_ORDER = "receipt_unblocks_order"
 
 
 # Which roles receive each event. ``admin`` and ``supervisor`` always see
@@ -29,4 +32,5 @@ NOTIFICATION_AUDIENCE = {
     NotificationType.IMPORT_REVIEW.value: {"admin", "supervisor", "sales"},
     NotificationType.CATALOG_IMPORT.value: {"admin", "supervisor"},
     NotificationType.STOCK_EXPIRING.value: {"admin", "supervisor"},
+    NotificationType.RECEIPT_UNBLOCKS_ORDER.value: {"admin", "supervisor", "picker", "packer"},
 }

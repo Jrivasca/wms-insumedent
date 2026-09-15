@@ -7,10 +7,15 @@ from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
-from app.models.order import OrderStatus
+from app.models.order import OrderFulfillment, OrderStatus
 from app.models.packing import PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
-from app.services import inventory_service, order_service, packing_service
+from app.services import (
+    inventory_service,
+    order_service,
+    packing_service,
+    replenishment_alert_service,
+)
 
 
 async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
@@ -433,3 +438,68 @@ async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Di
     # cantidades fantasma; se re-reconcilian al recompletar.
     await order_service.reset_order_reconciliation(tenant_id, order_id, stage="picking")
     return serialize(await _load_task(tenant_id, str(task["_id"]))) if task else {"status": "reverted"}
+
+
+async def resume_partial(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
+    """Completar faltante (operario): retoma un pedido que quedó PARCIAL cuando ya llegó
+    stock para al menos una línea corta. Reabre su picking con el mismo ajuste de
+    inventario que el retroceso del supervisor, deja las líneas cortas escaneables otra
+    vez (re-sugiriendo ubicación si la actual no alcanza: el stock nuevo pudo entrar a
+    otra) y asigna la tarea a quien lo retoma, para que escanee solo lo que falta."""
+    db = tenant_db(tenant_id)
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if (order.get("fulfillment") != OrderFulfillment.PARTIAL.value
+            or order.get("status") not in replenishment_alert_service.RESUMABLE_STATUSES):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este pedido no quedó parcial en una etapa que se pueda retomar.",
+        )
+    task = await db[Collections.PICKING_TASKS].find_one(
+        {"tenant_id": tenant_id, "order_id": order_id,
+         "status": {"$ne": PickingTaskStatus.CANCELLED.value}}
+    )
+    if not task:
+        raise HTTPException(status_code=409, detail="El pedido no tiene tarea de picking.")
+    user.assert_warehouse_allowed(task.get("warehouse_id"))
+    if not await replenishment_alert_service.evaluate_completable(tenant_id, order_id=order_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Aún no hay stock disponible para completar las líneas faltantes.",
+        )
+
+    await reopen_picking(tenant_id, order_id, user)
+
+    task = await _load_task(tenant_id, str(task["_id"]))
+    warehouse_id = task["warehouse_id"]
+    for line in task["lines"]:
+        picked = line.get("quantity_picked", 0) or 0
+        required = line.get("quantity_required", 0) or 0
+        if picked >= required:
+            continue
+        line["status"] = (PickingLineStatus.PARTIAL.value if picked > 0
+                          else PickingLineStatus.PENDING.value)
+        line.pop("missing_reason", None)
+        product_id = line.get("product_id")
+        if not product_id:
+            continue
+        current = line.get("suggested_location_id")
+        balance = (
+            await inventory_service.get_balance_doc(tenant_id, product_id, warehouse_id, current)
+            if current else None
+        )
+        if (balance or {}).get("quantity_on_hand", 0) < required:
+            line["suggested_location_id"] = (
+                await order_service._suggested_location(tenant_id, product_id, warehouse_id)
+                or current
+            )
+
+    await db[Collections.PICKING_TASKS].update_one(
+        {"_id": task["_id"]},
+        {"$set": {"lines": task["lines"], "assigned_to": user.id,
+                  "updated_at": now_utc(), "updated_by": user.id}},
+    )
+    return serialize(await _load_task(tenant_id, str(task["_id"])))

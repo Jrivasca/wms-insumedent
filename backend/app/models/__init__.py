@@ -33,3 +33,6 @@ class Collections:
     CATALOG_IMPORT_STATE = "catalog_import_state"
     # Near-expiry alert dedupe (Plan 1 Fase 5): one row per product+warehouse+lot.
     EXPIRY_ALERTS = "expiry_alerts"
+    # "Llegó stock para un pedido parcial" dedupe: one active row per order+product,
+    # released when the order is resumed (picking reopened).
+    REPLENISHMENT_ALERTS = "replenishment_alerts"

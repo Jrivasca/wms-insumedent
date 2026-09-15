@@ -18,7 +18,12 @@ export interface User {
   is_active?: boolean;
 }
 
-export type NotificationType = 'order_created' | 'order_dispatched' | 'stock_zero' | string;
+export type NotificationType =
+  | 'order_created'
+  | 'order_dispatched'
+  | 'stock_zero'
+  | 'receipt_unblocks_order'
+  | string;
 
 export interface AppNotification {
   id: string;
@@ -166,6 +171,26 @@ export interface Order {
   order_date?: string;
   delivery_date?: string;
   lines: OrderLine[];
+}
+
+/** Línea corta de un pedido parcial cuyo faltante ya está cubierto por stock. */
+export interface CompletableOrderLine {
+  line_id: string;
+  product_id: string;
+  sku: string;
+  name: string;
+  missing: number;
+  available: number;
+}
+
+/** Pedido parcial que ya se puede completar (llegó stock para alguna línea corta). */
+export interface CompletableOrder {
+  order_id: string;
+  erp_order_number: string;
+  customer?: string | null;
+  status: OrderStatus;
+  warehouse_id: string;
+  lines: CompletableOrderLine[];
 }
 
 // --- Importación de pedido desde PDF (cotización INSUMEDENT) ---

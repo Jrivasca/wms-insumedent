@@ -11,14 +11,18 @@ from app.core.logging import get_logger
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
-from app.models.notification import NOTIFICATION_AUDIENCE
+from app.models.notification import NOTIFICATION_AUDIENCE, NotificationType
 from app.services import push_service
 
 logger = get_logger(__name__)
 
 
-def _entity_url(entity_type: Optional[str], entity_id: Optional[str]) -> str:
+def _entity_url(
+    notification_type: str, entity_type: Optional[str], entity_id: Optional[str]
+) -> str:
     """Where a notification points in the web app (the order list has no per-id page)."""
+    if notification_type == NotificationType.RECEIPT_UNBLOCKS_ORDER.value:
+        return "/my/picking"  # floor roles can't open /orders; the list lives here
     if entity_type == "product" and entity_id:
         return f"/products/{entity_id}"
     if entity_type == "order":
@@ -83,7 +87,7 @@ async def emit(
             {
                 "title": title,
                 "body": body,
-                "url": _entity_url(entity_type, entity_id),
+                "url": _entity_url(notification_type, entity_type, entity_id),
                 "tag": notification_type,
             },
         )

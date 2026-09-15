@@ -10,7 +10,7 @@ from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
-from app.services import notification_service, sync_job_service
+from app.services import notification_service, replenishment_alert_service, sync_job_service
 
 
 async def _expected_barcodes(tenant_id: str, product_id: str, sku: str) -> List[str]:
@@ -419,3 +419,6 @@ async def reset_order_reconciliation(
         {"_id": order["_id"]},
         {"$set": {"lines": lines, "fulfillment": fulfillment, "updated_at": now_utc()}},
     )
+    if stage == "picking":
+        # El pedido se retomó: un nuevo faltante al recompletar debe volver a avisar.
+        await replenishment_alert_service.release_for_order(tenant_id, order_id)

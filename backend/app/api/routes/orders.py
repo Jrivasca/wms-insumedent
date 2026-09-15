@@ -16,6 +16,7 @@ from app.services import (
     order_service,
     packing_service,
     picking_service,
+    replenishment_alert_service,
     sync_job_service,
 )
 from app.services.audit_service import log_action
@@ -31,6 +32,17 @@ async def list_orders(
     user: CurrentUser = Depends(get_current_user),
 ):
     return await order_service.list_orders(user.tenant_id, status, limit, offset)
+
+
+# Declarada antes de "/{order_id}" para que "completable" no se tome como un id.
+@router.get("/completable")
+async def list_completable_orders(user: CurrentUser = Depends(get_current_user)):
+    """Pedidos parciales que ya se pueden completar (llegó stock para alguna línea corta)."""
+    warehouse_ids = list(user.allowed_warehouse_ids) if user.warehouse_scoped else None
+    items = await replenishment_alert_service.evaluate_completable(
+        user.tenant_id, warehouse_ids=warehouse_ids
+    )
+    return {"items": items, "total": len(items)}
 
 
 @router.post("", status_code=201)
@@ -238,3 +250,21 @@ async def reopen_picking(
         ip=user.ip, user_agent=user.user_agent,
     )
     return result
+
+
+@router.post("/{order_id}/resume-partial")
+async def resume_partial(
+    order_id: str,
+    user: CurrentUser = Depends(require_roles("supervisor", "picker", "packer")),
+):
+    """Completar faltante: el operario retoma un pedido parcial cuando ya llegó stock.
+    A diferencia de reopen-picking, no exige supervisor, pero solo aplica a pedidos
+    parciales con stock disponible para alguna línea corta."""
+    task = await picking_service.resume_partial(user.tenant_id, order_id, user)
+    await log_action(
+        tenant_id=user.tenant_id, user_id=user.id, action="resume_partial_order",
+        entity_type="order", entity_id=order_id,
+        metadata={"order_id": order_id, "picking_task_id": task.get("id")},
+        ip=user.ip, user_agent=user.user_agent,
+    )
+    return task
