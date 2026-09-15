@@ -92,12 +92,15 @@ Contexto: APIs contratadas = **Pedidos, Inventario y Guías de Despacho** (Venta
 Soporte: canal Slack `integracion-insumedent` con Luis Lopez (Defontana). Detalle técnico y
 hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 
-- **Flujo 1 — Extraer pedidos por despachar** *(implementado; esperando respuesta de Luis)*.
+- **Flujo 1 — Extraer pedidos por despachar** *(implementado y confirmado por Defontana)*.
   `Order/List` + `Order/Get`, importa estados `E..`, ventana `DEFONTANA_ORDERS_WINDOW_DAYS`
-  (90), reconcilia anulados/cerrados/despachados fuera del WMS. Consultas enviadas: si el
-  filtro `Status` acepta varios códigos, si un pedido aprobado pasa solo a `E..`, cómo
-  detectar cambios sin reprocesar, refresco del ambiente de pruebas y qué proceso usa hoy el
-  usuario `INTEGRACION`.
+  (90), reconcilia anulados/cerrados/despachados fuera del WMS. Respuestas de Luis
+  (2026-09-15): el filtro `Status` acepta **un solo código por consulta** (se mantiene traer
+  el rango y filtrar `E..` localmente); ciclo del pedido **P → AC → AF → EEX**, y puede pasar a
+  `D..` si la guía se emite directo en el ERP (lo cubre la reconciliación); **un pedido solo
+  se puede editar en estado P**; el ambiente de pruebas se atrasó por un problema interno y
+  se actualiza el fin de semana. Pendiente sin respuesta: qué proceso usa hoy el usuario
+  `INTEGRACION`.
 - **Flujo 2 — Recepción → `Inventory/Insert`** *(estructura probada en pruebas; faltan
   definiciones)*. Funcionó con motivo `COMPRA` y centro de negocio `EMPNEGVTAVTA000`. Pendiente
   confirmar tipo de documento (`PE` / `MOV001` / `XAJ_ENT_UN`, impacto contable), motivo,
@@ -106,7 +109,16 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 - **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(pendiente de valores)*. Falta el
   mapeo de `dispatchInfo` (tipo de bien `1` "Constituye una venta", tipo de despacho `1` "Por
   cuenta del cliente") y `originStorageInfo.motive`.
-- **Reemplazo de productos en picking → `Order/UpdateOrder`** *(propuesta; esperando a Luis)*.
+- **Reemplazo de productos en picking** *(replantear: `UpdateOrder` NO sirve)*.
+  **Defontana confirmó que un pedido solo se puede editar en estado P**; los que el WMS prepara
+  ya están aprobados (`E..`), así que no se pueden modificar con `Order/UpdateOrder`. Hay que
+  definir con Defontana y con Insumedent cómo se hace hoy un reemplazo en un pedido aprobado.
+  Alternativas a evaluar: (a) despachar el pedido sin la línea faltante con
+  `Order/DispatchOrder` y el sustituto en una guía aparte con `Dispatch/Save`; (b) cerrar el
+  pedido (`M`) y crear uno nuevo con el sustituto (`Order/SaveOrder`), que vuelve a pasar por
+  aprobación; (c) que ventas lo resuelva en el ERP y el WMS solo marque la línea faltante y
+  avise. Lo de abajo es el diseño original, válido solo para la parte del WMS (marcar
+  reemplazo, aprobación, cambio de línea en picking):
   Pedido del cliente: las cancelaciones son raras y casi siempre es un producto sin stock que
   se reemplaza por uno equivalente. Diseño propuesto:
   1. En picking, en una línea sin stock, el operario marca **"Reemplazar"** y escanea/busca el
@@ -118,12 +130,8 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   4. Se encola `UpdateOrder` hacia Defontana; la guía de despacho solo se emite después de que
      Defontana confirme la actualización (la guía sale de las líneas del pedido).
 
-  **Factible por API**, con dudas abiertas: (a) si `UpdateOrder` acepta pedidos `E..` o los
-  devuelve a aprobación comercial/financiera; (b) si exige reenviar el pedido completo;
-  (c) `priceListId` es obligatorio y `Order/Get` no lo devuelve, y qué precio lleva el
-  sustituto; (d) que `DispatchOrder` tome las líneas actualizadas. Opción de des-arriesgo:
-  probar `UpdateOrder` en pruebas con un pedido sin cambios para ver si cambia su estado
-  (requiere autorización). Tamaño estimado: mediano.
+  El paso 4 (`UpdateOrder`) queda descartado para pedidos aprobados; el tramo hacia Defontana
+  depende de la alternativa que se elija.
 - **Botones "Sync productos" y "Sync bodegas"**: usan `Sale/*` (no contratado); fallarán en
   producción. Ocultarlos fuera del ambiente de pruebas.
 
