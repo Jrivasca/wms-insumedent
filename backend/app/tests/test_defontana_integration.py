@@ -52,6 +52,37 @@ async def test_inventory_insert_uses_post(monkeypatch):
     assert calls == [("POST", "/Inventory/Insert")]
 
 
+async def test_stored_token_with_naive_expiry_is_reused_not_crashing(monkeypatch):
+    """Motor devuelve datetimes naive: comparar con now_utc() (aware) reventaba en la
+    segunda llamada real a Defontana ('can't compare offset-naive and offset-aware')."""
+    from datetime import datetime, timedelta
+
+    from app.core.security import encrypt_secret
+    from app.integrations.defontana.token_manager import DefontanaTokenManager
+
+    monkeypatch.setattr(settings, "defontana_mock", False)
+    tenant_id = await _tenant()
+    await get_database()[Collections.ERP_TOKENS].insert_one({
+        "tenant_id": tenant_id, "erp": "defontana", "status": "active",
+        "access_token_encrypted": encrypt_secret("TOKEN-GUARDADO"),
+        "expires_at": datetime.utcnow() + timedelta(minutes=30),  # naive, como Motor
+    })
+    assert await DefontanaTokenManager().get_valid_token(tenant_id) == "TOKEN-GUARDADO"
+
+
+async def test_token_ttl_uses_expires_in_from_auth_response():
+    from datetime import timedelta
+
+    from app.core.utils import now_utc
+    from app.integrations.defontana.token_manager import DefontanaTokenManager, _aware
+
+    tenant_id = await _tenant()
+    await DefontanaTokenManager()._persist_token(tenant_id, "T", expires_in=3600)
+    doc = await get_database()[Collections.ERP_TOKENS].find_one({"tenant_id": tenant_id})
+    remaining = _aware(doc["expires_at"]) - now_utc()
+    assert timedelta(minutes=54) < remaining <= timedelta(minutes=55)
+
+
 async def test_check_in_mock_mode_says_it_did_not_contact_defontana(monkeypatch):
     monkeypatch.setattr(settings, "defontana_mock", True)
     tenant_id = await _tenant()

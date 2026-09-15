@@ -5,8 +5,8 @@ Rules enforced here:
 - Never request a new token on every call; reuse the stored one until it expires.
 - Refresh only when missing/expired (or once on a 401 from a caller).
 """
-from datetime import timedelta
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple
 
 import httpx
 
@@ -20,12 +20,22 @@ from app.models.integration import ErpAuthMode, ErpTokenStatus
 
 logger = get_logger(__name__)
 
-# Refresh a little before the nominal expiry to avoid edge-of-expiry failures.
+# Fallback TTL when the auth response carries no ``expires_in``.
 TOKEN_TTL_MINUTES = 50
+# Refresh a little before the real expiry to avoid edge-of-expiry failures.
+EXPIRY_MARGIN = timedelta(minutes=5)
 
 
 class DefontanaAuthError(Exception):
     pass
+
+
+def _aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """Motor (sin ``tz_aware``) devuelve los datetimes naive, en UTC: normalizar antes de
+    compararlos con ``now_utc()``, que es aware."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 class DefontanaTokenManager:
@@ -46,7 +56,7 @@ class DefontanaTokenManager:
     async def get_valid_token(self, tenant_id: str) -> str:
         token_doc = await self._stored_token(tenant_id)
         if token_doc and token_doc.get("expires_at"):
-            expires_at = token_doc["expires_at"]
+            expires_at = _aware(token_doc["expires_at"])
             if expires_at > now_utc() and token_doc.get("status") == ErpTokenStatus.ACTIVE.value:
                 decrypted = decrypt_secret(token_doc.get("access_token_encrypted", ""))
                 if decrypted:
@@ -54,8 +64,8 @@ class DefontanaTokenManager:
         return await self.refresh_token(tenant_id)
 
     async def refresh_token(self, tenant_id: str) -> str:
-        token = await self._authenticate(tenant_id)
-        await self._persist_token(tenant_id, token)
+        token, expires_in = await self._authenticate(tenant_id)
+        await self._persist_token(tenant_id, token, expires_in)
         return token
 
     async def check_token(self, tenant_id: str) -> bool:
@@ -78,9 +88,10 @@ class DefontanaTokenManager:
             logger.warning("Defontana token check failed: %s", exc)
             return False
 
-    async def _authenticate(self, tenant_id: str) -> str:
+    async def _authenticate(self, tenant_id: str) -> Tuple[str, Optional[int]]:
+        """Devuelve (token, expires_in en segundos si Defontana lo informa)."""
         if settings.defontana_mock:
-            return f"MOCK-TOKEN-{tenant_id}"
+            return f"MOCK-TOKEN-{tenant_id}", None
 
         connection = await self._get_connection(tenant_id)
         if not connection:
@@ -117,12 +128,23 @@ class DefontanaTokenManager:
             or data.get("AccessToken")
         )
         if not token:
-            raise DefontanaAuthError("Defontana auth response did not contain a token")
-        return token
+            message = data.get("message") or "Defontana auth response did not contain a token"
+            raise DefontanaAuthError(message)
+        try:
+            expires_in = int(data.get("expires_in")) if data.get("expires_in") else None
+        except (TypeError, ValueError):
+            expires_in = None
+        return token, expires_in
 
-    async def _persist_token(self, tenant_id: str, token: str) -> None:
+    async def _persist_token(
+        self, tenant_id: str, token: str, expires_in: Optional[int] = None
+    ) -> None:
         db = tenant_db(tenant_id)
         now = now_utc()
+        if expires_in and timedelta(seconds=expires_in) > EXPIRY_MARGIN * 2:
+            ttl = timedelta(seconds=expires_in) - EXPIRY_MARGIN
+        else:
+            ttl = timedelta(minutes=TOKEN_TTL_MINUTES)
         await db[Collections.ERP_TOKENS].update_one(
             {"tenant_id": tenant_id, "erp": self.erp},
             {
@@ -131,7 +153,7 @@ class DefontanaTokenManager:
                     "erp": self.erp,
                     "access_token_encrypted": encrypt_secret(token),
                     "token_type": "Bearer",
-                    "expires_at": now + timedelta(minutes=TOKEN_TTL_MINUTES),
+                    "expires_at": now + ttl,
                     "last_regained_at": now,
                     "status": ErpTokenStatus.ACTIVE.value,
                     "updated_at": now,
