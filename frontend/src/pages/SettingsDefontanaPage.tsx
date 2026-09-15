@@ -20,16 +20,18 @@ export default function SettingsDefontanaPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Valores que acepta el backend (ErpEnvironment / ErpAuthMode).
   const [form, setForm] = useState<DefontanaConfig>({
-    environment: 'production',
+    environment: 'test',
     client: '',
     company: '',
     user: '',
     password: '',
     email: '',
     email_password: '',
-    auth_mode: '',
+    auth_mode: 'client_company_user',
   });
+  const emailLogin = form.auth_mode === 'email_login';
 
   async function loadStatus() {
     setLoading(true);
@@ -37,7 +39,11 @@ export default function SettingsDefontanaPage() {
     try {
       const s = await getDefontanaStatus();
       setStatus(s);
-      if (s.environment) setForm((f) => ({ ...f, environment: s.environment! }));
+      setForm((f) => ({
+        ...f,
+        environment: s.environment ?? f.environment,
+        auth_mode: s.auth_mode ?? f.auth_mode,
+      }));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -59,14 +65,19 @@ export default function SettingsDefontanaPage() {
     setError(null);
     setNotice(null);
     try {
-      // Only send filled fields to avoid overwriting with blanks.
-      const payload: DefontanaConfig = { environment: form.environment };
-      (Object.keys(form) as (keyof DefontanaConfig)[]).forEach((k) => {
+      // Only send filled fields of the chosen auth mode, to avoid overwriting with blanks
+      // (an empty password keeps the stored one).
+      const payload: DefontanaConfig = {
+        environment: form.environment,
+        auth_mode: form.auth_mode,
+      };
+      const fields: (keyof DefontanaConfig)[] = emailLogin
+        ? ['email', 'email_password']
+        : ['client', 'company', 'user', 'password'];
+      for (const k of fields) {
         const v = form[k];
-        if (k !== 'environment' && typeof v === 'string' && v.trim()) {
-          payload[k] = v.trim();
-        }
-      });
+        if (typeof v === 'string' && v.trim()) payload[k] = v.trim();
+      }
       const s = await configureDefontana(payload);
       setStatus(s);
       setNotice('Configuración guardada');
@@ -126,6 +137,9 @@ export default function SettingsDefontanaPage() {
           {status?.environment && (
             <span className="text-sm text-slate-500">Entorno: {status.environment}</span>
           )}
+          {status?.base_url && (
+            <span className="font-mono text-xs text-slate-400">{status.base_url}</span>
+          )}
           {status?.last_check_at && (
             <span className="text-xs text-slate-400">
               Última verificación: {new Date(status.last_check_at).toLocaleString()}
@@ -133,6 +147,14 @@ export default function SettingsDefontanaPage() {
           )}
         </div>
         {status?.last_error && <p className="mt-2 text-sm text-red-600">{status.last_error}</p>}
+        {status?.mock && (
+          <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Modo simulado activo (<code>DEFONTANA_MOCK=true</code>): la verificación y las
+            sincronizaciones usan datos de prueba y no contactan a Defontana. Para conectar de
+            verdad, pon <code>DEFONTANA_MOCK=false</code> en el <code>.env</code> y reinicia backend
+            y worker.
+          </p>
+        )}
 
         <div className="mt-3 flex flex-wrap gap-2">
           <button onClick={handleCheck} className="btn-secondary" disabled={busy === 'check'}>
@@ -159,39 +181,64 @@ export default function SettingsDefontanaPage() {
             onChange={(e) => update('environment', e.target.value)}
             className="input"
           >
-            <option value="production">production</option>
-            <option value="staging">staging</option>
-            <option value="sandbox">sandbox</option>
+            <option value="test">Pruebas (replapi.defontana.com)</option>
+            <option value="production">Producción (api.defontana.com)</option>
           </select>
         </div>
         <div>
           <label className="label">Modo de autenticación</label>
-          <input value={form.auth_mode ?? ''} onChange={(e) => update('auth_mode', e.target.value)} className="input" placeholder="oauth / basic…" />
+          <select
+            value={form.auth_mode}
+            onChange={(e) => update('auth_mode', e.target.value)}
+            className="input"
+          >
+            <option value="client_company_user">Cliente / Empresa / Usuario</option>
+            <option value="email_login">Email</option>
+          </select>
         </div>
-        <div>
-          <label className="label">Client</label>
-          <input value={form.client ?? ''} onChange={(e) => update('client', e.target.value)} className="input" />
-        </div>
-        <div>
-          <label className="label">Company</label>
-          <input value={form.company ?? ''} onChange={(e) => update('company', e.target.value)} className="input" />
-        </div>
-        <div>
-          <label className="label">Usuario</label>
-          <input value={form.user ?? ''} onChange={(e) => update('user', e.target.value)} className="input" />
-        </div>
-        <div>
-          <label className="label">Contraseña</label>
-          <input type="password" value={form.password ?? ''} onChange={(e) => update('password', e.target.value)} className="input" />
-        </div>
-        <div>
-          <label className="label">Email</label>
-          <input type="email" value={form.email ?? ''} onChange={(e) => update('email', e.target.value)} className="input" />
-        </div>
-        <div>
-          <label className="label">Email password</label>
-          <input type="password" value={form.email_password ?? ''} onChange={(e) => update('email_password', e.target.value)} className="input" />
-        </div>
+        {emailLogin ? (
+          <>
+            <div>
+              <label className="label">Email</label>
+              <input type="email" value={form.email ?? ''} onChange={(e) => update('email', e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">Contraseña</label>
+              <input
+                type="password"
+                value={form.email_password ?? ''}
+                onChange={(e) => update('email_password', e.target.value)}
+                className="input"
+                placeholder={status?.configured ? 'Vacío = mantener la guardada' : ''}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <label className="label">IDCliente</label>
+              <input value={form.client ?? ''} onChange={(e) => update('client', e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">IDEmpresa</label>
+              <input value={form.company ?? ''} onChange={(e) => update('company', e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">IDUsuario</label>
+              <input value={form.user ?? ''} onChange={(e) => update('user', e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">Contraseña</label>
+              <input
+                type="password"
+                value={form.password ?? ''}
+                onChange={(e) => update('password', e.target.value)}
+                className="input"
+                placeholder={status?.configured ? 'Vacío = mantener la guardada' : ''}
+              />
+            </div>
+          </>
+        )}
         <div className="md:col-span-2">
           <button type="submit" className="btn-success" disabled={busy === 'configure'}>
             {busy === 'configure' ? 'Guardando…' : 'Guardar configuración'}

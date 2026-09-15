@@ -343,7 +343,10 @@ export interface SyncJob {
 
 export interface DefontanaStatus {
   status: string;
+  configured?: boolean;
   environment?: string;
+  auth_mode?: string;
+  base_url?: string;
   mock?: boolean;
   last_check_at?: string;
   last_error?: string;

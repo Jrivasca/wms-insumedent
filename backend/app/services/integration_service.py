@@ -112,11 +112,16 @@ async def check(tenant_id: str) -> Dict[str, Any]:
         },
         upsert=True,
     )
+    if settings.defontana_mock:
+        # En modo simulado el OK no significa nada: que la UI no lo confunda con uno real.
+        message = "Modo simulado (DEFONTANA_MOCK=true): no se contactó a Defontana"
+    else:
+        message = "Conexión Defontana OK" if ok else (error or "Error de conexión")
     return {
         "status": status_value,
         "ok": ok,
         "mock": settings.defontana_mock,
-        "message": "Conexión Defontana OK" if ok else (error or "Error de conexión"),
+        "message": message,
     }
 
 

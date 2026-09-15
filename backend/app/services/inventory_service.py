@@ -327,7 +327,7 @@ async def create_reception(
     """Receive inbound stock into a location (entrada de mercadería).
 
     Adds stock + records a RECEIPT movement, and (optionally) enqueues an ERP
-    inventory-entry document (Defontana ``PUT /Inventory/Insert``, real-supported).
+    inventory-entry document (Defontana ``POST /Inventory/Insert``, real-supported).
     ``expiration_date`` (Fase 5) is stored on the lot's balance for FEFO + alerts.
     """
     if quantity <= 0:

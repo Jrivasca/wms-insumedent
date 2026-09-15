@@ -125,7 +125,9 @@ class DefontanaConnector(ERPConnector):
             return mock_data.mock_inventory_response(
                 payload.get("externalDocumentID", "unknown")
             )
-        return await self._request("PUT", "/Inventory/Insert", json=payload)
+        # POST (no PUT): la API REST de Defontana solo expone GET y POST; confirmado
+        # contra el Swagger de pruebas (docs/entregables/Analisis-APIs-Defontana-a-contratar.md).
+        return await self._request("POST", "/Inventory/Insert", json=payload)
 
     async def create_product(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Push a new product to Defontana.
