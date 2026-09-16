@@ -223,6 +223,68 @@ async def record_movement(
 # ---------------------------------------------------------------------------
 # High-level operations
 # ---------------------------------------------------------------------------
+async def _enqueue_inventory_document(
+    *,
+    tenant_id: str,
+    movement: Dict[str, Any],
+    product_id: str,
+    warehouse_id: str,
+    quantity: float,
+    document_type: str,
+    reason_id: str,
+    gloss: str,
+    direction: str,
+    document_prefix: str,
+    created_by: str,
+    lot_number: Optional[str] = None,
+    serial_number: Optional[str] = None,
+    expiration_date: Optional[datetime] = None,
+) -> Optional[Dict[str, Any]]:
+    """Encola el documento de inventario hacia Defontana (``Inventory/Insert``).
+
+    Doble llave: el push al ERP en general (``ERP_SYNC_ENABLED``) y el de movimientos de
+    inventario en particular (``DEFONTANA_INVENTORY_SYNC_ENABLED``), cuyos valores (tipo de
+    documento, motivo, centro de negocio) siguen pendientes de confirmar con Defontana.
+    """
+    if not (settings.erp_sync_enabled and settings.defontana_inventory_sync_enabled):
+        return None
+    db = tenant_db(tenant_id)
+    product = await db[Collections.PRODUCTS].find_one(
+        {"_id": to_object_id(product_id), "tenant_id": tenant_id}
+    )
+    warehouse = await db[Collections.WAREHOUSES].find_one(
+        {"_id": to_object_id(warehouse_id), "tenant_id": tenant_id}
+    )
+    payload = DefontanaMapper.build_inventory_entry(
+        # El prefijo identifica la OPERACIÓN (recepción / ajuste), no el sentido: un ajuste de
+        # entrada también es un ajuste.
+        external_document_id=f"WMS-{document_prefix}-{movement['_id']}",
+        document_type=document_type,
+        reason_id=reason_id,
+        business_center=settings.defontana_business_center,
+        centralizable=settings.defontana_reception_centralizable,
+        storage_code=(warehouse or {}).get("erp_storage_code"),
+        movement_date=local_now().date(),
+        gloss=gloss,
+        direction=direction,
+        lines=[{
+            "code": (product or {}).get("sku"),
+            "description": (product or {}).get("name"),
+            "count": abs(quantity),
+            "price": (product or {}).get("cost") or 0,
+            "lot_number": lot_number,
+            "expiration_date": expiration_date,
+            "serial_number": serial_number,
+        }],
+    )
+    return await sync_job_service.enqueue(
+        tenant_id=tenant_id,
+        job_type=SyncJobType.CREATE_INVENTORY_DOCUMENT.value,
+        payload=payload,
+        created_by=created_by,
+    )
+
+
 async def create_adjustment(
     *,
     tenant_id: str,
@@ -235,7 +297,11 @@ async def create_adjustment(
     lot_number: Optional[str] = None,
     serial_number: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Supervisor-approved stock adjustment. ``quantity`` may be negative."""
+    """Supervisor-approved stock adjustment. ``quantity`` may be negative.
+
+    Cambia la cantidad total de la bodega, así que también viaja a Defontana como documento
+    de ajuste (de entrada o de salida según el signo); si no, el ERP y el WMS se descuadran.
+    """
     balance = await change_location_stock(
         tenant_id=tenant_id,
         product_id=product_id,
@@ -245,7 +311,7 @@ async def create_adjustment(
         lot_number=lot_number,
         serial_number=serial_number,
     )
-    await record_movement(
+    movement = await record_movement(
         tenant_id=tenant_id,
         movement_type=MovementType.ADJUSTMENT.value,
         product_id=product_id,
@@ -258,6 +324,23 @@ async def create_adjustment(
         reference_type=ReferenceType.MANUAL.value,
         reason=reason,
         created_by=created_by,
+    )
+    incoming = quantity >= 0
+    await _enqueue_inventory_document(
+        tenant_id=tenant_id,
+        movement=movement,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        quantity=quantity,
+        document_type=(settings.defontana_adjustment_in_document_type if incoming
+                       else settings.defontana_adjustment_out_document_type),
+        reason_id=settings.defontana_adjustment_reason_id or settings.defontana_reception_reason_id,
+        gloss=f"Ajuste WMS: {reason}".strip(),
+        direction="in" if incoming else "out",
+        document_prefix="AJU",
+        created_by=created_by,
+        lot_number=lot_number,
+        serial_number=serial_number,
     )
     return balance
 
@@ -368,41 +451,22 @@ async def create_reception(
     )
 
     job = None
-    # Recepción → Defontana (Inventory/Insert). Doble llave: el push al ERP en general y el
-    # de recepciones en particular, cuyos valores (tipo de documento, motivo, centro de
-    # negocio) siguen pendientes de confirmar con Defontana.
-    if sync_erp and settings.erp_sync_enabled and settings.defontana_reception_sync_enabled:
-        db = tenant_db(tenant_id)
-        product = await db[Collections.PRODUCTS].find_one(
-            {"_id": to_object_id(product_id), "tenant_id": tenant_id}
-        )
-        warehouse = await db[Collections.WAREHOUSES].find_one(
-            {"_id": to_object_id(warehouse_id), "tenant_id": tenant_id}
-        )
-        payload = DefontanaMapper.build_inventory_entry(
-            external_document_id=f"WMS-REC-{movement['_id']}",
+    if sync_erp:
+        job = await _enqueue_inventory_document(
+            tenant_id=tenant_id,
+            movement=movement,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            quantity=quantity,
             document_type=settings.defontana_reception_document_type,
             reason_id=settings.defontana_reception_reason_id,
-            business_center=settings.defontana_business_center,
-            centralizable=settings.defontana_reception_centralizable,
-            storage_code=(warehouse or {}).get("erp_storage_code"),
-            movement_date=local_now().date(),
             gloss=f"Recepción WMS {reference}".strip() if reference else "Recepción WMS",
-            lines=[{
-                "code": (product or {}).get("sku"),
-                "description": (product or {}).get("name"),
-                "count": quantity,
-                "price": (product or {}).get("cost") or 0,
-                "lot_number": lot_number,
-                "expiration_date": expiration_date,
-                "serial_number": serial_number,
-            }],
-        )
-        job = await sync_job_service.enqueue(
-            tenant_id=tenant_id,
-            job_type=SyncJobType.CREATE_INVENTORY_DOCUMENT.value,
-            payload=payload,
+            direction="in",
+            document_prefix="REC",
             created_by=created_by,
+            lot_number=lot_number,
+            serial_number=serial_number,
+            expiration_date=expiration_date,
         )
 
     return {

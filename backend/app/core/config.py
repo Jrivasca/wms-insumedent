@@ -41,12 +41,17 @@ class Settings(BaseSettings):
     defontana_orders_sync_hours: str = "08:00-19:00"
     defontana_orders_sync_weekdays_only: bool = True
     defontana_timezone: str = "America/Santiago"
-    # Recepción → Inventory/Insert. Estructura probada en pruebas; los valores (tipo de
-    # documento, motivo, centro de negocio) están PENDIENTES de confirmar con Defontana,
-    # por eso el envío tiene su propio flag además de ``erp_sync_enabled``.
-    defontana_reception_sync_enabled: bool = False
+    # Movimientos del WMS que cambian la cantidad total (recepción y ajuste/merma) →
+    # Inventory/Insert. Estructura probada en pruebas; los valores (tipo de documento, motivo,
+    # centro de negocio) están PENDIENTES de confirmar con Defontana, por eso el envío tiene su
+    # propio flag además de ``erp_sync_enabled``.
+    defontana_inventory_sync_enabled: bool = False
     defontana_reception_document_type: str = "MOV001"
+    defontana_adjustment_in_document_type: str = "XAJ_ENT_UN"
+    defontana_adjustment_out_document_type: str = "XAJ_SAL_UNID"
     defontana_reception_reason_id: str = "COMPRA"
+    # Motivo de los ajustes; vacío = usa el mismo de la recepción.
+    defontana_adjustment_reason_id: str = ""
     defontana_business_center: str = "EMPNEGVTAVTA000"
     defontana_reception_centralizable: bool = False
 

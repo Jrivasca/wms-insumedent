@@ -302,7 +302,7 @@ async def test_create_product_and_sync_job(monkeypatch):
 
 async def test_create_reception_adds_stock_and_syncs(monkeypatch):
     monkeypatch.setattr(settings, "erp_sync_enabled", True)
-    monkeypatch.setattr(settings, "defontana_reception_sync_enabled", True)
+    monkeypatch.setattr(settings, "defontana_inventory_sync_enabled", True)
     seed = await run_seed()
     tenant_id = seed["tenant_id"]
     admin = make_user(await _admin_user())

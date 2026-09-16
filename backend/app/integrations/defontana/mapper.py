@@ -168,8 +168,12 @@ class DefontanaMapper:
         movement_date: date,
         gloss: str,
         lines: List[Dict[str, Any]],
+        direction: str = "in",
     ) -> Dict[str, Any]:
-        """Payload de ``Inventory/Insert`` para una ENTRADA de mercadería.
+        """Payload de ``Inventory/Insert`` para un movimiento de inventario del WMS.
+
+        ``direction``: ``"in"`` (recepción o ajuste de entrada) usa la bodega como destino;
+        ``"out"`` (ajuste de salida o merma) la usa como origen.
 
         Estructura verificada en el ambiente de pruebas (documento grabado, encontrado por
         ``externalDocumentID`` y eliminado): el centro de negocio va en el análisis de la
@@ -212,8 +216,8 @@ class DefontanaMapper:
             "clientId": None,
             "providerId": None,
             "gloss": gloss,
-            "originStowageId": None,
-            "destinationStowageId": storage_code,
+            "originStowageId": storage_code if direction == "out" else None,
+            "destinationStowageId": None if direction == "out" else storage_code,
             "reasonId": reason_id,
             "total": sum(d["count"] * d["price"] for d in details),
             "isCentralizable": centralizable,

@@ -159,8 +159,9 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   1. **Conciliación WMS ← Defontana** (ajusta los saldos del WMS a los del ERP con movimiento
      auditable; lo que sobra queda en una ubicación de entrada para ubicar; lo que falta se
      descuenta por FEFO). Manual con vista previa primero, automática después.
-  2. **Push de ajustes, mermas y transferencias entre bodegas** a `Inventory/Insert` (hoy solo
-     la recepción empuja): si no, el WMS y el ERP se descuadran.
+  2. ~~Push de ajustes y mermas~~ *(hecho)*: el ajuste viaja a `Inventory/Insert` como documento
+     de entrada o salida (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). El WMS no tiene
+     transferencia entre bodegas, y la de ubicaciones no cambia el total: no se envía.
   3. **Lotes del ERP en la operación** (elegir lote conocido con su vencimiento al recibir/ubicar).
   4. **Ubicar stock recibido en Defontana** sin volver a sumarlo en el WMS.
 

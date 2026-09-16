@@ -123,18 +123,53 @@ async def test_reception_is_sent_only_with_both_flags_and_uses_configured_values
         )
 
     monkeypatch.setattr(settings, "erp_sync_enabled", True)
-    monkeypatch.setattr(settings, "defontana_reception_sync_enabled", False)
+    monkeypatch.setattr(settings, "defontana_inventory_sync_enabled", False)
     assert (await receive())["sync_job_id"] is None  # valores sin confirmar: no se envía
 
-    monkeypatch.setattr(settings, "defontana_reception_sync_enabled", True)
+    monkeypatch.setattr(settings, "defontana_inventory_sync_enabled", True)
     monkeypatch.setattr(settings, "defontana_reception_document_type", "PE")
     result = await receive(lot="L1")
     job = await db[Collections.SYNC_JOBS].find_one({"job_type": "create_inventory_document"})
     assert result["sync_job_id"] and job
     payload = job["payload"]
     assert payload["documentTypeId"] == "PE"
-    assert payload["destinationStowageId"] == "BODEGACENTRAL"
+    assert payload["destinationStowageId"] == "BODEGACENTRAL" and payload["originStowageId"] is None
     assert payload["externalDocumentID"].startswith("WMS-REC-")
     assert payload["gloss"] == "Recepción WMS OC-77"
     assert payload["details"][0]["price"] == 1500 and payload["details"][0]["count"] == 3
     assert payload["details"][0]["lotes"][0]["batchNumber"] == "L1"
+
+
+async def test_adjustment_also_travels_to_defontana_in_both_directions(monkeypatch):
+    """El ajuste cambia la cantidad total: si no viaja al ERP, WMS y Defontana se descuadran."""
+    tenant_id = await _tenant()
+    db = tenant_db(tenant_id)
+    wh = await db[Collections.WAREHOUSES].insert_one({"name": "BODEGA CENTRAL", "erp_storage_code": "BODEGACENTRAL"})
+    prod = await db[Collections.PRODUCTS].insert_one({"sku": "0004357", "name": "KIT DE FRESAS", "cost": 1500})
+
+    async def adjust(quantity, reason):
+        await inventory_service.create_adjustment(
+            tenant_id=tenant_id, product_id=str(prod.inserted_id), warehouse_id=str(wh.inserted_id),
+            location_id="loc-1", quantity=quantity, reason=reason, created_by="u1",
+        )
+
+    monkeypatch.setattr(settings, "erp_sync_enabled", True)
+    monkeypatch.setattr(settings, "defontana_inventory_sync_enabled", False)
+    await adjust(2, "conteo")
+    assert await db[Collections.SYNC_JOBS].count_documents({}) == 0  # apagado: no se envía
+
+    monkeypatch.setattr(settings, "defontana_inventory_sync_enabled", True)
+    await adjust(2, "conteo")
+    await adjust(-3, "merma")
+    jobs = await db[Collections.SYNC_JOBS].find({"job_type": "create_inventory_document"}).to_list(length=10)
+    entrada, salida = (j["payload"] for j in sorted(jobs, key=lambda j: j["payload"]["details"][0]["count"]))
+
+    assert entrada["documentTypeId"] == settings.defontana_adjustment_in_document_type
+    assert entrada["destinationStowageId"] == "BODEGACENTRAL" and entrada["originStowageId"] is None
+    assert entrada["details"][0]["count"] == 2 and entrada["gloss"] == "Ajuste WMS: conteo"
+    assert entrada["externalDocumentID"].startswith("WMS-AJU-")
+
+    assert salida["documentTypeId"] == settings.defontana_adjustment_out_document_type
+    assert salida["originStowageId"] == "BODEGACENTRAL" and salida["destinationStowageId"] is None
+    assert salida["details"][0]["count"] == 3  # cantidad siempre positiva
+    assert salida["reasonId"] == settings.defontana_reception_reason_id  # motivo por defecto

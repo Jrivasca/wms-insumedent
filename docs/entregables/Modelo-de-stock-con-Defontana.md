@@ -19,9 +19,10 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
 
 ## 2. Reglas que se derivan
 
-1. **Toda operación que cambia la cantidad total debe llegar a Defontana.** Recepción, ajuste,
-   merma y transferencia entre bodegas se envían con `Inventory/Insert`. Si el envío falla, la
-   operación queda marcada y visible, no "silenciosamente local".
+1. **Toda operación que cambia la cantidad total debe llegar a Defontana.** Recepción, ajuste y
+   merma se envían con `Inventory/Insert` (módulo Inventario, **contratado**: cubre entradas,
+   ajustes y mermas cambiando el tipo de documento). Si el envío falla, la operación queda
+   marcada y visible, no "silenciosamente local".
 2. **Las operaciones que solo mueven mercadería dentro de la misma bodega son del WMS.**
    Transferencia entre ubicaciones, movimientos de picking a staging y de staging a packing: el
    ERP no modela ubicaciones y su total no cambia, así que no se envían.
@@ -35,10 +36,9 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
 | Funcionalidad | Qué pasa | Por qué |
 |---|---|---|
 | **Recepción de mercadería** | **Se mantiene**, pero obligatoriamente empuja a Defontana (`Inventory/Insert`, ya implementado y apagado hasta confirmar tipo de documento y motivo). Si el push falla, la recepción queda "pendiente de ERP". | Cambia la cantidad total |
-| **Ajuste de inventario** (supervisor) | **Se mantiene, con cambio**: hoy NO se envía a Defontana. Debe enviarse como documento de ajuste (`XAJ_ENT_UN` / `XAJ_SAL_UNID`) o quitarse del WMS y hacerse en el ERP. | Cambia la cantidad total |
-| **Merma** | Igual que el ajuste: enviar como `MM` o hacerla en el ERP. | Cambia la cantidad total |
-| **Transferencia entre bodegas** | **Se mantiene, con cambio**: hoy NO se envía. Debe enviarse con bodega de origen y destino. | Cambia el stock por bodega en el ERP |
-| **Transferencia entre ubicaciones** (misma bodega) | **Se mantiene tal cual**, solo en el WMS. | El ERP no tiene ubicaciones |
+| **Ajuste de inventario** (supervisor) | **Se mantiene.** Ya viaja a Defontana como documento de ajuste de entrada o de salida según el signo (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). | Cambia la cantidad total |
+| **Merma** | Es un ajuste negativo: viaja como ajuste de salida (o `MM`, cambiando la configuración). | Cambia la cantidad total |
+| **Transferencia entre ubicaciones** (misma bodega) | **Se mantiene tal cual**, solo en el WMS. El WMS no tiene transferencia entre bodegas. | El ERP no tiene ubicaciones y el total no cambia |
 | **Picking / packing** | **Sin cambios.** Los movimientos a staging y packing son internos. | El total de la bodega no cambia |
 | **Despacho** | **Sin cambios de modelo**: la guía en Defontana es la que baja el stock. Falta conectar `Order/DispatchOrder` (pendiente de valores). | — |
 | **Lotes y vencimientos** | **Cambian de origen**: se traen del ERP en vez de capturarse solo en la recepción. El WMS sigue asignando en qué ubicación está cada lote. | Decisión tomada |
@@ -58,8 +58,9 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
      deja en una ubicación de entrada (p. ej. `RECEPCION` o `SIN UBICAR`) para que bodega lo
      ubique; lo que falta se descuenta respetando FEFO.
    - Manual primero (botón, con vista previa) y automática después.
-2. **Push a Defontana de ajustes, mermas y transferencias entre bodegas**, con los mismos
-   valores configurables que la recepción.
+2. ~~Push a Defontana de ajustes y mermas~~ **(hecho)**: el ajuste viaja como documento de
+   entrada o de salida, con los mismos valores configurables que la recepción
+   (`DEFONTANA_INVENTORY_SYNC_ENABLED` + tipos de documento y motivo).
 3. **Lotes del ERP en la operación**: al recibir o ubicar, elegir de los lotes que Defontana ya
    conoce, con su vencimiento, en vez de escribirlos a mano.
 4. **Ubicación de lo recibido**: si la recepción se registra en Defontana (por compras), el WMS
@@ -67,10 +68,11 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
 
 ## 5. Preguntas abiertas
 
-1. **¿Dónde se registra la recepción de mercadería: en el WMS o en Defontana (compras)?** Si se
-   registra en Defontana, el WMS solo ubica y no envía nada; si se registra en el WMS, hay que
-   cerrar el tipo de documento y el motivo con Defontana.
-2. **¿Los ajustes y mermas los hará bodega desde el WMS** (y se envían al ERP) **o contabilidad
-   en Defontana**? Si es lo segundo, esas pantallas salen del WMS.
-3. **¿Cada cuánto se concilia?** Diaria de madrugada, o a demanda antes de cada jornada.
-4. **¿Qué hacer con una diferencia grande?** Ajustar igual o dejarla para revisión humana.
+> **Resueltas (2026-09-15):** la recepción y los ajustes/mermas se siguen haciendo **en el WMS**
+> y se envían a Defontana, porque el módulo Inventario contratado lo permite. Queda pendiente
+> solo cerrar con Defontana el **tipo de documento** y el **motivo** de cada caso.
+
+1. **¿Cada cuánto se concilia?** Diaria de madrugada, o a demanda antes de cada jornada.
+2. **¿Qué hacer con una diferencia grande?** Ajustar igual o dejarla para revisión humana.
+3. **¿Y si una recepción se registró en Defontana** (por compras) **y no en el WMS?** La
+   conciliación la traería como stock sin ubicar; hay que confirmar que ese flujo ocurre.
