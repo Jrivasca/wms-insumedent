@@ -212,6 +212,40 @@ export interface ErpStockComparison extends Page<ErpStockRow> {
   };
 }
 
+/** Movimiento que propondría la conciliación para igualar el WMS al ERP. */
+export interface ReconcileAction {
+  type: 'add' | 'remove';
+  location_id?: string | null;
+  location_code?: string | null;
+  lot_number?: string | null;
+  expiration_date?: string | null;
+  quantity: number;
+}
+
+export interface ReconcileRow {
+  sku: string;
+  name?: string | null;
+  storage_code: string;
+  warehouse_name?: string | null;
+  erp_stock: number;
+  wms_stock: number;
+  difference: number;
+  actions: ReconcileAction[];
+  blocked?: string | null;
+}
+
+export interface ReconcilePreview extends Page<ReconcileRow> {
+  summary: {
+    rows: number;
+    to_add: number;
+    to_remove: number;
+    units_to_add: number;
+    units_to_remove: number;
+    blocked: number;
+    snapshot_at?: string | null;
+  };
+}
+
 /** Línea corta de un pedido parcial cuyo faltante ya está cubierto por stock. */
 export interface CompletableOrderLine {
   line_id: string;

@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     defontana_adjustment_reason_id: str = ""
     defontana_business_center: str = "EMPNEGVTAVTA000"
     defontana_reception_centralizable: bool = False
+    # Conciliación WMS ← Defontana: código de la ubicación donde queda lo que aparece de más en
+    # el ERP hasta que bodega lo ubique. Vacío = la primera ubicación de almacenamiento.
+    defontana_reconcile_location_code: str = ""
 
     # Push de altas hacia el ERP (crear producto / pedido / documento de entrada).
     # En operación stand-alone (sin Defontana) va en false: el WMS opera solo y no

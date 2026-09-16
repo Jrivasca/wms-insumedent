@@ -1,5 +1,5 @@
 import { http } from './http';
-import type { DefontanaStatus, ErpStockComparison } from '../types';
+import type { DefontanaStatus, ErpStockComparison, ReconcilePreview } from '../types';
 
 export interface DefontanaConfig {
   environment: string;
@@ -42,6 +42,19 @@ export async function syncOrders(): Promise<{ status: string; summary?: unknown 
 /** Trae la foto de stock de Defontana (no modifica el stock del WMS). */
 export async function syncStock(): Promise<{ status: string; summary?: { products: number; rows: number } }> {
   const { data } = await http.post('/integrations/defontana/sync-stock');
+  return data;
+}
+
+/** Qué ajustaría la conciliación para igualar el WMS al ERP. Solo calcula, no modifica nada. */
+export async function getReconciliationPreview(params: {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ReconcilePreview> {
+  const { data } = await http.get<ReconcilePreview>(
+    '/integrations/defontana/reconciliation-preview',
+    { params }
+  );
   return data;
 }
 

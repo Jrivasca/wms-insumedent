@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import CurrentUser, get_current_user, require_supervisor
 from app.schemas.integration import DefontanaConfigRequest
-from app.services import erp_stock_service, integration_service
+from app.services import erp_reconcile_service, erp_stock_service, integration_service
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/integrations/defontana", tags=["defontana"])
@@ -69,3 +69,15 @@ async def stock_comparison(
     return await erp_stock_service.compare(
         user.tenant_id, only_diff=only_diff, q=q, limit=limit, offset=offset
     )
+
+
+@router.get("/reconciliation-preview")
+async def reconciliation_preview(
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    user: CurrentUser = Depends(require_supervisor),
+):
+    """Qué ajustaría la conciliación para dejar el stock del WMS igual al de Defontana.
+    Solo calcula: no modifica saldos ni movimientos."""
+    return await erp_reconcile_service.preview(user.tenant_id, q=q, limit=limit, offset=offset)

@@ -156,9 +156,12 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   (vía `erp_storage_code`).
 - **Modelo de stock decidido (2026-09-15): manda Defontana; el WMS ubica.** Ver
   `docs/entregables/Modelo-de-stock-con-Defontana.md`. Pendiente de construir:
-  1. **Conciliación WMS ← Defontana** (ajusta los saldos del WMS a los del ERP con movimiento
-     auditable; lo que sobra queda en una ubicación de entrada para ubicar; lo que falta se
-     descuenta por FEFO). Manual con vista previa primero, automática después.
+  1. **Conciliación WMS ← Defontana**: *(vista previa hecha)* Inventario → Stock ERP vs WMS →
+     "Calcular conciliación" muestra qué sumaría (con los lotes del ERP, en la ubicación de
+     entrada configurable `DEFONTANA_RECONCILE_LOCATION_CODE`) y qué descontaría por FEFO, sin
+     modificar nada. **Falta el "aplicar"**: escribir los ajustes con movimiento auditable
+     (esos ajustes NO deben viajar a Defontana) y luego automatizarlo. Pendiente definir cada
+     cuánto corre y qué hacer con diferencias grandes.
   2. ~~Push de ajustes y mermas~~ *(hecho)*: el ajuste viaja a `Inventory/Insert` como documento
      de entrada o salida (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). El WMS no tiene
      transferencia entre bodegas, y la de ubicaciones no cambia el total: no se envía.
