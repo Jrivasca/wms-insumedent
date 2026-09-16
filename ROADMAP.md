@@ -153,8 +153,19 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 - **Informe "Stock ERP vs WMS"** *(hecho, informativo)*: "Traer stock de Defontana"
   (`Inventory/GetFutureStockInfo`: actual, reservado, por recibir) guarda una foto en
   `erp_stock`; Inventario → Stock ERP vs WMS la cruza con los saldos del WMS por SKU y bodega
-  (vía `erp_storage_code`). **Decisión pendiente: quién manda sobre el stock** (WMS o
-  Defontana); hasta entonces nada de esto modifica saldos.
+  (vía `erp_storage_code`).
+- **Modelo de stock decidido (2026-09-15): manda Defontana; el WMS ubica.** Ver
+  `docs/entregables/Modelo-de-stock-con-Defontana.md`. Pendiente de construir:
+  1. **Conciliación WMS ← Defontana** (ajusta los saldos del WMS a los del ERP con movimiento
+     auditable; lo que sobra queda en una ubicación de entrada para ubicar; lo que falta se
+     descuenta por FEFO). Manual con vista previa primero, automática después.
+  2. **Push de ajustes, mermas y transferencias entre bodegas** a `Inventory/Insert` (hoy solo
+     la recepción empuja): si no, el WMS y el ERP se descuadran.
+  3. **Lotes del ERP en la operación** (elegir lote conocido con su vencimiento al recibir/ubicar).
+  4. **Ubicar stock recibido en Defontana** sin volver a sumarlo en el WMS.
+
+  Preguntas abiertas en el documento: dónde se registra la recepción, quién hace ajustes y
+  mermas, cada cuánto se concilia y qué hacer con diferencias grandes.
 - **Bodegas** *(hecho)*: se administran **solo en el WMS**; se eliminó la sincronización de
   bodegas desde Defontana (botón, endpoint, job y conector).
 
