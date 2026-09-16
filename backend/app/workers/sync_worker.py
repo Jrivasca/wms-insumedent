@@ -15,7 +15,9 @@ from app.core.logging import configure_logging, get_logger
 from app.core.utils import now_utc, to_object_id
 from app.models import Collections
 from app.models.dispatch import DispatchStatus
+from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobStatus, SyncJobType
+from app.services import notification_service
 from app.integrations.defontana import (
     dispatch_sync,
     inventory_sync,
@@ -171,6 +173,16 @@ async def process_job(job: Dict[str, Any]) -> None:
                 "Job %s (%s) failed permanently after %s attempts: %s",
                 job["_id"], job_type, attempts, exc,
             )
+            # Sin aviso, un envío perdido descuadra el WMS y Defontana en silencio.
+            await notification_service.emit(
+                tenant_id=job["tenant_id"],
+                notification_type=NotificationType.SYNC_JOB_FAILED.value,
+                title=f"Falló el envío a Defontana ({job_type})",
+                body=f"Tras {attempts} intentos: {str(exc)[:200]}",
+                entity_type="sync_job",
+                entity_id=str(job["_id"]),
+                metadata={"job_type": job_type, "attempts": attempts},
+            )
         await db[Collections.SYNC_JOBS].update_one({"_id": job["_id"]}, {"$set": update})
 
 
@@ -190,14 +202,14 @@ async def run_forever() -> None:
 
 async def _run_all() -> None:
     """Run the ERP sync-job drain, the folder-watch intake, the near-expiry watch and the
-    Defontana orders auto-sync (off unless DEFONTANA_ORDERS_SYNC_ENABLED)."""
-    from app.workers import expiry_watch, folder_intake, orders_watch
+    Defontana scheduler (orders / stock; off unless their flags are on)."""
+    from app.workers import defontana_scheduler, expiry_watch, folder_intake
 
     await asyncio.gather(
         run_forever(),
         folder_intake.run_forever(),
         expiry_watch.run_forever(),
-        orders_watch.run_forever(),
+        defontana_scheduler.run_forever(),
     )
 
 

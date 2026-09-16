@@ -40,3 +40,5 @@ class Collections:
     # (Inventory/GetBatchesInfo) y foto de stock por bodega (Inventory/GetFutureStockInfo).
     ERP_BATCHES = "erp_batches"
     ERP_STOCK = "erp_stock"
+    # Última corrida de cada tarea periódica de Defontana, por empresa (sobrevive reinicios).
+    SCHEDULER_RUNS = "scheduler_runs"

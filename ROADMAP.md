@@ -109,11 +109,19 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   precio 0), pero el envío está **apagado** hasta confirmar valores:
   `DEFONTANA_RECEPTION_SYNC_ENABLED` + `DEFONTANA_RECEPTION_DOCUMENT_TYPE` /
   `_REASON_ID` / `DEFONTANA_BUSINESS_CENTER` / `_CENTRALIZABLE`.
-- **Sync automático de pedidos** *(listo, apagado por defecto)*. Tarea del worker
-  (`orders_watch`): cada `DEFONTANA_ORDERS_SYNC_INTERVAL_MINUTES` dentro de
-  `DEFONTANA_ORDERS_SYNC_HOURS` (hora de `DEFONTANA_TIMEZONE`, días hábiles), por empresa
-  conectada; la pantalla de Defontana muestra la última corrida. Activar con
-  `DEFONTANA_ORDERS_SYNC_ENABLED=true`.
+- **Sincronizaciones automáticas** *(listas, apagadas por defecto)*. Un solo programador en el
+  worker (`defontana_scheduler`), con la última corrida guardada por empresa en
+  `scheduler_runs` (sobrevive reinicios):
+  | Nivel | Qué | Cuándo | Flag |
+  |---|---|---|---|
+  | Transaccional | Recepción, ajuste y despacho → ERP | Al instante, cola `sync_jobs` con 5 reintentos (30 s → 8 min) | `ERP_SYNC_ENABLED` + `DEFONTANA_INVENTORY_SYNC_ENABLED` |
+  | Frecuente | Pedidos por despachar | Cada `DEFONTANA_ORDERS_SYNC_INTERVAL_MINUTES` dentro de `DEFONTANA_ORDERS_SYNC_HOURS` (hora de `DEFONTANA_TIMEZONE`, días hábiles) | `DEFONTANA_ORDERS_SYNC_ENABLED` |
+  | Diaria | Lotes + foto de stock del ERP | `DEFONTANA_STOCK_SYNC_AT` (03:30); si falla, reintenta a la hora siguiente | `DEFONTANA_STOCK_SYNC_ENABLED` |
+  | A demanda | Botones de la pantalla de Defontana e informe de stock | Cuando alguien lo pide | — |
+
+  Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
+  (notificación `sync_job_failed`, lleva a la Cola de Sincronización): antes quedaba
+  descuadrado en silencio.
 - **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(pendiente de valores)*. Falta el
   mapeo de `dispatchInfo` (tipo de bien `1` "Constituye una venta", tipo de despacho `1` "Por
   cuenta del cliente") y `originStorageInfo.motive`.

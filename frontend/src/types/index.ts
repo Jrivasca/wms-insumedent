@@ -23,6 +23,8 @@ export type NotificationType =
   | 'order_dispatched'
   | 'stock_zero'
   | 'receipt_unblocks_order'
+  | 'erp_order_changed'
+  | 'sync_job_failed'
   | string;
 
 export interface AppNotification {
@@ -431,6 +433,8 @@ export interface DefontanaStatus {
   };
   /** Última foto de stock traída de Defontana (Inventory/GetFutureStockInfo). */
   last_stock_sync_at?: string | null;
+  /** Última sincronización de lotes (Inventory/GetBatchesInfo). */
+  last_lots_sync_at?: string | null;
   orders_auto_sync?: {
     enabled: boolean;
     interval_minutes: number;

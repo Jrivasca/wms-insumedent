@@ -17,6 +17,7 @@ const TYPE_ICON: Record<string, string> = {
   stock_zero: '⚠️',
   receipt_unblocks_order: '📥',
   erp_order_changed: '🔄',
+  sync_job_failed: '❌',
 };
 
 function timeAgo(iso: string): string {
@@ -36,6 +37,7 @@ function timeAgo(iso: string): string {
 function targetFor(n: AppNotification): string | null {
   // Pedidos listos para completar: la lista vive en "Mis tareas de picking".
   if (n.type === 'receipt_unblocks_order') return '/my/picking';
+  if (n.type === 'sync_job_failed') return '/sync-jobs';
   if (n.entity_type === 'product' && n.entity_id) return `/products/${n.entity_id}`;
   if (n.entity_type === 'order') return '/orders';
   return null;

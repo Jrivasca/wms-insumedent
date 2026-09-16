@@ -1,18 +1,19 @@
-"""Automatizaciones de Defontana: horario del sync automático de pedidos, su corrida por
-empresa y payload real de la recepción hacia Inventory/Insert."""
-from datetime import date, datetime
+"""Automatizaciones de Defontana: programador de tareas (pedidos cada X minutos en horario
+hábil, lotes + stock una vez al día), aviso de envío fallido y payload real de la recepción y
+del ajuste hacia Inventory/Insert."""
+from datetime import date, datetime, timezone
 
 import pytest
 
 from app.core.config import settings
 from app.core.database import get_database
 from app.core.tenant_db import tenant_db
-from app.integrations.defontana import order_sync
+from app.integrations.defontana import order_sync, product_sync, stock_sync
 from app.integrations.defontana.mapper import DefontanaMapper
 from app.integrations.defontana.schedule import within_schedule
 from app.models import Collections
 from app.services import integration_service, inventory_service
-from app.workers import orders_watch
+from app.workers import defontana_scheduler, sync_worker
 
 pytestmark = pytest.mark.asyncio
 
@@ -49,7 +50,15 @@ async def test_within_schedule(when, hours, weekdays_only, expected):
 # ---------------------------------------------------------------------------
 # Sync automático de pedidos
 # ---------------------------------------------------------------------------
-async def test_orders_watch_syncs_each_active_tenant_and_records_the_result(monkeypatch):
+def _enable_orders(monkeypatch):
+    monkeypatch.setattr(settings, "defontana_mock", False)
+    monkeypatch.setattr(settings, "defontana_orders_sync_enabled", True)
+    monkeypatch.setattr(settings, "defontana_stock_sync_enabled", False)
+    monkeypatch.setattr(settings, "defontana_orders_sync_hours", "00:00-23:59")
+    monkeypatch.setattr(settings, "defontana_orders_sync_weekdays_only", False)
+
+
+async def test_scheduler_runs_orders_for_each_active_tenant_and_records_the_result(monkeypatch):
     ok_tenant, failing_tenant, disabled_tenant = await _tenant(), await _tenant(), await _tenant()
     await _connection(ok_tenant)
     await _connection(failing_tenant, status="error")
@@ -62,19 +71,102 @@ async def test_orders_watch_syncs_each_active_tenant_and_records_the_result(monk
             raise RuntimeError("Defontana no responde")
         return {"listed": 3, "synced": 1, "created": 1, "updated": 0, "cancelled": 0, "flagged": 0}
 
+    _enable_orders(monkeypatch)
     monkeypatch.setattr(order_sync, "sync_orders", fake_sync)
 
-    assert await orders_watch.run_once() == 1
+    assert await defontana_scheduler.run_due() == {"orders": 1}
 
     assert {t for t, _ in synced} == {ok_tenant, failing_tenant}  # la deshabilitada no corre
-    assert all(actor == orders_watch.AUTO_SYNC_ACTOR for _, actor in synced)
+    assert all(actor == defontana_scheduler.SCHEDULER_ACTOR for _, actor in synced)
     ok_conn = await tenant_db(ok_tenant)[Collections.ERP_CONNECTIONS].find_one({"erp": "defontana"})
-    assert ok_conn["last_orders_sync_summary"]["created"] == 1
-    assert ok_conn["last_orders_sync_error"] is None and ok_conn["last_orders_sync_at"]
-    bad_conn = await tenant_db(failing_tenant)[Collections.ERP_CONNECTIONS].find_one({"erp": "defontana"})
-    assert "no responde" in bad_conn["last_orders_sync_error"]
-    off_conn = await tenant_db(disabled_tenant)[Collections.ERP_CONNECTIONS].find_one({"erp": "defontana"})
-    assert "last_orders_sync_at" not in off_conn
+    assert ok_conn["last_orders_sync_summary"]["created"] == 1 and ok_conn["last_orders_sync_at"]
+
+    runs = get_database()[Collections.SCHEDULER_RUNS]
+    assert (await runs.find_one({"task": "orders", "tenant_id": ok_tenant}))["last_success_at"]
+    fallida = await runs.find_one({"task": "orders", "tenant_id": failing_tenant})
+    assert "no responde" in fallida["last_error"] and fallida.get("last_success_at") is None
+    assert not await runs.find_one({"task": "orders", "tenant_id": disabled_tenant})
+
+    # Enseguida no vuelve a correr: no pasó el intervalo.
+    synced.clear()
+    assert await defontana_scheduler.run_due() == {}
+    assert synced == []
+
+
+async def test_daily_stock_task_runs_lots_and_stock_once_a_day(monkeypatch):
+    tenant_id = await _tenant()
+    await _connection(tenant_id)
+    calls = []
+
+    async def fake_lots(tid, actor="system"):
+        calls.append("lotes")
+        return {"synced": 5, "batches": 9}
+
+    async def fake_stock(tid, actor="system"):
+        calls.append("stock")
+        return {"products": 7, "rows": 7}
+
+    monkeypatch.setattr(settings, "defontana_mock", False)
+    monkeypatch.setattr(settings, "defontana_orders_sync_enabled", False)
+    monkeypatch.setattr(settings, "defontana_stock_sync_enabled", True)
+    monkeypatch.setattr(settings, "defontana_stock_sync_at", "03:30")
+    monkeypatch.setattr(product_sync, "sync_products", fake_lots)
+    monkeypatch.setattr(stock_sync, "sync_erp_stock", fake_stock)
+
+    antes = datetime(2026, 9, 16, 3, 0, tzinfo=timezone.utc)
+    despues = datetime(2026, 9, 16, 4, 0, tzinfo=timezone.utc)
+    assert await defontana_scheduler.run_due(antes) == {}  # todavía no es la hora
+    assert calls == []
+
+    assert await defontana_scheduler.run_due(despues) == {"stock": 1}
+    assert calls == ["lotes", "stock"]
+    conn = await tenant_db(tenant_id)[Collections.ERP_CONNECTIONS].find_one({"erp": "defontana"})
+    assert conn["last_lots_sync_at"]
+
+    calls.clear()
+    assert await defontana_scheduler.run_due(despues) == {}  # ya corrió hoy
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "last_attempt,last_success,expected",
+    [
+        (None, None, True),                                                  # nunca corrió
+        (datetime(2026, 9, 16, 3, 31, tzinfo=timezone.utc), datetime(2026, 9, 16, 3, 31, tzinfo=timezone.utc), False),  # ya corrió hoy
+        (datetime(2026, 9, 16, 4, 30, tzinfo=timezone.utc), None, False),     # falló recién: espera
+        (datetime(2026, 9, 16, 3, 0, tzinfo=timezone.utc), datetime(2026, 9, 15, 3, 31, tzinfo=timezone.utc), True),  # falló hace rato
+    ],
+)
+async def test_daily_task_retries_only_after_a_while(last_attempt, last_success, expected):
+    task = defontana_scheduler.Task(name="stock", run=None, daily_at="03:30")
+    now = datetime(2026, 9, 16, 5, 0, tzinfo=timezone.utc)
+    assert defontana_scheduler.is_due(task, now, last_attempt, last_success) is expected
+
+
+async def test_a_permanently_failed_sync_job_notifies_supervisors(monkeypatch):
+    tenant_id = await _tenant()
+    db = get_database()
+    supervisor = str((await db[Collections.USERS].insert_one(
+        {"tenant_id": tenant_id, "role": "supervisor", "is_active": True, "email": "sup@x.cl"}
+    )).inserted_id)
+
+    async def failing_handler(job):
+        raise RuntimeError("Defontana rechazó el documento")
+
+    monkeypatch.setitem(sync_worker.HANDLERS, "create_inventory_document", failing_handler)
+    job = await db[Collections.SYNC_JOBS].insert_one({
+        "tenant_id": tenant_id, "job_type": "create_inventory_document", "payload": {},
+        "status": "retrying", "attempts": 4, "max_attempts": 5,
+    })
+
+    await sync_worker.process_job(await db[Collections.SYNC_JOBS].find_one({"_id": job.inserted_id}))
+
+    after = await db[Collections.SYNC_JOBS].find_one({"_id": job.inserted_id})
+    assert after["status"] == "failed"
+    alerta = await tenant_db(tenant_id)[Collections.NOTIFICATIONS].find_one(
+        {"user_id": supervisor, "type": "sync_job_failed"}
+    )
+    assert alerta and "rechazó" in alerta["body"] and alerta["entity_type"] == "sync_job"
 
 
 async def test_status_reports_auto_sync_state(monkeypatch):

@@ -46,6 +46,7 @@ async def get_status(tenant_id: str, include_credentials: bool = False) -> Dict[
             "last_check_at": None,
             "last_error": None,
             "last_stock_sync_at": None,
+            "last_lots_sync_at": None,
             "orders_auto_sync": _orders_auto_sync(None),
         }
     data = serialize(conn)
@@ -59,6 +60,7 @@ async def get_status(tenant_id: str, include_credentials: bool = False) -> Dict[
         "last_check_at": data.get("last_check_at"),
         "last_error": data.get("last_error"),
         "last_stock_sync_at": data.get("last_stock_sync_at"),
+        "last_lots_sync_at": data.get("last_lots_sync_at"),
         "orders_auto_sync": _orders_auto_sync(data),
     }
     if include_credentials:

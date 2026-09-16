@@ -23,6 +23,8 @@ def _entity_url(
     """Where a notification points in the web app (the order list has no per-id page)."""
     if notification_type == NotificationType.RECEIPT_UNBLOCKS_ORDER.value:
         return "/my/picking"  # floor roles can't open /orders; the list lives here
+    if notification_type == NotificationType.SYNC_JOB_FAILED.value:
+        return "/sync-jobs"
     if entity_type == "product" and entity_id:
         return f"/products/{entity_id}"
     if entity_type == "order":

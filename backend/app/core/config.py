@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     defontana_orders_sync_interval_minutes: int = 15
     defontana_orders_sync_hours: str = "08:00-19:00"
     defontana_orders_sync_weekdays_only: bool = True
+    # Sincronización diaria de lotes + foto de stock del ERP (de madrugada: son ~70 llamadas).
+    defontana_stock_sync_enabled: bool = False
+    defontana_stock_sync_at: str = "03:30"
     defontana_timezone: str = "America/Santiago"
     # Movimientos del WMS que cambian la cantidad total (recepción y ajuste/merma) →
     # Inventory/Insert. Estructura probada en pruebas; los valores (tipo de documento, motivo,

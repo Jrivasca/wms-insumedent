@@ -20,6 +20,9 @@ class NotificationType(str, Enum):
     # Entró stock que permite completar pedidos que quedaron parciales (levantamiento
     # de alertas, Req. 1): el operario los retoma sin esperar aviso del jefe.
     RECEIPT_UNBLOCKS_ORDER = "receipt_unblocks_order"
+    # Un envío al ERP agotó sus reintentos: alguien tiene que revisarlo, si no el WMS y
+    # Defontana quedan descuadrados en silencio.
+    SYNC_JOB_FAILED = "sync_job_failed"
     # Un pedido importado de Defontana se anuló / cerró / despachó allá: se canceló solo en
     # el WMS o, si ya estaba en preparación, requiere revisión de un supervisor.
     ERP_ORDER_CHANGED = "erp_order_changed"
@@ -37,4 +40,5 @@ NOTIFICATION_AUDIENCE = {
     NotificationType.STOCK_EXPIRING.value: {"admin", "supervisor"},
     NotificationType.RECEIPT_UNBLOCKS_ORDER.value: {"admin", "supervisor", "picker", "packer"},
     NotificationType.ERP_ORDER_CHANGED.value: {"admin", "supervisor"},
+    NotificationType.SYNC_JOB_FAILED.value: {"admin", "supervisor"},
 }
