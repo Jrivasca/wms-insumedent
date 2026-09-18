@@ -329,9 +329,11 @@ export default function Layout({ children }: { children: ReactNode }) {
           >
             <Menu className="h-6 w-6" />
           </button>
-          <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-slate-900 md:text-lg">
+          {/* Contexto de navegación, no el título del documento: el <h1> lo pone cada
+              pantalla (PageHeader o el encabezado propio de las tareas). */}
+          <p className="min-w-0 flex-1 truncate text-base font-semibold text-slate-900 md:text-lg">
             {title}
-          </h1>
+          </p>
           <div className="flex shrink-0 items-center gap-1 text-slate-600">
             <NotificationBell />
           </div>
