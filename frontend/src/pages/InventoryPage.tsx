@@ -9,24 +9,10 @@ import DataTable, { MobileCardList, type Column } from '../components/DataTable'
 import LocationCombobox from '../components/LocationCombobox';
 import Pager from '../components/Pager';
 import SearchInput from '../components/SearchInput';
+import { movementLabel } from '../lib/inventory';
 import type { InventoryBalance, InventoryMovement, Warehouse } from '../types';
 
 const PAGE = 50;
-
-/** Tipos de movimiento del backend (MovementType), en español. */
-const MOVEMENT_LABELS: Record<string, string> = {
-  receipt: 'Recepción',
-  pick: 'Picking',
-  pack: 'Packing',
-  dispatch: 'Despacho',
-  adjustment: 'Ajuste',
-  transfer: 'Transferencia',
-  count_adjustment: 'Ajuste por conteo',
-};
-
-function movementLabel(type: string): string {
-  return MOVEMENT_LABELS[type] ?? type;
-}
 
 export default function InventoryPage() {
   const [balances, setBalances] = useState<InventoryBalance[]>([]);
