@@ -19,12 +19,15 @@ export default function DataTable<T>({
   rows,
   keyOf,
   onRowClick,
+  rowClassName,
   className = '',
 }: {
   columns: Column<T>[];
   rows: T[];
   keyOf: (row: T) => string;
   onRowClick?: (row: T) => void;
+  /** Clases extra por fila: sirve para marcar la fila abierta o destacar un problema. */
+  rowClassName?: (row: T) => string | undefined;
   className?: string;
 }) {
   return (
@@ -50,7 +53,7 @@ export default function DataTable<T>({
             <tr
               key={keyOf(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              className={onRowClick ? 'cursor-pointer' : undefined}
+              className={`${onRowClick ? 'cursor-pointer' : ''} ${rowClassName?.(row) ?? ''}`}
             >
               {columns.map((c) => (
                 <td
