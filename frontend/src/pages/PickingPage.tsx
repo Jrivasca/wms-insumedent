@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, RotateCcw } from 'lucide-react';
 import { listPickingTasks } from '../api/picking';
+import { listUsers } from '../api/users';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
@@ -38,6 +39,7 @@ export default function PickingPage() {
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
+  const [userNames, setUserNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,16 +63,33 @@ export default function PickingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
+  // Las tareas traen el id del usuario asignado; acá se muestra su nombre.
+  useEffect(() => {
+    listUsers()
+      .then((us) => {
+        const map: Record<string, string> = {};
+        for (const u of us) map[u.id] = u.name;
+        setUserNames(map);
+      })
+      .catch(() => undefined); // sin nombres se muestra el id, no se rompe la pantalla
+  }, []);
+
+  function assignedName(id?: string): string {
+    if (!id) return 'Sin asignar';
+    return userNames[id] ?? id;
+  }
+
   // El backend no busca por texto en tareas: este filtro actúa sobre las filas cargadas.
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return tasks;
     return tasks.filter((t) =>
-      [t.erp_order_number, t.order_id, t.assigned_to, t.id]
+      [t.erp_order_number, t.order_id, t.assigned_to, assignedName(t.assigned_to), t.id]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q))
     );
-  }, [tasks, query]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, query, userNames]);
 
   const columns: Column<PickingTask>[] = [
     {
@@ -96,7 +115,7 @@ export default function PickingPage() {
       key: 'assigned',
       header: 'Responsable',
       secondary: true,
-      render: (t) => <span className="text-slate-600">{t.assigned_to ?? 'Sin asignar'}</span>,
+      render: (t) => <span className="text-slate-600">{assignedName(t.assigned_to)}</span>,
     },
     {
       key: 'lines',
@@ -195,7 +214,7 @@ export default function PickingPage() {
                         <StatusBadge status={t.status} />
                       </span>
                       <span className="mt-1 block text-xs text-slate-500">
-                        {t.lines.length} línea(s) · {t.assigned_to ?? 'sin asignar'}
+                        {t.lines.length} línea(s) · {assignedName(t.assigned_to)}
                       </span>
                       <span className="mt-1 block">
                         <ProgressBar value={picked} total={required} unit="u" />
