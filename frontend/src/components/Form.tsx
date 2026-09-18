@@ -92,10 +92,10 @@ export function ProductPicker({
     return (
       <div>
         <label className="label">Producto</label>
-        <div className="flex items-center justify-between rounded-md border border-slate-300 bg-slate-50 px-3 py-2">
-          <div>
-            <div className="font-medium">{value.name}</div>
-            <div className="font-mono text-xs text-slate-500">{value.sku}</div>
+        <div className="flex min-h-touch items-center justify-between gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2">
+          <div className="min-w-0">
+            <div className="truncate font-medium">{value.name}</div>
+            <div className="code">{value.sku}</div>
           </div>
           <button type="button" onClick={() => onChange(null)} className="text-xs font-medium text-brand underline">
             Cambiar
@@ -116,7 +116,7 @@ export function ProductPicker({
       />
       {searching && <div className="mt-1 text-xs text-slate-400">Buscando…</div>}
       {results.length > 0 && (
-        <div className="mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-sm">
+        <div className="mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-raised">
           {results.map((p) => (
             <button
               type="button"
@@ -126,10 +126,10 @@ export function ProductPicker({
                 setQuery('');
                 setResults([]);
               }}
-              className="block w-full px-3 py-2 text-left text-sm hover:bg-blue-50"
+              className="block min-h-touch w-full px-3 py-2 text-left text-sm hover:bg-brand-soft"
             >
               <span className="font-medium">{p.name}</span>{' '}
-              <span className="font-mono text-xs text-slate-500">· {p.sku}</span>
+              <span className="code">· {p.sku}</span>
             </button>
           ))}
         </div>
