@@ -101,10 +101,13 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   se puede editar en estado P**; el ambiente de pruebas se atrasó por un problema interno y
   se actualiza el fin de semana. Pendiente sin respuesta: qué proceso usa hoy el usuario
   `INTEGRACION`.
-- **Flujo 2 — Recepción → `Inventory/Insert`** *(estructura probada en pruebas; faltan
-  definiciones)*. Funcionó con motivo `COMPRA` y centro de negocio `EMPNEGVTAVTA000`. Pendiente
-  confirmar tipo de documento (`PE` / `MOV001` / `XAJ_ENT_UN`, impacto contable), motivo,
-  centro de negocio y si va el RUT del proveedor. El WMS ya arma el payload real
+- **Flujo 2 — Recepción y ajustes → `Inventory/Insert`** *(estructura probada en pruebas;
+  faltan definiciones del cliente)*. Funcionó con motivo `COMPRA` y centro de negocio
+  `EMPNEGVTAVTA000`. Defontana respondió (2026-09-17) que **el tipo de documento, el motivo y
+  el centro de negocio los define Insumedent**, no ellos; por experiencia sugieren **Parte de
+  Entrada (`PE`)** para ingresar stock. Motivos disponibles: `COMPRA`, `DEVOLUCION`, `ENTRADA`,
+  `SALIDA`, `TRASPASO`, `VENTA` (ERP → Configuración → Inventario → Motivos de Movimiento).
+  `providerId` depende de la configuración del tipo de movimiento. El WMS ya arma el payload real
   (`DefontanaMapper.build_inventory_entry`, con lotes y vencimiento; probado en pruebas con
   precio 0), pero el envío está **apagado** hasta confirmar valores:
   `DEFONTANA_RECEPTION_SYNC_ENABLED` + `DEFONTANA_RECEPTION_DOCUMENT_TYPE` /

@@ -93,17 +93,39 @@ candidatos para las recepciones del WMS:
 | `XAJ_ENT_UN` | Ajuste entrada unidades | No ("Sin Centralización") |
 | `GDVELECT` | 52 Guía de Despacho Electrónica | Sí (`INV_GDVELECT`) |
 
-### Preguntas a Defontana (reemplazan las del §9)
+### Respuestas de Defontana (soporte, 2026-09-15 y 2026-09-17)
 
-1. **Recepción desde el WMS:** qué **tipo de documento** corresponde (`PE`, `MOV001` o
-   `XAJ_ENT_UN`; impacto contable), qué **motivo** usar para una entrada por compra (probamos
-   `COMPRA`) y dónde se consulta la lista, qué **centro de negocio** corresponde a inventario
-   (probamos `EMPNEGVTAVTA000`) y si se informa el RUT del proveedor en `providerId`.
+- **Pedidos:** el filtro `Status` de `Order/List` acepta **un solo código por consulta**. Ciclo
+  del pedido: **P → AC → AF → EEX**, y puede pasar a `D..` si la guía se emite en el ERP. **Un
+  pedido solo se puede editar en estado P.**
+- **Motivos de movimiento de inventario** (ERP → Configuración → Inventario → Motivos de
+  Movimiento): `COMPRA`, `DEVOLUCION`, `ENTRADA`, `SALIDA`, `TRASPASO`, `VENTA`.
+- **Tipo de documento para ingresar stock:** por experiencia con otros clientes, Defontana
+  sugiere **Parte de Entrada (`PE`)**, pero es una **definición del cliente** según el efecto
+  contable que busque. Igual para ajustes/mermas (`XAJ_*` vs `MM`).
+- **Centro de negocio:** también lo define el cliente por flujo. Soporte indicó consultarlo con
+  `api/Accounting/BusinessCenterPlan`, pero **no sirve para Insumedent**: la ruta real es
+  `api/Accounting/GetBusinessCenterPlan` (la otra da 404) y responde "la empresa INSUMEDENT SPA
+  no tiene habilitada la funcionalidad" porque **Contabilidad no está contratado**. Hay que
+  verlo en el ERP web (Configuración → Contabilidad → Centros de negocio).
+- **`providerId`:** depende de cómo esté configurado el tipo de movimiento de inventario usado.
+- **Usuarios de API:** en el **ambiente de pruebas** se puede usar cualquiera de los tres
+  (`APPTOMATOR`, `REPLICACION`, `INTEGRACION`).
+- **Ambiente de pruebas:** el desfase es de una semana por diseño; el atraso de esta semana fue
+  un problema interno y se corrige el fin de semana.
+
+### Pendientes
+
+1. **Decisiones del cliente (Insumedent), no de Defontana:** tipo de documento para recepción y
+   para ajuste/merma, motivo a usar en cada flujo y centro de negocio de los movimientos de
+   inventario.
 2. **Guía con `Order/DispatchOrder`:** mapeo de tipo de bien `1` / tipo de despacho `1` a
    `dispatchInfo.assetsType` / `dispatchType` / `transactionType`, valor de
    `originStorageInfo.motive` y campos realmente obligatorios; idealmente un JSON de ejemplo.
-3. **Usuario `INTEGRACION`:** qué proceso emite hoy guías de despacho con ese usuario.
-4. Por qué la copia de pruebas no se actualiza desde el 2026-08-06.
+3. **Usuario de API en producción:** qué proceso emite hoy guías con `INTEGRACION` allá (en
+   pruebas ya está aclarado), para que el WMS use uno propio y no le invalide el token.
+4. **Reemplazo de productos** en un pedido ya aprobado (ver `Modelo-de-stock-con-Defontana.md`):
+   consulta pendiente de definir con el negocio antes de llevarla a Defontana.
 5. Confirmar que `Sale/*` no estará disponible en producción al no haber contratado Ventas.
 
 ---
