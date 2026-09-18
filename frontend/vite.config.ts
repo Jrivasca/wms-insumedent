@@ -38,5 +38,11 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    watch: {
+      // Los montajes de Windows/OneDrive en Docker no emiten eventos de archivo: sin sondeo,
+      // el contenedor no ve los cambios y hay que reiniciarlo en cada edición.
+      usePolling: true,
+      interval: 300,
+    },
   },
 });
