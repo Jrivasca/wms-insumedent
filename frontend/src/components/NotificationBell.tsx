@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { ComponentType } from 'react';
+import {
+  AlertTriangle,
+  Bell,
+  BellRing,
+  CheckCheck,
+  CircleAlert,
+  Package,
+  PackagePlus,
+  RefreshCw,
+  Truck,
+} from 'lucide-react';
 import type { AppNotification } from '../types';
 import {
   listNotifications,
@@ -11,14 +23,17 @@ import { disablePush, enablePush, getPushState, type PushState } from '../push';
 
 const POLL_MS = 45_000;
 
-const TYPE_ICON: Record<string, string> = {
-  order_created: '📦',
-  order_dispatched: '🚚',
-  stock_zero: '⚠️',
-  receipt_unblocks_order: '📥',
-  erp_order_changed: '🔄',
-  sync_job_failed: '❌',
+/** Icono y color por tipo: el color indica si hay que actuar (ámbar/rojo) o solo enterarse. */
+const TYPE_ICON: Record<string, { Icon: ComponentType<{ className?: string }>; className: string }> = {
+  order_created: { Icon: Package, className: 'text-brand-dark' },
+  order_dispatched: { Icon: Truck, className: 'text-brand-dark' },
+  stock_zero: { Icon: AlertTriangle, className: 'text-amber-600' },
+  receipt_unblocks_order: { Icon: PackagePlus, className: 'text-emerald-600' },
+  erp_order_changed: { Icon: RefreshCw, className: 'text-amber-600' },
+  sync_job_failed: { Icon: CircleAlert, className: 'text-red-600' },
 };
+
+const DEFAULT_ICON = { Icon: Bell, className: 'text-slate-400' };
 
 function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();
@@ -141,20 +156,7 @@ export default function NotificationBell() {
         className="relative rounded-full p-2 hover:bg-black/10"
         aria-label="Notificaciones"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={1.8}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
-          />
-        </svg>
+        {count > 0 ? <BellRing className="h-6 w-6" /> : <Bell className="h-6 w-6" />}
         {count > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
             {count > 9 ? '9+' : count}
@@ -169,8 +171,9 @@ export default function NotificationBell() {
             <button
               type="button"
               onClick={onMarkAll}
-              className="text-xs font-medium text-brand hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline"
             >
+              <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
               Marcar todas
             </button>
           </div>
@@ -189,7 +192,7 @@ export default function NotificationBell() {
                   className="font-medium text-brand hover:underline disabled:opacity-50"
                 >
                   {push === 'enabled'
-                    ? '🔔 Push activado en este dispositivo · desactivar'
+                    ? 'Push activado en este dispositivo · desactivar'
                     : 'Activar notificaciones push en este dispositivo'}
                 </button>
               )}
@@ -214,7 +217,10 @@ export default function NotificationBell() {
                         n.read_at ? '' : 'bg-brand/5'
                       }`}
                     >
-                      <span className="text-lg leading-none">{TYPE_ICON[n.type] ?? '🔔'}</span>
+                      {(() => {
+                        const { Icon, className } = TYPE_ICON[n.type] ?? DEFAULT_ICON;
+                        return <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${className}`} />;
+                      })()}
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
                           <span className="truncate text-sm font-semibold">{n.title}</span>

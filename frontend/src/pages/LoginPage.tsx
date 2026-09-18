@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { errorMessage } from '../api/http';
 import { isOperario, useAuth } from '../store/auth';
@@ -11,10 +11,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Already logged in.
-  if (token && currentUser) {
-    navigate(isOperario(currentUser.role) ? '/my/picking' : '/', { replace: true });
-  }
+  // Ya hay sesión: redirigir desde un efecto, no durante el render.
+  useEffect(() => {
+    if (token && currentUser) {
+      navigate(isOperario(currentUser.role) ? '/my/picking' : '/', { replace: true });
+    }
+  }, [token, currentUser, navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,9 +33,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-900 p-4">
-      <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-graphite-950 p-4">
+      <div className="w-full max-w-sm rounded-card bg-white p-6 shadow-raised">
         <div className="mb-6 text-center">
+          <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-md bg-brand text-lg font-bold text-white">
+            S
+          </span>
           <h1 className="text-2xl font-bold text-slate-900">Selarix WMS</h1>
           <p className="text-sm font-medium text-slate-600">Insumedent</p>
           <p className="text-sm text-slate-500">Inicie sesión para continuar</p>
