@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
+import { CheckCheck } from 'lucide-react';
 import { createTransfer } from '../api/inventory';
-import { listWarehouses, listLocations } from '../api/warehouses';
+import { listWarehouses } from '../api/warehouses';
 import { errorMessage } from '../api/http';
 import { ErrorBox, PageHeader } from '../components/Async';
 import { Field, ProductPicker, SelectField } from '../components/Form';
-import type { Location, Product, Warehouse } from '../types';
+import LocationCombobox from '../components/LocationCombobox';
+import type { Product, Warehouse } from '../types';
 
 export default function InventoryTransferPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
   const [product, setProduct] = useState<Product | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
   const [fromLocation, setFromLocation] = useState('');
@@ -20,13 +21,20 @@ export default function InventoryTransferPage() {
 
   useEffect(() => {
     listWarehouses().then(setWarehouses).catch(() => undefined);
-    listLocations().then(setLocations).catch(() => undefined);
   }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) {
-      setError('Seleccione un producto');
+      setError('Elige el producto que vas a mover.');
+      return;
+    }
+    if (!fromLocation || !toLocation) {
+      setError('Elige la ubicación de origen y la de destino.');
+      return;
+    }
+    if (fromLocation === toLocation) {
+      setError('El origen y el destino son la misma ubicación.');
       return;
     }
     setBusy(true);
@@ -51,10 +59,16 @@ export default function InventoryTransferPage() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <PageHeader title="Transferencia de inventario" subtitle="Mueve stock entre ubicaciones" />
+      <PageHeader
+        title="Transferencia de inventario"
+        subtitle="Mueve stock entre ubicaciones de la misma bodega"
+      />
 
       {notice && (
-        <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+        <div className="mb-3 flex items-start gap-2 rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <CheckCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          {notice}
+        </div>
       )}
       {error && <ErrorBox message={error} />}
 
@@ -63,26 +77,32 @@ export default function InventoryTransferPage() {
         <SelectField
           label="Bodega"
           value={warehouseId}
-          onChange={setWarehouseId}
+          onChange={(v) => {
+            setWarehouseId(v);
+            setFromLocation('');
+            setToLocation('');
+          }}
           options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
           required
         />
-        <SelectField
+        <LocationCombobox
           label="Ubicación origen"
           value={fromLocation}
           onChange={setFromLocation}
-          options={locations.map((l) => ({ value: l.id, label: l.code }))}
-          required
+          warehouseId={warehouseId}
+          requireWarehouse
         />
-        <SelectField
+        <LocationCombobox
           label="Ubicación destino"
           value={toLocation}
           onChange={setToLocation}
-          options={locations.map((l) => ({ value: l.id, label: l.code }))}
-          required
+          warehouseId={warehouseId}
+          requireWarehouse
+          disabledIds={fromLocation ? [fromLocation] : undefined}
+          hint="No puede ser la misma ubicación de origen."
         />
         <Field label="Cantidad" type="number" value={quantity} onChange={setQuantity} required />
-        <button type="submit" className="btn-primary w-full" disabled={busy}>
+        <button type="submit" className="btn-primary btn-xl w-full" disabled={busy}>
           {busy ? 'Transfiriendo…' : 'Transferir'}
         </button>
       </form>
