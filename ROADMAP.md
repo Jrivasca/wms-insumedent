@@ -101,17 +101,23 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   se puede editar en estado P**; el ambiente de pruebas se atrasó por un problema interno y
   se actualiza el fin de semana. Pendiente sin respuesta: qué proceso usa hoy el usuario
   `INTEGRACION`.
-- **Flujo 2 — Recepción y ajustes → `Inventory/Insert`** *(estructura probada en pruebas;
-  faltan definiciones del cliente)*. Funcionó con motivo `COMPRA` y centro de negocio
-  `EMPNEGVTAVTA000`. Defontana respondió (2026-09-17) que **el tipo de documento, el motivo y
-  el centro de negocio los define Insumedent**, no ellos; por experiencia sugieren **Parte de
-  Entrada (`PE`)** para ingresar stock. Motivos disponibles: `COMPRA`, `DEVOLUCION`, `ENTRADA`,
-  `SALIDA`, `TRASPASO`, `VENTA` (ERP → Configuración → Inventario → Motivos de Movimiento).
-  `providerId` depende de la configuración del tipo de movimiento. El WMS ya arma el payload real
-  (`DefontanaMapper.build_inventory_entry`, con lotes y vencimiento; probado en pruebas con
-  precio 0), pero el envío está **apagado** hasta confirmar valores:
-  `DEFONTANA_RECEPTION_SYNC_ENABLED` + `DEFONTANA_RECEPTION_DOCUMENT_TYPE` /
-  `_REASON_ID` / `DEFONTANA_BUSINESS_CENTER` / `_CENTRALIZABLE`.
+- **Flujo 2 — Recepción y ajustes → `Inventory/Insert`** *(tipos y motivos definidos y
+  probados; solo falta el centro de negocio)*. Defontana respondió (2026-09-17) que **el tipo
+  de documento, el motivo y el centro de negocio los define Insumedent**. Decisión A.1
+  (2026-09-19), probada contra la API de pruebas creando y borrando un documento de cada caso:
+
+  | Flujo | Documento | Motivo |
+  |---|---|---|
+  | Recepción | `PE` (Parte de Entrada, sugerencia de Defontana) | `COMPRA` |
+  | Ajuste positivo | `XAJ_ENT_UN` | `ENTRADA` |
+  | Ajuste negativo y merma | `XAJ_SAL_UNID` | `SALIDA` |
+
+  El motivo de ajuste era un solo parámetro que, vacío, caía en `COMPRA`: una merma habría
+  viajado como compra. Ahora hay uno por sentido. El envío sigue **apagado**
+  (`DEFONTANA_INVENTORY_SYNC_ENABLED`) porque el **centro de negocio** va dentro de cada
+  documento y está pendiente de confirmar por Insumedent (A.2); hoy se usa `EMPNEGVTAVTA000`,
+  copiado de una guía real. No se puede consultar por API (Contabilidad no está contratada): hay
+  que verlo en el ERP web, Configuración → Contabilidad → Centros de negocio.
 - **Sincronizaciones automáticas** *(listas, apagadas por defecto)*. Un solo programador en el
   worker (`defontana_scheduler`), con la última corrida guardada por empresa en
   `scheduler_runs` (sobrevive reinicios):
@@ -120,6 +126,7 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   | Transaccional | Recepción, ajuste y despacho → ERP | Al instante, cola `sync_jobs` con 5 reintentos (30 s → 8 min) | `ERP_SYNC_ENABLED` + `DEFONTANA_INVENTORY_SYNC_ENABLED` |
   | Frecuente | Pedidos por despachar | Cada `DEFONTANA_ORDERS_SYNC_INTERVAL_MINUTES` dentro de `DEFONTANA_ORDERS_SYNC_HOURS` (hora de `DEFONTANA_TIMEZONE`, días hábiles) | `DEFONTANA_ORDERS_SYNC_ENABLED` |
   | Diaria | Lotes + foto de stock del ERP | `DEFONTANA_STOCK_SYNC_AT` (03:30); si falla, reintenta a la hora siguiente | `DEFONTANA_STOCK_SYNC_ENABLED` |
+  | Diaria | Conciliación WMS ← ERP: aplica sola lo chico, lo grande queda para revisión | `DEFONTANA_RECONCILE_AT` (04:30), con una foto de menos de 12 h | `DEFONTANA_RECONCILE_ENABLED` |
   | A demanda | Botones de la pantalla de Defontana e informe de stock | Cuando alguien lo pide | — |
 
   Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
@@ -128,7 +135,16 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 - **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(pendiente de valores)*. Falta el
   mapeo de `dispatchInfo` (tipo de bien `1` "Constituye una venta", tipo de despacho `1` "Por
   cuenta del cliente") y `originStorageInfo.motive`.
-- **Reemplazo de productos en picking** *(replantear: `UpdateOrder` NO sirve)*.
+- **Reemplazo de productos en picking** *(decidido y construido del lado WMS: despachar sin la
+  línea y guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se
+  despacha lo que hay y lo que falta sale después en otra guía. Un pedido **despachado** con
+  cumplimiento parcial vuelve a aparecer en "Llegó stock · listos para completar" cuando hay
+  stock; "Preparar pendiente" crea una tarea de picking **nueva** solo con lo que falta
+  (`is_backorder`, `sequence` 2, 3…), que sigue a packing y a una segunda guía. Las cantidades
+  del pedido son la suma de las tareas cerradas, y reabrir picking o packing sobre el pendiente
+  solo toca esa tarea: la guía anterior y su inventario quedan intactos. Un pedido "despachado
+  en parte" (queda algo empacado sin despachar) no se ofrece: primero se despacha eso. El lado
+  del ERP sigue esperando el mapeo de `Order/DispatchOrder` (ver Flujo 3).
   **Defontana confirmó que un pedido solo se puede editar en estado P**; los que el WMS prepara
   ya están aprobados (`E..`), así que no se pueden modificar con `Order/UpdateOrder`. Hay que
   definir con Defontana y con Insumedent cómo se hace hoy un reemplazo en un pedido aprobado.
@@ -159,28 +175,46 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 - **Catálogo completo de productos** *(sin API disponible)*: con lo contratado no hay un
   endpoint con el maestro completo. `Inventory/GetFutureStockInfo` trae los 3.359 códigos con
   descripción y stock, pero sin unidad, estado activo ni uso de lotes. **El catálogo sigue por el
-  importador de Excel**; decidir si además se crean desde ahí los productos que falten (solo
-  código y nombre).
+  importador de Excel** (decisión A.8): no se crean productos automáticamente. Para revisarlo
+  contra un Excel actualizado se entregó la lista de los que están en Defontana y no en el WMS
+  (`docs/entregables/Productos-Defontana-no-en-WMS-2026-09-19.csv`): 181, **ninguno con stock
+  hoy**, así que todo lo que existe físicamente ya está en el catálogo. Pero **tres tienen
+  mercadería por recibir**: `102152` CARISTOP 5000 PASTA (720), `DNITTRESM` y `DNITTRESS`
+  NITRILO TRESOR AZUL M y S (500 cada uno). Conviene agregarlos al Excel antes de que lleguen:
+  sin producto en el catálogo no se pueden recibir en el WMS y la conciliación los deja
+  bloqueados. La lista cubre los productos
+  con desglose por bodega en la foto de stock; los que Defontana informa sin ninguna bodega (unos
+  880, sin existencias) no se guardan y harían falta otra lectura para listarlos.
 - **Informe "Stock ERP vs WMS"** *(hecho, informativo)*: "Traer stock de Defontana"
   (`Inventory/GetFutureStockInfo`: actual, reservado, por recibir) guarda una foto en
   `erp_stock`; Inventario → Stock ERP vs WMS la cruza con los saldos del WMS por SKU y bodega
   (vía `erp_storage_code`).
 - **Modelo de stock decidido (2026-09-15): manda Defontana; el WMS ubica.** Ver
   `docs/entregables/Modelo-de-stock-con-Defontana.md`. Pendiente de construir:
-  1. **Conciliación WMS ← Defontana**: *(vista previa hecha)* Inventario → Stock ERP vs WMS →
-     "Calcular conciliación" muestra qué sumaría (con los lotes del ERP, en la ubicación de
-     entrada configurable `DEFONTANA_RECONCILE_LOCATION_CODE`) y qué descontaría por FEFO, sin
-     modificar nada. **Falta el "aplicar"**: escribir los ajustes con movimiento auditable
-     (esos ajustes NO deben viajar a Defontana) y luego automatizarlo. Pendiente definir cada
-     cuánto corre y qué hacer con diferencias grandes.
+  1. **Conciliación WMS ← Defontana** *(hecha y en marcha)*. Decisiones A.3–A.5:
+     diaria de madrugada (04:30, después de la foto de stock) y también manual desde Stock ERP
+     vs WMS; lo que falta en el WMS se suma con los lotes del ERP en **`SIN-UBICAR`** (tipo
+     recepción, no pickeable) hasta que bodega lo ubique; lo que sobra se descuenta por FEFO.
+     Cada ajuste deja un movimiento auditable "Conciliación con ERP" y **no viaja a Defontana**.
+     Las diferencias de más de 20 unidades (`DEFONTANA_RECONCILE_REVIEW_UNITS`) quedan para
+     **revisión humana**: un supervisor las aprueba una por una y la corrida diaria avisa si
+     quedaron. **Primera corrida hecha a mano el 2026-09-19** (con respaldo validado antes):
+     de 1.003 diferencias se aplicaron las 721 chicas (+2.374 / −1.915 unidades, 749
+     movimientos, 0 errores, 0 envíos al ERP). Quedan **282 para revisión**, que concentran más
+     del 95 % del volumen (+80.884 / −58.579 unidades). La corrida diaria quedó encendida en el
+     ambiente local (`DEFONTANA_RECONCILE_ENABLED=true` en `.env`; en el código sigue apagada
+     por defecto). Aprobar 282 filas una por una es trabajoso: si se vuelve un problema, falta
+     una aprobación en bloque de las ya revisadas.
   2. ~~Push de ajustes y mermas~~ *(hecho)*: el ajuste viaja a `Inventory/Insert` como documento
      de entrada o salida (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). El WMS no tiene
      transferencia entre bodegas, y la de ubicaciones no cambia el total: no se envía.
   3. **Lotes del ERP en la operación** (elegir lote conocido con su vencimiento al recibir/ubicar).
   4. **Ubicar stock recibido en Defontana** sin volver a sumarlo en el WMS.
 
-  Preguntas abiertas en el documento: dónde se registra la recepción, quién hace ajustes y
-  mermas, cada cuánto se concilia y qué hacer con diferencias grandes.
+  Las preguntas abiertas del documento quedaron respondidas (2026-09-19): se concilia a diario de
+  madrugada y a demanda; las diferencias grandes van a revisión humana. Sigue abierta solo si
+  compras registra recepciones directamente en Defontana (A.6); si ocurre, esas unidades
+  aparecerán solas en `SIN-UBICAR` con la conciliación, así que el flujo ya lo cubre.
 - **Bodegas** *(hecho)*: se administran **solo en el WMS**; se eliminó la sincronización de
   bodegas desde Defontana (botón, endpoint, job y conector).
 

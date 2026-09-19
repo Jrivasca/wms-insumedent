@@ -49,6 +49,45 @@ async def test_picking_suggests_nearest_expiry_location_fefo():
     assert await _suggested_location(tid, pid, "wh1") == "locNear"
 
 
+async def test_picking_never_suggests_non_pickable_locations_even_if_they_expire_first():
+    """Lo que está en staging (ya es de otro pedido) o sin ubicar (recepción) no se pickea,
+    aunque su lote venza antes. Antes FEFO podía mandar al operario a buscarlo ahí."""
+    tid = "tA"
+    pid = await _product(tid)
+    db = tenant_db(tid)
+    ids = {}
+    for code, loc_type in (("STAGING", "staging"), ("SIN-UBICAR", "receiving"), ("A-01", "storage")):
+        inserted = await db[Collections.LOCATIONS].insert_one(
+            {"tenant_id": tid, "warehouse_id": "wh1", "code": code, "type": loc_type})
+        ids[code] = str(inserted.inserted_id)
+    await _receive(tid, pid, "wh1", ids["STAGING"], 5, "L-staging", 5)
+    await _receive(tid, pid, "wh1", ids["SIN-UBICAR"], 5, "L-sin-ubicar", 8)
+    await _receive(tid, pid, "wh1", ids["A-01"], 5, "L-estante", 90)
+
+    assert await _suggested_location(tid, pid, "wh1") == ids["A-01"]
+
+
+async def test_non_pickable_exclusion_also_applies_to_stock_without_expiry():
+    """La segunda búsqueda (stock sin vencimiento) tiene que excluir lo mismo que la de FEFO:
+    corregir solo la primera dejaría pasar el mismo defecto por la otra."""
+    tid = "tA"
+    pid = await _product(tid)
+    db = tenant_db(tid)
+    staging = str((await db[Collections.LOCATIONS].insert_one(
+        {"tenant_id": tid, "warehouse_id": "wh1", "code": "STAGING", "type": "staging"})).inserted_id)
+    shelf = str((await db[Collections.LOCATIONS].insert_one(
+        {"tenant_id": tid, "warehouse_id": "wh1", "code": "A-01", "type": "storage"})).inserted_id)
+    # Staging primero en el orden de inserción: sin la exclusión, find_one lo devolvería a él.
+    for location_id in (staging, shelf):
+        await db[Collections.INVENTORY_BALANCES].insert_one({
+            "tenant_id": tid, "product_id": pid, "warehouse_id": "wh1",
+            "location_id": location_id, "lot_number": None, "serial_number": None,
+            "quantity_on_hand": 3, "expiration_date": None,
+        })
+
+    assert await _suggested_location(tid, pid, "wh1") == shelf
+
+
 async def test_expiring_check_alerts_once_and_respects_window():
     tid = "tA"
     pid = await _product(tid)

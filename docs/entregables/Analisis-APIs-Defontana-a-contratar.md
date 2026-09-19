@@ -73,6 +73,23 @@ motivo `COMPRA`, bodega de origen `BODEGACENTRAL`, centro de negocio `EMPNEGVTAV
 listar por API**: `Accounting/*` responde "la empresa INSUMEDENT SPA no tiene habilitada la
 funcionalidad" (Contabilidad no contratada).
 
+**Tipos de documento definidos, probados el 2026-09-19.** Con el mismo `build_inventory_entry`
+que usa el WMS se creó en pruebas un documento de cada combinación, los tres sin error, y se
+borraron: `PE`/`COMPRA` (entrada, folio 884), `XAJ_ENT_UN`/`ENTRADA` (entrada, folio 1) y
+`XAJ_SAL_UNID`/`SALIDA` (salida: la bodega va en `originStowageId`, folio 1). Los dos `XAJ_*`
+recibieron el folio 1: eran los primeros documentos de su tipo en el ambiente.
+
+Comportamientos de la API verificados en esa prueba:
+
+- **`DELETE Inventory/Delete` exige el folio como entero** (`DocumentTypeId`, `Folio`,
+  `FiscalYear` por query). Con `Folio=884.0`, tal como lo devuelve la propia API, responde
+  `400 BadRequest`; con `884` responde "Documento eliminado exitosamente".
+- **`GET Inventory/GetDocument` no avisa la inexistencia con un error:** para un documento
+  borrado responde HTTP 200, `success: true` y `stockLoadOutputData: null`. Un documento que
+  existe trae ese campo con datos (compañía, usuario, tipo, número, año fiscal). Hay que mirar
+  el campo, no el código ni `success`. Es la misma idea que `GetDocumentByExternalDocumentID`,
+  que avisa con HTTP 200 y `success: false`: la API no es uniforme en cómo dice "no existe".
+
 **`Order/DispatchOrder` — pendiente de valores.** La guía real trae `dispatchTypeData` con tipo de
 bien `1` = "Constituye una venta" y tipo de despacho `1` = "Por cuenta del cliente", pero falta
 confirmar cómo se mapean a `dispatchInfo.assetsType` / `dispatchType` / `transactionType` y qué va

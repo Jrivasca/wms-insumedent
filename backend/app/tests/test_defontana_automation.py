@@ -260,8 +260,12 @@ async def test_adjustment_also_travels_to_defontana_in_both_directions(monkeypat
     assert entrada["destinationStowageId"] == "BODEGACENTRAL" and entrada["originStowageId"] is None
     assert entrada["details"][0]["count"] == 2 and entrada["gloss"] == "Ajuste WMS: conteo"
     assert entrada["externalDocumentID"].startswith("WMS-AJU-")
+    assert entrada["reasonId"] == settings.defontana_adjustment_in_reason_id
 
     assert salida["documentTypeId"] == settings.defontana_adjustment_out_document_type
     assert salida["originStowageId"] == "BODEGACENTRAL" and salida["destinationStowageId"] is None
     assert salida["details"][0]["count"] == 3  # cantidad siempre positiva
-    assert salida["reasonId"] == settings.defontana_reception_reason_id  # motivo por defecto
+    # El motivo depende del sentido. Antes había uno solo que, vacío, caía en el de recepción:
+    # una merma viajaba a Defontana como COMPRA.
+    assert salida["reasonId"] == settings.defontana_adjustment_out_reason_id
+    assert entrada["reasonId"] != salida["reasonId"]

@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, get_current_user, require_supervisor
 from app.schemas.integration import DefontanaConfigRequest
@@ -81,3 +82,42 @@ async def reconciliation_preview(
     """Qué ajustaría la conciliación para dejar el stock del WMS igual al de Defontana.
     Solo calcula: no modifica saldos ni movimientos."""
     return await erp_reconcile_service.preview(user.tenant_id, q=q, limit=limit, offset=offset)
+
+
+class ReconcileRowKey(BaseModel):
+    sku: str
+    storage_code: str
+
+
+class ReconcileApplyRequest(BaseModel):
+    # Sin filas: aplica todas las diferencias chicas. Con filas: solo esas.
+    rows: Optional[List[ReconcileRowKey]] = None
+    # Aprobación de un supervisor: aplica aunque la diferencia supere el umbral de revisión.
+    include_review: bool = False
+
+
+@router.post("/reconciliation-apply")
+async def reconciliation_apply(
+    payload: ReconcileApplyRequest, user: CurrentUser = Depends(require_supervisor)
+):
+    """Deja el stock del WMS igual al de Defontana. No envía nada al ERP."""
+    keys = [(r.sku, r.storage_code) for r in payload.rows] if payload.rows is not None else None
+    result = await erp_reconcile_service.apply(
+        user.tenant_id, user.id, keys=keys, include_review=payload.include_review
+    )
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="apply_erp_reconciliation",
+        entity_type="inventory",
+        entity_id=user.tenant_id,
+        after={
+            "rows": len(keys) if keys is not None else "diferencias chicas",
+            "include_review": payload.include_review,
+            "applied": result["applied"],
+            "errors": len(result["errors"]),
+        },
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    return result

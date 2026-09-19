@@ -65,6 +65,7 @@ async def change_location_stock(
     serial_number: Optional[str] = None,
     allow_negative: bool = False,
     expiration_date: Optional[datetime] = None,
+    notify: bool = True,
 ) -> Dict[str, Any]:
     """Apply ``delta`` to on-hand stock of a single location and return the balance.
 
@@ -72,6 +73,9 @@ async def change_location_stock(
     :func:`record_movement` (see the higher-level helpers below). ``expiration_date``
     is the lot's expiry (Fase 5); it is only written when provided (on a receipt), so
     operational net-zero moves never wipe it.
+
+    ``notify=False`` calla el aviso de "sin stock" (la conciliación puede dejar en cero cientos
+    de productos de una vez); la limpieza de alertas cuando el stock vuelve sigue ocurriendo.
     """
     db = tenant_db(tenant_id)
     key = {
@@ -111,7 +115,8 @@ async def change_location_stock(
     # location actually empties on a decrease (operational net-zero moves keep the
     # warehouse total > 0, so they self-suppress), and re-arm when stock returns.
     if delta < 0 and new_on_hand <= 0:
-        await _alert_stock_zero_if_depleted(tenant_id, product_id, warehouse_id)
+        if notify:
+            await _alert_stock_zero_if_depleted(tenant_id, product_id, warehouse_id)
     elif delta > 0:
         await _clear_stock_zero_if_recovered(tenant_id, product_id, warehouse_id)
 
@@ -334,7 +339,8 @@ async def create_adjustment(
         quantity=quantity,
         document_type=(settings.defontana_adjustment_in_document_type if incoming
                        else settings.defontana_adjustment_out_document_type),
-        reason_id=settings.defontana_adjustment_reason_id or settings.defontana_reception_reason_id,
+        reason_id=(settings.defontana_adjustment_in_reason_id if incoming
+                   else settings.defontana_adjustment_out_reason_id),
         gloss=f"Ajuste WMS: {reason}".strip(),
         direction="in" if incoming else "out",
         document_prefix="AJU",

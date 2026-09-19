@@ -58,21 +58,37 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
      deja en una ubicación de entrada (p. ej. `RECEPCION` o `SIN UBICAR`) para que bodega lo
      ubique; lo que falta se descuenta respetando FEFO.
    - Manual primero (botón, con vista previa) y automática después.
+   - **Hecho (2026-09-19):** manual desde Inventario → Stock ERP vs WMS y diaria a las 04:30,
+     después de la foto de stock. Lo que falta queda en `SIN-UBICAR` (tipo recepción, no
+     pickeable); lo que sobra se descuenta por FEFO; cada ajuste deja un movimiento
+     "Conciliación con ERP" y no viaja a Defontana. Las diferencias de más de 20 unidades
+     esperan la aprobación de un supervisor. Primera corrida hecha a mano el 2026-09-19: 721
+     ajustes aplicados, 282 diferencias grandes esperando revisión.
 2. ~~Push a Defontana de ajustes y mermas~~ **(hecho)**: el ajuste viaja como documento de
    entrada o de salida, con los mismos valores configurables que la recepción
    (`DEFONTANA_INVENTORY_SYNC_ENABLED` + tipos de documento y motivo).
 3. **Lotes del ERP en la operación**: al recibir o ubicar, elegir de los lotes que Defontana ya
    conoce, con su vencimiento, en vez de escribirlos a mano.
 4. **Ubicación de lo recibido**: si la recepción se registra en Defontana (por compras), el WMS
-   debe permitir "ubicar" ese stock sin volver a sumarlo.
+   debe permitir "ubicar" ese stock sin volver a sumarlo. **Cubierto por la conciliación:** esas
+   unidades aparecen solas en `SIN-UBICAR`, y moverlas a un estante es una transferencia entre
+   ubicaciones, que ya existe y no cambia el total de la bodega.
 
 ## 5. Preguntas abiertas
 
 > **Resueltas (2026-09-15):** la recepción y los ajustes/mermas se siguen haciendo **en el WMS**
-> y se envían a Defontana, porque el módulo Inventario contratado lo permite. Queda pendiente
-> solo cerrar con Defontana el **tipo de documento** y el **motivo** de cada caso.
+> y se envían a Defontana, porque el módulo Inventario contratado lo permite.
+>
+> **Resueltas (2026-09-19), decisiones de Insumedent:** tipos de documento y motivos definidos y
+> probados (recepción `PE`/`COMPRA`, ajustes `XAJ_ENT_UN`/`ENTRADA` y `XAJ_SAL_UNID`/`SALIDA`).
+> Queda solo el **centro de negocio**, que va dentro de cada documento; por eso el envío sigue
+> apagado.
 
-1. **¿Cada cuánto se concilia?** Diaria de madrugada, o a demanda antes de cada jornada.
-2. **¿Qué hacer con una diferencia grande?** Ajustar igual o dejarla para revisión humana.
-3. **¿Y si una recepción se registró en Defontana** (por compras) **y no en el WMS?** La
-   conciliación la traería como stock sin ubicar; hay que confirmar que ese flujo ocurre.
+1. **¿Cada cuánto se concilia?** *Respondida:* **a diario de madrugada**, y también a demanda
+   desde el WMS.
+2. **¿Qué hacer con una diferencia grande?** *Respondida:* **revisión humana**. Sobre 20
+   unidades no se aplica sola: la aprueba un supervisor.
+3. **¿Y si una recepción se registró en Defontana** (por compras) **y no en el WMS?** Sigue
+   abierta, pero ya no bloquea: si ocurre, la conciliación trae esas unidades a `SIN-UBICAR` y
+   bodega las ubica con una transferencia. Solo falta saber si pasa, para anticipar cuánto se
+   va a llenar esa ubicación.

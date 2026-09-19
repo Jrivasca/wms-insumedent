@@ -15,12 +15,21 @@ import { can } from '../permissions';
 import { useAuth } from '../store/auth';
 import type { Location, Warehouse } from '../types';
 
-const LOCATION_TYPES = ['storage', 'picking', 'staging', 'packing', 'dispatch', 'quarantine'];
+const LOCATION_TYPES = [
+  'storage',
+  'picking',
+  'receiving',
+  'staging',
+  'packing',
+  'dispatch',
+  'quarantine',
+];
 
 /** Los valores viajan igual al backend; solo cambia cómo se leen. */
 const LOCATION_TYPE_LABEL: Record<string, string> = {
   storage: 'Almacenamiento',
   picking: 'Picking',
+  receiving: 'Recepción (sin ubicar)',
   staging: 'Preparación',
   packing: 'Packing',
   dispatch: 'Despacho',

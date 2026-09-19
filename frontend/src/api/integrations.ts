@@ -1,5 +1,10 @@
 import { http } from './http';
-import type { DefontanaStatus, ErpStockComparison, ReconcilePreview } from '../types';
+import type {
+  DefontanaStatus,
+  ErpStockComparison,
+  ReconcileApplyResult,
+  ReconcilePreview,
+} from '../types';
 
 export interface DefontanaConfig {
   environment: string;
@@ -54,6 +59,22 @@ export async function getReconciliationPreview(params: {
   const { data } = await http.get<ReconcilePreview>(
     '/integrations/defontana/reconciliation-preview',
     { params }
+  );
+  return data;
+}
+
+/**
+ * Deja el stock del WMS igual al de Defontana. No envía nada al ERP.
+ * Sin ``rows`` aplica las diferencias chicas; con ``rows`` e ``include_review``, un supervisor
+ * aprueba esas filas aunque superen el umbral de revisión.
+ */
+export async function applyReconciliation(body: {
+  rows?: { sku: string; storage_code: string }[];
+  include_review?: boolean;
+}): Promise<ReconcileApplyResult> {
+  const { data } = await http.post<ReconcileApplyResult>(
+    '/integrations/defontana/reconciliation-apply',
+    body
   );
   return data;
 }

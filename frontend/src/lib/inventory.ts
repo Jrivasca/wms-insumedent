@@ -11,6 +11,8 @@ const MOVEMENT_LABELS: Record<string, string> = {
   adjustment: 'Ajuste',
   transfer: 'Transferencia',
   count_adjustment: 'Ajuste por conteo',
+  // Deja el WMS igual a Defontana; no viaja al ERP.
+  reconciliation: 'Conciliación con ERP',
 };
 
 /** Tipo de movimiento en español; si es desconocido, se muestra el valor original. */

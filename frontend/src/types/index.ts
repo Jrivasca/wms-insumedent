@@ -25,6 +25,7 @@ export type NotificationType =
   | 'receipt_unblocks_order'
   | 'erp_order_changed'
   | 'sync_job_failed'
+  | 'reconcile_review'
   | string;
 
 export interface AppNotification {
@@ -220,6 +221,7 @@ export interface ReconcileAction {
   location_id?: string | null;
   location_code?: string | null;
   lot_number?: string | null;
+  serial_number?: string | null;
   expiration_date?: string | null;
   quantity: number;
 }
@@ -234,6 +236,8 @@ export interface ReconcileRow {
   difference: number;
   actions: ReconcileAction[];
   blocked?: string | null;
+  /** Diferencia grande: la corrida automática no la aplica; la aprueba un supervisor. */
+  needs_review: boolean;
 }
 
 export interface ReconcilePreview extends Page<ReconcileRow> {
@@ -244,8 +248,26 @@ export interface ReconcilePreview extends Page<ReconcileRow> {
     units_to_add: number;
     units_to_remove: number;
     blocked: number;
+    /** Filas que la corrida automática aplicaría sola. */
+    auto: number;
+    /** Filas que esperan revisión humana. */
+    to_review: number;
+    /** Umbral en unidades sobre el que una diferencia va a revisión. */
+    review_units: number;
     snapshot_at?: string | null;
   };
+}
+
+/** Resultado de aplicar la conciliación (nunca envía nada al ERP). */
+export interface ReconcileApplyResult {
+  applied: number;
+  units_added: number;
+  units_removed: number;
+  skipped_review: number;
+  skipped_blocked: number;
+  pending_review: number;
+  errors: { sku: string; storage_code: string; error: string }[];
+  snapshot_at?: string | null;
 }
 
 /** Línea corta de un pedido parcial cuyo faltante ya está cubierto por stock. */
@@ -323,6 +345,10 @@ export interface PickingTask {
   warehouse_id?: string;
   status: string;
   lines: PickingLine[];
+  /** Pendiente de un pedido ya despachado en parte: sale en otra guía (decisión A.7). */
+  is_backorder?: boolean;
+  /** Número de tarea del pedido: 1 la original, 2 el primer pendiente, etc. */
+  sequence?: number;
 }
 
 export interface PackageItem {

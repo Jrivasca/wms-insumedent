@@ -14,6 +14,7 @@ import { ErrorBox, Loading } from '../components/Async';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
+import BackorderBadge from '../components/BackorderBadge';
 import Toast from '../components/Toast';
 import type { PickingLine, PickingTask } from '../types';
 
@@ -249,6 +250,12 @@ export default function PickingTaskPage() {
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">
         {task.erp_order_number ?? `Pedido ${task.order_id}`}
       </h1>
+      {task.is_backorder && (
+        <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-amber-800">
+          <BackorderBadge sequence={task.sequence} />
+          Solo lo que faltó; lo anterior ya se despachó.
+        </p>
+      )}
       <p className="mt-1 text-sm text-slate-500">
         {progress.done} de {progress.lines} líneas resueltas
       </p>

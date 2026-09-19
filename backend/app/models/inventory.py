@@ -9,6 +9,8 @@ class MovementType(str, Enum):
     ADJUSTMENT = "adjustment"
     TRANSFER = "transfer"
     COUNT_ADJUSTMENT = "count_adjustment"
+    # Ajuste que deja el WMS igual a Defontana. No viaja al ERP: ya tiene esas cantidades.
+    RECONCILIATION = "reconciliation"
 
 
 class ReferenceType(str, Enum):
@@ -18,3 +20,4 @@ class ReferenceType(str, Enum):
     DISPATCH = "dispatch"  # salida por despacho (permite revertir por guía)
     INVENTORY_COUNT = "inventory_count"
     MANUAL = "manual"
+    RECONCILIATION = "reconciliation"  # conciliación WMS ← Defontana

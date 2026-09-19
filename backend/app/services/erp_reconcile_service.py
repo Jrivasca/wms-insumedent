@@ -1,25 +1,43 @@
-"""Conciliación WMS ← Defontana (por ahora, solo vista previa).
+"""Conciliación WMS ← Defontana.
 
-Defontana manda las cantidades (ver `docs/entregables/Modelo-de-stock-con-Defontana.md`):
-esta conciliación calcula qué habría que ajustar en el WMS para que su stock coincida con la
-última foto del ERP (``erp_stock``), usando los lotes que informa Defontana (``erp_batches``)
-para lo que falta y FEFO para lo que sobra.
+Defontana manda las cantidades (ver `docs/entregables/Modelo-de-stock-con-Defontana.md`): la
+conciliación calcula qué hay que ajustar en el WMS para que su stock coincida con la última foto
+del ERP (``erp_stock``), usando los lotes que informa Defontana (``erp_batches``) para lo que
+falta y FEFO para lo que sobra.
 
-**Solo calcula: no escribe saldos ni movimientos.** Cuando se implemente el "aplicar", esos
-ajustes NO deben viajar a Defontana con ``Inventory/Insert``: el ERP ya tiene esas cantidades y
-volver a enviarlas las duplicaría.
+- ``preview`` solo calcula: no escribe nada.
+- ``apply`` escribe esos ajustes en el WMS, con un movimiento de conciliación auditable por cada
+  uno. **Nunca viajan a Defontana**: el ERP ya tiene esas cantidades y reenviarlas con
+  ``Inventory/Insert`` las duplicaría. Por eso usa los ayudantes de bajo nivel del inventario y
+  no ``create_adjustment``, que encola el envío.
+
+Las diferencias de más de ``DEFONTANA_RECONCILE_REVIEW_UNITS`` quedan para revisión humana: la
+corrida automática no las toca y un supervisor las aprueba una por una.
+
+Ambas funciones comparten el mismo cálculo (``_rows``): lo que se ve en la vista previa es
+exactamente lo que se aplica.
 """
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import page
+from app.integrations.defontana.schedule import local_now
 from app.models import Collections
+from app.models.inventory import MovementType, ReferenceType
 from app.models.location import LocationType
+from app.services import inventory_service
 
 _EPSILON = 1e-9
-# Dónde queda lo que aparece de más en el ERP hasta que bodega lo ubique.
-_INBOUND_LOCATION_TYPES = (LocationType.STORAGE.value, LocationType.STAGING.value)
+# Dónde queda lo que aparece de más en el ERP hasta que bodega lo ubique: primero una ubicación
+# de recepción (no pickeable, así el picking no manda a buscar ahí antes de ubicarlo); si la
+# bodega no tiene, se mantiene el comportamiento anterior.
+_INBOUND_LOCATION_TYPES = (
+    LocationType.RECEIVING.value,
+    LocationType.STORAGE.value,
+    LocationType.STAGING.value,
+)
 
 
 def _fefo_key(balance: Dict[str, Any]) -> Tuple[int, Any, str]:
@@ -28,8 +46,14 @@ def _fefo_key(balance: Dict[str, Any]) -> Tuple[int, Any, str]:
     return (1 if expiration is None else 0, expiration or 0, balance.get("location_id") or "")
 
 
+def _aware_utc(value: datetime) -> datetime:
+    """Motor devuelve fechas sin zona horaria (en UTC)."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
 async def _inbound_location(db, warehouse_id: str) -> Optional[Dict[str, Any]]:
-    """Ubicación donde dejar lo que falta: la configurada, o la primera de almacenamiento."""
+    """Ubicación donde dejar lo que falta: la configurada (``SIN-UBICAR``) o, si no existe,
+    la primera de recepción, almacenamiento o staging, en ese orden."""
     if settings.defontana_reconcile_location_code:
         located = await db[Collections.LOCATIONS].find_one(
             {"warehouse_id": warehouse_id, "code": settings.defontana_reconcile_location_code}
@@ -45,11 +69,21 @@ async def _inbound_location(db, warehouse_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-async def preview(
-    tenant_id: str, *, q: Optional[str] = None, limit: int = 50, offset: int = 0
-) -> Dict[str, Any]:
-    db = tenant_db(tenant_id)
+async def snapshot_taken_at(tenant_id: str) -> Optional[datetime]:
+    """Cuándo se tomó la foto de stock del ERP que usa la conciliación (None si no hay)."""
+    latest = await (
+        tenant_db(tenant_id)[Collections.ERP_STOCK]
+        .find({"synced_at": {"$ne": None}})
+        .sort("synced_at", -1)
+        .limit(1)
+        .to_list(length=1)
+    )
+    return latest[0]["synced_at"] if latest else None
 
+
+async def _rows(db) -> Tuple[List[Dict[str, Any]], Optional[datetime]]:
+    """Filas con diferencia y las acciones que la resolverían. Compartido por la vista previa y
+    la aplicación."""
     snapshot = await db[Collections.ERP_STOCK].find({}).to_list(length=100000)
     snapshot_at = max((s["synced_at"] for s in snapshot if s.get("synced_at")), default=None)
 
@@ -103,6 +137,8 @@ async def preview(
             "difference": difference,
             "actions": [],
             "blocked": None,
+            "product_id": str(product["_id"]) if product else None,
+            "warehouse_id": str(warehouse["_id"]),
         }
 
         if code not in erp_codes:
@@ -140,6 +176,7 @@ async def preview(
                             "location_id": str(location["_id"]),
                             "location_code": location.get("code"),
                             "lot_number": lot.get("lot_number"),
+                            "serial_number": None,
                             "expiration_date": lot.get("expiration_date"),
                             "quantity": quantity,
                         })
@@ -150,6 +187,7 @@ async def preview(
                             "location_id": str(location["_id"]),
                             "location_code": location.get("code"),
                             "lot_number": None,
+                            "serial_number": None,
                             "expiration_date": None,
                             "quantity": pending,
                         })
@@ -164,6 +202,9 @@ async def preview(
                     "location_id": balance.get("location_id"),
                     "location_code": None,
                     "lot_number": balance.get("lot_number"),
+                    # La llave del saldo incluye la serie: sin ella, el descuento buscaría un
+                    # saldo que no existe y fallaría por stock negativo.
+                    "serial_number": balance.get("serial_number"),
                     "expiration_date": balance.get("expiration_date"),
                     "quantity": quantity,
                 })
@@ -177,12 +218,25 @@ async def preview(
     async for location in db[Collections.LOCATIONS].find({}):
         if str(location["_id"]) in location_ids:
             codes[str(location["_id"])] = location.get("code")
+    threshold = settings.defontana_reconcile_review_units
     for row in rows:
         for action in row["actions"]:
             # Si la ubicación ya no existe, mostrar su identificador en vez de dejarlo vacío.
             action["location_code"] = (
                 action["location_code"] or codes.get(action["location_id"]) or action["location_id"]
             )
+        # Solo se revisa lo que se podría aplicar: lo bloqueado no se aplica nunca.
+        row["needs_review"] = (
+            bool(row["actions"]) and not row["blocked"] and abs(row["difference"]) > threshold
+        )
+
+    return rows, snapshot_at
+
+
+async def preview(
+    tenant_id: str, *, q: Optional[str] = None, limit: int = 50, offset: int = 0
+) -> Dict[str, Any]:
+    rows, snapshot_at = await _rows(tenant_db(tenant_id))
 
     summary = {
         "rows": len(rows),
@@ -191,6 +245,10 @@ async def preview(
         "units_to_add": sum(a["quantity"] for r in rows for a in r["actions"] if a["type"] == "add"),
         "units_to_remove": sum(a["quantity"] for r in rows for a in r["actions"] if a["type"] == "remove"),
         "blocked": sum(1 for r in rows if r["blocked"]),
+        # Lo que la corrida automática aplicaría sola, y lo que espera a un supervisor.
+        "auto": sum(1 for r in rows if r["actions"] and not r["blocked"] and not r["needs_review"]),
+        "to_review": sum(1 for r in rows if r["needs_review"]),
+        "review_units": settings.defontana_reconcile_review_units,
         "snapshot_at": snapshot_at,
     }
 
@@ -202,3 +260,93 @@ async def preview(
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     return {**page(rows[offset: offset + limit], len(rows), limit, offset), "summary": summary}
+
+
+def _snapshot_label(snapshot_at: Optional[datetime]) -> str:
+    if not snapshot_at:
+        return ""
+    local = _aware_utc(snapshot_at).astimezone(local_now().tzinfo)
+    return f" (foto del {local.strftime('%d-%m-%Y %H:%M')})"
+
+
+async def apply(
+    tenant_id: str,
+    actor: str,
+    *,
+    keys: Optional[Iterable[Tuple[str, str]]] = None,
+    include_review: bool = False,
+) -> Dict[str, Any]:
+    """Aplica al WMS los ajustes de la conciliación, sin enviar nada a Defontana.
+
+    Sin ``keys`` (corrida diaria o botón general) aplica solo las diferencias chicas: las que
+    superan el umbral quedan para revisión humana. Con ``keys`` aplica esas filas puntuales
+    ``(sku, código de bodega)``; con ``include_review`` también si son grandes: es la aprobación
+    de un supervisor, fila por fila.
+
+    Una fila que falla (por ejemplo, porque el stock cambió desde que se calculó) queda en
+    ``errors`` y no frena al resto; lo que alcanzó a aplicarse deja su movimiento, y la próxima
+    corrida resuelve la diferencia que quede.
+    """
+    db = tenant_db(tenant_id)
+    rows, snapshot_at = await _rows(db)
+    wanted = {tuple(k) for k in keys} if keys is not None else None
+    reason = f"Conciliación con Defontana{_snapshot_label(snapshot_at)}"
+
+    result: Dict[str, Any] = {
+        "applied": 0, "units_added": 0.0, "units_removed": 0.0,
+        "skipped_review": 0, "skipped_blocked": 0, "errors": [],
+    }
+    applied_keys = set()
+    for row in rows:
+        key = (row["sku"], row["storage_code"])
+        if wanted is not None and key not in wanted:
+            continue
+        if row["blocked"] or not row["actions"]:
+            result["skipped_blocked"] += 1
+            continue
+        if row["needs_review"] and not include_review:
+            result["skipped_review"] += 1
+            continue
+        try:
+            for action in row["actions"]:
+                adding = action["type"] == "add"
+                await inventory_service.change_location_stock(
+                    tenant_id=tenant_id,
+                    product_id=row["product_id"],
+                    warehouse_id=row["warehouse_id"],
+                    location_id=action["location_id"],
+                    delta=action["quantity"] if adding else -action["quantity"],
+                    lot_number=action["lot_number"],
+                    serial_number=action["serial_number"],
+                    expiration_date=action["expiration_date"] if adding else None,
+                    notify=False,
+                )
+                await inventory_service.record_movement(
+                    tenant_id=tenant_id,
+                    movement_type=MovementType.RECONCILIATION.value,
+                    product_id=row["product_id"],
+                    warehouse_id=row["warehouse_id"],
+                    quantity=action["quantity"],
+                    to_location_id=action["location_id"] if adding else None,
+                    from_location_id=None if adding else action["location_id"],
+                    lot_number=action["lot_number"],
+                    serial_number=action["serial_number"],
+                    reference_type=ReferenceType.RECONCILIATION.value,
+                    reason=reason,
+                    created_by=actor,
+                )
+                result["units_added" if adding else "units_removed"] += action["quantity"]
+            applied_keys.add(key)
+            result["applied"] += 1
+        except Exception as exc:  # noqa: BLE001 - una fila no debe frenar al resto
+            result["errors"].append({
+                "sku": row["sku"],
+                "storage_code": row["storage_code"],
+                "error": str(getattr(exc, "detail", exc))[:200],
+            })
+
+    result["pending_review"] = sum(
+        1 for r in rows if r["needs_review"] and (r["sku"], r["storage_code"]) not in applied_keys
+    )
+    result["snapshot_at"] = snapshot_at
+    return result
