@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 export type ToastTone = 'info' | 'success' | 'warning' | 'error';
 
 const TONE: Record<ToastTone, string> = {
-  info: 'bg-blue-600',
+  info: 'bg-brand-dark',
   success: 'bg-emerald-600',
   warning: 'bg-amber-500',
   error: 'bg-red-600',
@@ -37,7 +37,7 @@ export default function Toast({
       <div
         onClick={onClose}
         role="alert"
-        className={`pointer-events-auto max-w-md cursor-pointer rounded-xl px-4 py-3 text-center text-base font-semibold text-white shadow-2xl ${TONE[tone]}`}
+        className={`pointer-events-auto max-w-md cursor-pointer rounded-card px-4 py-3 text-center text-base font-semibold text-white shadow-raised ${TONE[tone]}`}
       >
         {message}
       </div>

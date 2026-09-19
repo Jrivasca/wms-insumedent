@@ -1,12 +1,129 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import type { ComponentType } from 'react';
+import {
+  AlertTriangle,
+  Boxes,
+  CheckCheck,
+  ChevronRight,
+  CircleAlert,
+  ClipboardList,
+  MapPin,
+  Package,
+  PackageCheck,
+  PackageSearch,
+  PackageX,
+  PlugZap,
+  RefreshCw,
+  RotateCcw,
+  Truck,
+} from 'lucide-react';
 import { getDashboardStats } from '../api/dashboard';
 import { getDefontanaStatus } from '../api/integrations';
 import { ErrorBox, Loading, PageHeader } from '../components/Async';
+import MetricCard from '../components/MetricCard';
 import StatusBadge from '../components/StatusBadge';
 import { errorMessage } from '../api/http';
 import type { DashboardStats, DefontanaStatus } from '../types';
 
-type Accent = 'amber' | 'blue' | 'violet' | 'emerald' | 'red';
+interface Attention {
+  id: string;
+  tone: 'danger' | 'warn';
+  count: number;
+  label: string;
+  hint: string;
+  to: string;
+  Icon: ComponentType<{ className?: string }>;
+}
+
+const TONE_ROW: Record<'danger' | 'warn', { icon: string; count: string }> = {
+  danger: { icon: 'bg-red-100 text-red-700', count: 'text-red-800' },
+  warn: { icon: 'bg-amber-100 text-amber-700', count: 'text-amber-900' },
+};
+
+/**
+ * Lo que necesita atención, en orden de urgencia y solo con datos reales: cada fila
+ * aparece únicamente si su contador es mayor que cero y lleva a la pantalla donde
+ * se resuelve.
+ */
+function buildAttention(stats: DashboardStats, defontana: DefontanaStatus | null): Attention[] {
+  const { orders: o, inventory: inv, operations: op } = stats;
+  const rows: Attention[] = [];
+
+  if (o.error_cancelados > 0) {
+    rows.push({
+      id: 'error',
+      tone: 'danger',
+      count: o.error_cancelados,
+      label: 'Pedidos cancelados o con error de sincronización',
+      hint: 'Revisar antes de seguir operándolos',
+      to: '/orders',
+      Icon: CircleAlert,
+    });
+  }
+  if (defontana && defontana.status !== 'connected') {
+    rows.push({
+      id: 'erp',
+      tone: 'danger',
+      count: 1,
+      label: 'La conexión con Defontana no está operativa',
+      hint: 'Sin ella no viajan recepciones, ajustes ni pedidos',
+      to: '/settings/defontana',
+      Icon: PlugZap,
+    });
+  }
+  if (op.sync_pendientes > 0) {
+    rows.push({
+      id: 'sync',
+      tone: 'warn',
+      count: op.sync_pendientes,
+      label: 'Envíos al ERP en cola',
+      hint: 'Se reintentan solos; si no bajan, hay algo detenido',
+      to: '/sync-jobs',
+      Icon: RefreshCw,
+    });
+  }
+  if (o.parciales > 0) {
+    rows.push({
+      id: 'parciales',
+      tone: 'warn',
+      count: o.parciales,
+      label: 'Pedidos con faltante de stock',
+      hint: 'Quedaron cortos al pickear',
+      to: '/orders',
+      Icon: PackageX,
+    });
+  }
+  if (o.despacho_parcial > 0) {
+    rows.push({
+      id: 'despacho-parcial',
+      tone: 'warn',
+      count: o.despacho_parcial,
+      label: 'Pedidos despachados en parte',
+      hint: 'Falta completar el despacho',
+      to: '/dispatch',
+      Icon: Truck,
+    });
+  }
+  if (inv.sin_stock > 0) {
+    rows.push({
+      id: 'sin-stock',
+      tone: 'warn',
+      count: inv.sin_stock,
+      label: 'Productos sin stock',
+      hint: 'No se pueden comprometer en pedidos nuevos',
+      to: '/inventory',
+      Icon: PackageX,
+    });
+  }
+  return rows;
+}
+
+function fechaHora(iso?: string | null): string {
+  if (!iso) return 'nunca';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? 'nunca' : d.toLocaleString('es-CL');
+}
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -40,113 +157,263 @@ export default function DashboardPage() {
   if (!stats) return null;
 
   const { orders: o, inventory: inv, operations: op } = stats;
+  const attention = buildAttention(stats, defontana);
   const estados = Object.entries(o.por_estado).filter(([, n]) => n > 0);
 
   return (
     <div>
       <PageHeader
-        title="Dashboard"
-        subtitle="Resumen operacional"
+        title="Resumen"
+        subtitle="Estado de la operación de hoy"
         actions={
           <button onClick={load} className="btn-secondary">
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
             Refrescar
           </button>
         }
       />
 
-      <Section title="Pedidos">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Card title="Total" value={o.total} />
-          <Card title="Por procesar" value={o.por_procesar} accent="amber" />
-          <Card title="En proceso" value={o.en_proceso} accent="blue" />
-          <Card title="Listos p/ despacho" value={o.listos_despacho} accent="violet" />
-          <Card title="Parciales / con faltante" value={o.parciales} accent={o.parciales > 0 ? 'amber' : undefined} />
-          <Card title="Despacho parcial" value={o.despacho_parcial} accent={o.despacho_parcial > 0 ? 'amber' : undefined} />
-          <Card title="Despachados" value={o.despachados} accent="emerald" />
-          <Card title="Despachados hoy" value={o.despachados_hoy} accent="emerald" />
-        </div>
-        {o.error_cancelados > 0 && (
-          <p className="mt-2 text-xs text-red-500">
-            {o.error_cancelados} pedido(s) cancelado(s) o con error de sincronización.
-          </p>
-        )}
-      </Section>
-
-      <Section title="Inventario">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <Card title="Productos" value={inv.productos} />
-          <Card title="Sin stock" value={inv.sin_stock} accent={inv.sin_stock > 0 ? 'red' : undefined} />
-          <Card title="Con stock" value={inv.con_stock} accent="emerald" />
-          <Card title="Ubicaciones" value={inv.ubicaciones} />
-        </div>
-      </Section>
-
-      <Section title="Operación">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <Card title="Picking abiertas" value={op.picking_abiertas} accent={op.picking_abiertas > 0 ? 'blue' : undefined} />
-          <Card title="Packing abiertas" value={op.packing_abiertas} accent={op.packing_abiertas > 0 ? 'blue' : undefined} />
-          <Card title="Sync pendientes" value={op.sync_pendientes} accent={op.sync_pendientes > 0 ? 'amber' : undefined} />
-          <div className="card">
-            <p className="text-sm text-slate-500">Defontana</p>
-            <div className="mt-2">
-              <StatusBadge status={defontana?.status ?? 'desconocido'} />
-              {defontana?.mock && (
-                <span className="badge ml-2 bg-slate-100 text-slate-600">mock</span>
-              )}
+      {/* 1. Lo que necesita atención */}
+      <section className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          La operación necesita tu atención
+        </h2>
+        {attention.length === 0 ? (
+          <div className="flex items-center gap-3 rounded-card border border-emerald-200 bg-emerald-50 p-4">
+            <span className="rounded-full bg-emerald-100 p-1.5">
+              <CheckCheck className="h-4 w-4 text-emerald-700" aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-emerald-900">Todo al día</p>
+              <p className="text-xs text-emerald-800">
+                Sin pedidos con faltante, sin envíos detenidos y con el ERP conectado.
+              </p>
             </div>
-            {defontana?.environment && (
-              <p className="mt-1 text-xs text-slate-400">Entorno: {defontana.environment}</p>
-            )}
           </div>
-        </div>
-      </Section>
+        ) : (
+          <div className="card-flush divide-y divide-slate-100">
+            {attention.map(({ id, tone, count, label, hint, to, Icon }) => (
+              <Link
+                key={id}
+                to={to}
+                className="flex min-h-touch items-center gap-3 px-4 py-3 transition first:rounded-t-card last:rounded-b-card hover:bg-slate-50"
+              >
+                <span className={`rounded-full p-1.5 ${TONE_ROW[tone].icon}`}>
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span
+                  className={`min-w-[2ch] text-lg font-bold tabular-nums ${TONE_ROW[tone].count}`}
+                >
+                  {count}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-slate-900">{label}</span>
+                  <span className="block truncate text-xs text-slate-500">{hint}</span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
 
-      <div className="mt-6">
-        <h2 className="mb-2 text-lg font-semibold">Pedidos por estado</h2>
+      {/* 2. Cómo viene el día: cuatro cifras, no más */}
+      <section className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Pedidos
+        </h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <MetricCard
+            label="Por procesar"
+            value={o.por_procesar}
+            hint="Importados y pendientes de picking"
+            tone={o.por_procesar > 0 ? 'warn' : 'neutral'}
+            icon={ClipboardList}
+            to="/orders"
+          />
+          <MetricCard
+            label="En proceso"
+            value={o.en_proceso}
+            hint="En picking o packing"
+            tone="info"
+            icon={PackageSearch}
+            to="/picking"
+          />
+          <MetricCard
+            label="Listos p/ despacho"
+            value={o.listos_despacho}
+            hint="Esperando salida"
+            tone={o.listos_despacho > 0 ? 'info' : 'neutral'}
+            icon={PackageCheck}
+            to="/dispatch"
+          />
+          <MetricCard
+            label="Despachados hoy"
+            value={o.despachados_hoy}
+            hint={`${o.despachados} en total`}
+            tone="ok"
+            icon={Truck}
+            to="/dispatch"
+          />
+        </div>
+      </section>
+
+      {/* 3. Cola de trabajo */}
+      <section className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Trabajo en curso
+        </h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <MetricCard
+            label="Picking abiertas"
+            value={op.picking_abiertas}
+            hint="Tareas pendientes, en curso o pausadas"
+            tone={op.picking_abiertas > 0 ? 'info' : 'neutral'}
+            icon={PackageSearch}
+            to="/picking"
+          />
+          <MetricCard
+            label="Packing abiertas"
+            value={op.packing_abiertas}
+            hint="Tareas pendientes o en curso"
+            tone={op.packing_abiertas > 0 ? 'info' : 'neutral'}
+            icon={PackageCheck}
+            to="/packing"
+          />
+          <MetricCard
+            label="Envíos al ERP en cola"
+            value={op.sync_pendientes}
+            hint="Recepciones, ajustes y pedidos por enviar"
+            tone={op.sync_pendientes > 0 ? 'warn' : 'neutral'}
+            icon={RefreshCw}
+            to="/sync-jobs"
+          />
+          <MetricCard
+            label="Pedidos vigentes"
+            value={o.total}
+            hint="Todos los estados"
+            icon={ClipboardList}
+            to="/orders"
+          />
+        </div>
+      </section>
+
+      {/* 4. Pedidos por estado */}
+      <section className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Pedidos por estado
+        </h2>
         <div className="card">
           {estados.length === 0 ? (
-            <p className="text-sm text-slate-400">Sin pedidos</p>
+            <p className="text-sm text-slate-500">Sin pedidos registrados.</p>
           ) : (
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               {estados.map(([status, count]) => (
-                <div
+                <Link
                   key={status}
-                  className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2"
+                  to="/orders"
+                  className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 transition hover:bg-slate-50"
                 >
                   <StatusBadge status={status} />
-                  <span className="text-lg font-bold">{count}</span>
-                </div>
+                  <span className="text-base font-bold tabular-nums text-slate-900">{count}</span>
+                </Link>
               ))}
             </div>
           )}
         </div>
-      </div>
+      </section>
+
+      {/* 5. Inventario e integración */}
+      <section className="grid gap-3 lg:grid-cols-3">
+        <div className="card lg:col-span-2">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Inventario
+          </h2>
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Stat label="Productos" value={inv.productos} Icon={Package} />
+            <Stat label="Con stock" value={inv.con_stock} Icon={Boxes} />
+            <Stat
+              label="Sin stock"
+              value={inv.sin_stock}
+              Icon={PackageX}
+              className={inv.sin_stock > 0 ? 'text-amber-900' : undefined}
+            />
+            <Stat label="Ubicaciones" value={inv.ubicaciones} Icon={MapPin} />
+          </dl>
+          <Link
+            to="/inventory/erp-stock"
+            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
+          >
+            Comparar con el stock de Defontana
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        </div>
+
+        <div className="card">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Defontana
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={defontana?.status ?? 'desconocido'} />
+            {defontana?.mock && (
+              <span className="badge bg-amber-100 text-amber-800">datos de prueba</span>
+            )}
+          </div>
+          <dl className="mt-3 space-y-1 text-xs text-slate-500">
+            {defontana?.environment && (
+              <div className="flex justify-between gap-2">
+                <dt>Entorno</dt>
+                <dd className="code-strong text-xs">{defontana.environment}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-2">
+              <dt>Último stock</dt>
+              <dd className="text-slate-700">{fechaHora(defontana?.last_stock_sync_at)}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt>Últimos lotes</dt>
+              <dd className="text-slate-700">{fechaHora(defontana?.last_lots_sync_at)}</dd>
+            </div>
+          </dl>
+          {defontana && defontana.status !== 'connected' && (
+            <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-800">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Revisa la configuración: sin conexión no viajan recepciones ni ajustes.
+            </p>
+          )}
+          <Link
+            to="/settings/defontana"
+            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
+          >
+            Configuración
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Stat({
+  label,
+  value,
+  Icon,
+  className,
+}: {
+  label: string;
+  value: number;
+  Icon: ComponentType<{ className?: string }>;
+  className?: string;
+}) {
   return (
-    <div className="mt-6 first:mt-0">
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
-      {children}
-    </div>
-  );
-}
-
-const ACCENTS: Record<Accent, string> = {
-  amber: 'border-amber-300 bg-amber-50',
-  blue: 'border-blue-300 bg-blue-50',
-  violet: 'border-violet-300 bg-violet-50',
-  emerald: 'border-emerald-300 bg-emerald-50',
-  red: 'border-red-300 bg-red-50',
-};
-
-function Card({ title, value, accent }: { title: string; value: number; accent?: Accent }) {
-  return (
-    <div className={`card ${accent ? ACCENTS[accent] : ''}`}>
-      <p className="text-sm text-slate-500">{title}</p>
-      <p className="mt-1 text-3xl font-bold">{value}</p>
+    <div>
+      <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <Icon className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+        {label}
+      </dt>
+      <dd className={`mt-0.5 text-xl font-bold tabular-nums ${className ?? 'text-slate-900'}`}>
+        {value}
+      </dd>
     </div>
   );
 }

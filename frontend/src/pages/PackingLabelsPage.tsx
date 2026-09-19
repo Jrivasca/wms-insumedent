@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Printer } from 'lucide-react';
 import { getPackingTask } from '../api/packing';
 import { getOrder } from '../api/orders';
 import { errorMessage } from '../api/http';
-import { ErrorBox, Loading } from '../components/Async';
+import { Empty, ErrorBox, Loading } from '../components/Async';
 import QrCode from '../components/QrCode';
 import type { Order, PackingTask } from '../types';
 
@@ -45,19 +46,31 @@ export default function PackingLabelsPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <div className="print:hidden mb-4 flex items-center justify-between">
-        <button onClick={() => navigate(`/my/packing/${id}`)} className="text-sm text-slate-500 underline">
-          ‹ Volver al packing
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
+        <button onClick={() => navigate(`/my/packing/${id}`)} className="btn-ghost btn-sm -ml-2">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Volver al packing
         </button>
-        <button onClick={() => window.print()} className="btn-primary" disabled={packages.length === 0}>
+        <button
+          onClick={() => window.print()}
+          className="btn-primary"
+          disabled={packages.length === 0}
+        >
+          <Printer className="h-4 w-4" aria-hidden="true" />
           Imprimir etiquetas
         </button>
       </div>
 
       {packages.length === 0 ? (
-        <div className="print:hidden text-sm text-slate-500">Esta tarea aún no tiene bultos.</div>
+        <div className="print:hidden">
+          <Empty
+            label="Esta tarea aún no tiene bultos"
+            hint="Crea al menos un bulto en la pantalla de packing para poder imprimir."
+          />
+        </div>
       ) : (
         <>
+          {/* El marcado de la etiqueta está calibrado para papel: no se toca. */}
           <style>{`@media print { @page { margin: 10mm; } }`}</style>
           <div className="space-y-4">
             {packages.map((pkg, i) => (

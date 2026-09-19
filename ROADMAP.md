@@ -186,6 +186,45 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 
 ---
 
+## Rediseño de la interfaz (hecho, rama `feat/rediseno-ui`)
+
+Dirección visual «control operacional de alta señal»: navegación grafito, cian como color
+de interacción, fondo gris muy claro, superficies blancas y color con significado (ámbar =
+advertencia, rojo = error, verde = correcto). Los códigos (SKU, ubicaciones, folios) van en
+monoespaciada. Los tokens están en `frontend/tailwind.config.js` y las clases de componente
+en `frontend/src/index.css`; los estados se traducen en `frontend/src/lib/status.ts` **sin
+cambiar los valores internos** que viajan al backend.
+
+Cubre las 26 pantallas: navegación agrupada (Mis tareas / Control / Operaciones /
+Administración) con cajón y barra inferior en móvil, resumen ordenado por urgencia, listas
+con tabla en escritorio y tarjetas en móvil, `LocationCombobox` con búsqueda en los
+formularios de inventario, confirmaciones que explican la consecuencia en lugar de
+`window.confirm`, y panel oscuro para la línea actual en picking y packing.
+
+**Verificación:** `npx tsc --noEmit` en 0 después de cada tanda (12 commits). **Solo se
+vieron renderizadas la pantalla de login y el resumen**; el resto compila y respeta los
+contratos de datos, pero no se ha mirado en pantalla.
+
+**Decisiones tomadas a propósito:**
+- El marcado de las **etiquetas impresas** (50×30 mm, saltos de página, QR de 260 px) no se
+  tocó: está calibrado para papel e impresora térmica y no se puede verificar sin imprimir.
+- La **grilla del importador de PDF** no tiene variante de tarjetas en móvil: es una grilla
+  de edición ancha que usa un supervisor en escritorio.
+
+**Pendiente, y por qué:**
+- **Búsqueda por texto en el servidor** para `/orders`, `/packing/tasks` e
+  `/inventory/balances`: hoy solo aceptan `status`/`limit`/`offset`, así que el buscador de
+  esas pantallas filtra las filas ya cargadas y lo dice explícitamente. `/erp-stock` sí
+  busca en el servidor (acepta `q`), y ahí el buscador es real.
+- **Buscador global y selector de bodega activa** en el header: necesitan endpoints que no
+  existen.
+- **Panel de rendimiento / tiempos del operario**: el backend no registra esos datos.
+- **Métricas de stock mínimo y ocupación de ubicaciones**: no están en el modelo de datos.
+- **Reestructurar Recepción y Ajuste en pasos**: depende de las definiciones del cliente que
+  están abiertas en «Integración Defontana».
+
+---
+
 ## Pendiente (funcional)
 
 - **Endpoints reales de Defontana para crear producto / crear pedido.** La
@@ -201,8 +240,11 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   está probada en pruebas pero el payload del WMS aún no tiene el formato real: ver
   "Integración Defontana".)*
 
-- **Nombre y logo del producto.** Pendiente de definir (lo verá el dueño). Cuando esté,
-  aplicar en: ícono/logo, nombre en el menú (`Layout.tsx`) y favicon.
+- **Nombre y logo del producto.** Pendiente de definir (lo verá el dueño). Hoy hay una
+  marca provisional (cuadrado cian con la letra «S») en tres lugares: el bloque de marca
+  de `Layout.tsx`, la tarjeta de `LoginPage.tsx` y el encabezado de `PublicBultoPage.tsx`
+  (esta última la ve el cliente al escanear el QR del bulto). Cuando esté definido,
+  reemplazar en esos tres y en el favicon.
 
 ---
 
@@ -220,3 +262,13 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 - **Paginación** de listados (productos, saldos, movimientos).
 - **Submenú Inventario** (Saldos / Recepción / Transferencia / Ajuste) con selector de producto.
 - **Transportista** como lista desplegable (Bluexpress / NewTrans / Otro).
+- **Rediseño completo de la interfaz** (ver sección propia): sistema visual, navegación
+  agrupada con barra inferior en móvil, estados en español, tablas con variante de tarjetas.
+- **Selector de ubicación con búsqueda** (`LocationCombobox`), acotado a la bodega elegida:
+  antes los formularios de recepción, transferencia y ajuste ofrecían ubicaciones de
+  cualquier bodega.
+- **Mensajes de error entendibles**: se distingue el error que explicó el servidor, el que no
+  explicó (mensaje por código) y el servidor que no contestó; los detalles de validación de
+  FastAPI (arreglo `{loc, msg}`) se arman como «campo: mensaje».
+- **Confirmaciones explicadas** al anular una guía, retroceder una etapa, cancelar un envío al
+  ERP o descartar un pedido importado (antes eran `window.confirm` o un clic directo).

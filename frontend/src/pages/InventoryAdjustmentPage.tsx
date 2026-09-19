@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
+import { CheckCheck } from 'lucide-react';
 import { createAdjustment } from '../api/inventory';
-import { listWarehouses, listLocations } from '../api/warehouses';
+import { listWarehouses } from '../api/warehouses';
 import { errorMessage } from '../api/http';
 import { ErrorBox, PageHeader } from '../components/Async';
 import { Field, ProductPicker, SelectField } from '../components/Form';
-import type { Location, Product, Warehouse } from '../types';
+import LocationCombobox from '../components/LocationCombobox';
+import type { Product, Warehouse } from '../types';
 
 export default function InventoryAdjustmentPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
   const [product, setProduct] = useState<Product | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
   const [locationId, setLocationId] = useState('');
@@ -22,13 +23,16 @@ export default function InventoryAdjustmentPage() {
 
   useEffect(() => {
     listWarehouses().then(setWarehouses).catch(() => undefined);
-    listLocations().then(setLocations).catch(() => undefined);
   }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) {
-      setError('Seleccione un producto');
+      setError('Elige el producto a ajustar.');
+      return;
+    }
+    if (!locationId) {
+      setError('Elige la ubicación del stock que estás corrigiendo.');
       return;
     }
     setBusy(true);
@@ -56,15 +60,20 @@ export default function InventoryAdjustmentPage() {
     }
   }
 
+  const qty = Number(quantity);
+
   return (
     <div className="mx-auto max-w-xl">
       <PageHeader
         title="Ajuste de inventario"
-        subtitle="Corrige el stock (+/-). Requiere rol supervisor."
+        subtitle="Corrige el stock de una ubicación. Solo supervisores."
       />
 
       {notice && (
-        <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+        <div className="mb-3 flex items-start gap-2 rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <CheckCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          {notice}
+        </div>
       )}
       {error && <ErrorBox message={error} />}
 
@@ -73,30 +82,49 @@ export default function InventoryAdjustmentPage() {
         <SelectField
           label="Bodega"
           value={warehouseId}
-          onChange={setWarehouseId}
+          onChange={(v) => {
+            setWarehouseId(v);
+            setLocationId('');
+          }}
           options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
           required
         />
-        <SelectField
+        <LocationCombobox
           label="Ubicación"
           value={locationId}
           onChange={setLocationId}
-          options={locations.map((l) => ({ value: l.id, label: l.code }))}
-          required
+          warehouseId={warehouseId}
+          requireWarehouse
         />
+        <div>
+          <Field
+            label="Cantidad"
+            type="number"
+            value={quantity}
+            onChange={setQuantity}
+            placeholder="Ej: 5 agrega · -5 descuenta"
+            required
+          />
+          {quantity !== '' && !Number.isNaN(qty) && qty !== 0 && (
+            <p className={`hint ${qty > 0 ? 'text-emerald-700' : 'text-amber-800'}`}>
+              {qty > 0
+                ? `Se agregarán ${qty} unidades al stock de esta ubicación.`
+                : `Se descontarán ${Math.abs(qty)} unidades del stock de esta ubicación.`}
+            </p>
+          )}
+        </div>
         <Field
-          label="Cantidad (+ agrega, - descuenta)"
-          type="number"
-          value={quantity}
-          onChange={setQuantity}
+          label="Motivo"
+          value={reason}
+          onChange={setReason}
+          placeholder="Ej: merma, conteo cíclico, rotura"
           required
         />
-        <Field label="Motivo" value={reason} onChange={setReason} required />
         <div className="grid grid-cols-2 gap-2">
           <Field label="Lote (opc.)" value={lot} onChange={setLot} />
           <Field label="Serie (opc.)" value={serial} onChange={setSerial} />
         </div>
-        <button type="submit" className="btn-success w-full" disabled={busy}>
+        <button type="submit" className="btn-success btn-xl w-full" disabled={busy}>
           {busy ? 'Registrando…' : 'Registrar ajuste'}
         </button>
       </form>

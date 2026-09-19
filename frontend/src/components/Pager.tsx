@@ -1,3 +1,5 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
 /**
  * Offset pager. When `total` is provided it shows "X–Y de N" and enables "Next"
  * only while more rows remain; without it, it falls back to the heuristic of a
@@ -31,11 +33,21 @@ export default function Pager({
         {total != null ? ` de ${total}` : ''}
       </span>
       <div className="flex gap-2">
-        <button onClick={onPrev} disabled={!hasPrev} className="btn-secondary disabled:opacity-40">
-          ‹ Anterior
+        <button
+          onClick={onPrev}
+          disabled={!hasPrev}
+          className="btn-secondary min-h-touch disabled:opacity-40"
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          Anterior
         </button>
-        <button onClick={onNext} disabled={!hasNext} className="btn-secondary disabled:opacity-40">
-          Siguiente ›
+        <button
+          onClick={onNext}
+          disabled={!hasNext}
+          className="btn-secondary min-h-touch disabled:opacity-40"
+        >
+          Siguiente
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>
