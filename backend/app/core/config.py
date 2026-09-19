@@ -45,16 +45,20 @@ class Settings(BaseSettings):
     defontana_stock_sync_at: str = "03:30"
     defontana_timezone: str = "America/Santiago"
     # Movimientos del WMS que cambian la cantidad total (recepción y ajuste/merma) →
-    # Inventory/Insert. Estructura probada en pruebas; los valores (tipo de documento, motivo,
-    # centro de negocio) están PENDIENTES de confirmar con Defontana, por eso el envío tiene su
-    # propio flag además de ``erp_sync_enabled``.
+    # Inventory/Insert. Tipos de documento y motivos definidos (decisión A.1) y PROBADOS contra
+    # la API de pruebas el 2026-09-19: cada combinación se creó y se borró. El envío sigue con su
+    # propio flag, apagado, porque el centro de negocio va dentro de cada documento y todavía
+    # está pendiente de confirmar por Insumedent (A.2).
     defontana_inventory_sync_enabled: bool = False
-    defontana_reception_document_type: str = "MOV001"
+    # Parte de Entrada: la sugerencia de Defontana para ingresar stock.
+    defontana_reception_document_type: str = "PE"
     defontana_adjustment_in_document_type: str = "XAJ_ENT_UN"
     defontana_adjustment_out_document_type: str = "XAJ_SAL_UNID"
     defontana_reception_reason_id: str = "COMPRA"
-    # Motivo de los ajustes; vacío = usa el mismo de la recepción.
-    defontana_adjustment_reason_id: str = ""
+    # Motivo de los ajustes, separado por sentido: un ajuste negativo o una merma no puede
+    # viajar con el motivo de una entrada (antes había uno solo que, vacío, caía en COMPRA).
+    defontana_adjustment_in_reason_id: str = "ENTRADA"
+    defontana_adjustment_out_reason_id: str = "SALIDA"
     defontana_business_center: str = "EMPNEGVTAVTA000"
     defontana_reception_centralizable: bool = False
     # Conciliación WMS ← Defontana: código de la ubicación donde queda lo que aparece de más en

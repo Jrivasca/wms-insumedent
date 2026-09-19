@@ -334,7 +334,8 @@ async def create_adjustment(
         quantity=quantity,
         document_type=(settings.defontana_adjustment_in_document_type if incoming
                        else settings.defontana_adjustment_out_document_type),
-        reason_id=settings.defontana_adjustment_reason_id or settings.defontana_reception_reason_id,
+        reason_id=(settings.defontana_adjustment_in_reason_id if incoming
+                   else settings.defontana_adjustment_out_reason_id),
         gloss=f"Ajuste WMS: {reason}".strip(),
         direction="in" if incoming else "out",
         document_prefix="AJU",
