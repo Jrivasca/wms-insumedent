@@ -188,16 +188,20 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   (vía `erp_storage_code`).
 - **Modelo de stock decidido (2026-09-15): manda Defontana; el WMS ubica.** Ver
   `docs/entregables/Modelo-de-stock-con-Defontana.md`. Pendiente de construir:
-  1. **Conciliación WMS ← Defontana** *(hecha; falta la primera corrida)*. Decisiones A.3–A.5:
+  1. **Conciliación WMS ← Defontana** *(hecha y en marcha)*. Decisiones A.3–A.5:
      diaria de madrugada (04:30, después de la foto de stock) y también manual desde Stock ERP
      vs WMS; lo que falta en el WMS se suma con los lotes del ERP en **`SIN-UBICAR`** (tipo
      recepción, no pickeable) hasta que bodega lo ubique; lo que sobra se descuenta por FEFO.
      Cada ajuste deja un movimiento auditable "Conciliación con ERP" y **no viaja a Defontana**.
      Las diferencias de más de 20 unidades (`DEFONTANA_RECONCILE_REVIEW_UNITS`) quedan para
      **revisión humana**: un supervisor las aprueba una por una y la corrida diaria avisa si
-     quedaron. **La primera corrida conviene hacerla a mano**: el WMS arranca muy distinto del
-     ERP (1.003 diferencias, 143.752 unidades; 721 se aplicarían solas y 282 irían a revisión).
-     La corrida diaria (`DEFONTANA_RECONCILE_ENABLED`) queda apagada hasta entonces.
+     quedaron. **Primera corrida hecha a mano el 2026-09-19** (con respaldo validado antes):
+     de 1.003 diferencias se aplicaron las 721 chicas (+2.374 / −1.915 unidades, 749
+     movimientos, 0 errores, 0 envíos al ERP). Quedan **282 para revisión**, que concentran más
+     del 95 % del volumen (+80.884 / −58.579 unidades). La corrida diaria quedó encendida en el
+     ambiente local (`DEFONTANA_RECONCILE_ENABLED=true` en `.env`; en el código sigue apagada
+     por defecto). Aprobar 282 filas una por una es trabajoso: si se vuelve un problema, falta
+     una aprobación en bloque de las ya revisadas.
   2. ~~Push de ajustes y mermas~~ *(hecho)*: el ajuste viaja a `Inventory/Insert` como documento
      de entrada o salida (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). El WMS no tiene
      transferencia entre bodegas, y la de ubicaciones no cambia el total: no se envía.

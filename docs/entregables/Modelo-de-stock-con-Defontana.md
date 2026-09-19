@@ -62,7 +62,8 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
      después de la foto de stock. Lo que falta queda en `SIN-UBICAR` (tipo recepción, no
      pickeable); lo que sobra se descuenta por FEFO; cada ajuste deja un movimiento
      "Conciliación con ERP" y no viaja a Defontana. Las diferencias de más de 20 unidades
-     esperan la aprobación de un supervisor. Falta hacer la primera corrida, a mano.
+     esperan la aprobación de un supervisor. Primera corrida hecha a mano el 2026-09-19: 721
+     ajustes aplicados, 282 diferencias grandes esperando revisión.
 2. ~~Push a Defontana de ajustes y mermas~~ **(hecho)**: el ajuste viaja como documento de
    entrada o de salida, con los mismos valores configurables que la recepción
    (`DEFONTANA_INVENTORY_SYNC_ENABLED` + tipos de documento y motivo).
