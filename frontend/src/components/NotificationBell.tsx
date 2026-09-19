@@ -7,6 +7,7 @@ import {
   BellRing,
   CheckCheck,
   CircleAlert,
+  GitCompare,
   Package,
   PackagePlus,
   RefreshCw,
@@ -31,6 +32,7 @@ const TYPE_ICON: Record<string, { Icon: ComponentType<{ className?: string }>; c
   receipt_unblocks_order: { Icon: PackagePlus, className: 'text-emerald-600' },
   erp_order_changed: { Icon: RefreshCw, className: 'text-amber-600' },
   sync_job_failed: { Icon: CircleAlert, className: 'text-red-600' },
+  reconcile_review: { Icon: GitCompare, className: 'text-amber-600' },
 };
 
 const DEFAULT_ICON = { Icon: Bell, className: 'text-slate-400' };
@@ -53,6 +55,7 @@ function targetFor(n: AppNotification): string | null {
   // Pedidos listos para completar: la lista vive en "Mis tareas de picking".
   if (n.type === 'receipt_unblocks_order') return '/my/picking';
   if (n.type === 'sync_job_failed') return '/sync-jobs';
+  if (n.type === 'reconcile_review') return '/inventory/erp-stock';
   if (n.entity_type === 'product' && n.entity_id) return `/products/${n.entity_id}`;
   if (n.entity_type === 'order') return '/orders';
   return null;
