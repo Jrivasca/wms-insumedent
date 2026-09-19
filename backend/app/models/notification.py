@@ -26,6 +26,9 @@ class NotificationType(str, Enum):
     # Un pedido importado de Defontana se anuló / cerró / despachó allá: se canceló solo en
     # el WMS o, si ya estaba en preparación, requiere revisión de un supervisor.
     ERP_ORDER_CHANGED = "erp_order_changed"
+    # La conciliación diaria con Defontana dejó diferencias grandes que no aplica sola: un
+    # supervisor tiene que revisarlas y aprobarlas una por una.
+    RECONCILE_REVIEW = "reconcile_review"
 
 
 # Which roles receive each event. ``admin`` and ``supervisor`` always see
@@ -41,4 +44,5 @@ NOTIFICATION_AUDIENCE = {
     NotificationType.RECEIPT_UNBLOCKS_ORDER.value: {"admin", "supervisor", "picker", "packer"},
     NotificationType.ERP_ORDER_CHANGED.value: {"admin", "supervisor"},
     NotificationType.SYNC_JOB_FAILED.value: {"admin", "supervisor"},
+    NotificationType.RECONCILE_REVIEW.value: {"admin", "supervisor"},
 }

@@ -62,8 +62,17 @@ class Settings(BaseSettings):
     defontana_business_center: str = "EMPNEGVTAVTA000"
     defontana_reception_centralizable: bool = False
     # Conciliación WMS ← Defontana: código de la ubicación donde queda lo que aparece de más en
-    # el ERP hasta que bodega lo ubique. Vacío = la primera ubicación de almacenamiento.
-    defontana_reconcile_location_code: str = ""
+    # el ERP hasta que bodega lo ubique (decisión A.3). SIN-UBICAR es de tipo recepción, no
+    # pickeable, y se crea por defecto en toda bodega nueva.
+    defontana_reconcile_location_code: str = "SIN-UBICAR"
+    # Corrida diaria de madrugada, después de la foto de stock (decisión A.4). Aplica sola las
+    # diferencias chicas; las que superan DEFONTANA_RECONCILE_REVIEW_UNITS quedan para revisión
+    # humana (A.5) y un supervisor las aprueba una por una en Stock ERP vs WMS. Apagada por
+    # defecto: la primera corrida conviene hacerla a mano, porque el WMS arranca muy distinto
+    # del ERP.
+    defontana_reconcile_enabled: bool = False
+    defontana_reconcile_at: str = "04:30"
+    defontana_reconcile_review_units: float = 20
 
     # Push de altas hacia el ERP (crear producto / pedido / documento de entrada).
     # En operación stand-alone (sin Defontana) va en false: el WMS opera solo y no

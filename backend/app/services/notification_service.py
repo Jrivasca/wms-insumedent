@@ -25,6 +25,8 @@ def _entity_url(
         return "/my/picking"  # floor roles can't open /orders; the list lives here
     if notification_type == NotificationType.SYNC_JOB_FAILED.value:
         return "/sync-jobs"
+    if notification_type == NotificationType.RECONCILE_REVIEW.value:
+        return "/inventory/erp-stock"  # donde un supervisor revisa y aprueba cada diferencia
     if entity_type == "product" and entity_id:
         return f"/products/{entity_id}"
     if entity_type == "order":

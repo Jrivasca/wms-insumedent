@@ -7,6 +7,9 @@ Un solo bucle para todas las tareas periódicas, cada una con su cadencia:
   sale el trabajo de bodega.
 - **stock**: una vez al día a ``DEFONTANA_STOCK_SYNC_AT``, de madrugada, porque son ~70
   llamadas entre lotes y foto de stock. Si falla, reintenta a la hora siguiente.
+- **conciliación**: una vez al día a ``DEFONTANA_RECONCILE_AT``, después de la foto de stock.
+  Deja el WMS igual al ERP aplicando solas las diferencias chicas; las grandes quedan para
+  revisión humana y se avisa a los supervisores. Exige una foto de menos de 12 horas.
 
 Lo transaccional (recepción, ajuste, despacho) NO pasa por aquí: va por la cola ``sync_jobs``
 con reintentos, apenas ocurre la operación.
@@ -28,6 +31,8 @@ from app.integrations.defontana import order_sync, product_sync, stock_sync
 from app.integrations.defontana.schedule import local_now, within_schedule
 from app.models import Collections
 from app.models.integration import ErpConnectionStatus, ErpProvider
+from app.models.notification import NotificationType
+from app.services import erp_reconcile_service, notification_service
 
 logger = get_logger("app.workers.defontana_scheduler")
 
@@ -71,6 +76,41 @@ async def _run_stock(tenant_id: str) -> Dict[str, Any]:
     return {"lots": lots, "stock": stock}
 
 
+# La conciliación exige una foto fresca: con una vieja "corregiría" el WMS hacia un stock que ya
+# no es el de Defontana. Si la foto de la madrugada falló, esta tarea también falla y el
+# programador la reintenta a la hora siguiente, hasta que haya foto nueva.
+MAX_SNAPSHOT_AGE = timedelta(hours=12)
+
+
+async def _run_reconcile(tenant_id: str) -> Dict[str, Any]:
+    """Conciliación WMS ← Defontana: aplica sola lo chico y avisa si quedó algo para revisar."""
+    from datetime import timezone
+
+    taken_at = await erp_reconcile_service.snapshot_taken_at(tenant_id)
+    if taken_at is not None and taken_at.tzinfo is None:
+        taken_at = taken_at.replace(tzinfo=timezone.utc)
+    if taken_at is None or now_utc() - taken_at > MAX_SNAPSHOT_AGE:
+        raise RuntimeError(
+            f"Sin foto reciente de stock de Defontana (última: {taken_at}); se reintenta más tarde"
+        )
+    result = await erp_reconcile_service.apply(tenant_id, SCHEDULER_ACTOR)
+    if result["pending_review"]:
+        await notification_service.emit(
+            tenant_id=tenant_id,
+            notification_type=NotificationType.RECONCILE_REVIEW.value,
+            title=f"Conciliación: {result['pending_review']} diferencias para revisar",
+            body=(
+                f"Se aplicaron {result['applied']} ajustes chicos contra Defontana; "
+                f"{result['pending_review']} superan el umbral y esperan revisión."
+            ),
+            entity_type="erp_reconciliation",
+            metadata={k: result[k] for k in ("applied", "pending_review", "skipped_blocked")},
+        )
+    summary = {k: v for k, v in result.items() if k not in ("errors", "snapshot_at")}
+    summary["errors"] = len(result["errors"])
+    return summary
+
+
 def tasks() -> List[Task]:
     """Tareas habilitadas según configuración (se relee en cada vuelta)."""
     enabled: List[Task] = []
@@ -82,6 +122,12 @@ def tasks() -> List[Task]:
         ))
     if settings.defontana_stock_sync_enabled:
         enabled.append(Task(name="stock", run=_run_stock, daily_at=settings.defontana_stock_sync_at))
+    # Después de la de stock en la lista: si ambas vencen en la misma vuelta (el worker arrancó
+    # tarde), la conciliación corre con la foto recién tomada.
+    if settings.defontana_reconcile_enabled:
+        enabled.append(Task(
+            name="reconcile", run=_run_reconcile, daily_at=settings.defontana_reconcile_at
+        ))
     return enabled
 
 
@@ -178,17 +224,20 @@ async def run_forever() -> None:
     if settings.defontana_mock:
         logger.info("Programador Defontana omitido en modo simulado (DEFONTANA_MOCK)")
         return
-    if not (settings.defontana_orders_sync_enabled or settings.defontana_stock_sync_enabled):
+    if not (settings.defontana_orders_sync_enabled or settings.defontana_stock_sync_enabled
+            or settings.defontana_reconcile_enabled):
         logger.info(
-            "Programador Defontana sin tareas habilitadas "
-            "(DEFONTANA_ORDERS_SYNC_ENABLED / DEFONTANA_STOCK_SYNC_ENABLED)"
+            "Programador Defontana sin tareas habilitadas (DEFONTANA_ORDERS_SYNC_ENABLED / "
+            "DEFONTANA_STOCK_SYNC_ENABLED / DEFONTANA_RECONCILE_ENABLED)"
         )
         return
     logger.info(
-        "Programador Defontana iniciado: pedidos=%s (cada %s min, %s), stock=%s (diario %s)",
+        "Programador Defontana iniciado: pedidos=%s (cada %s min, %s), stock=%s (diario %s), "
+        "conciliación=%s (diaria %s, revisión sobre %s u)",
         settings.defontana_orders_sync_enabled, settings.defontana_orders_sync_interval_minutes,
         settings.defontana_orders_sync_hours, settings.defontana_stock_sync_enabled,
-        settings.defontana_stock_sync_at,
+        settings.defontana_stock_sync_at, settings.defontana_reconcile_enabled,
+        settings.defontana_reconcile_at, settings.defontana_reconcile_review_units,
     )
     while True:
         try:
