@@ -10,6 +10,7 @@ import Pager from '../components/Pager';
 import ProgressBar from '../components/ProgressBar';
 import SearchInput from '../components/SearchInput';
 import StatusBadge from '../components/StatusBadge';
+import BackorderBadge from '../components/BackorderBadge';
 import { statusLabel } from '../lib/status';
 import type { PickingTask } from '../types';
 
@@ -95,7 +96,12 @@ export default function PickingPage() {
     {
       key: 'order',
       header: 'Pedido',
-      render: (t) => <span className="code-strong">{t.erp_order_number ?? t.order_id}</span>,
+      render: (t) => (
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="code-strong">{t.erp_order_number ?? t.order_id}</span>
+          {t.is_backorder && <BackorderBadge sequence={t.sequence} />}
+        </span>
+      ),
     },
     {
       key: 'status',
@@ -212,6 +218,7 @@ export default function PickingPage() {
                       <span className="flex flex-wrap items-center gap-2">
                         <span className="code-strong">{t.erp_order_number ?? t.order_id}</span>
                         <StatusBadge status={t.status} />
+                        {t.is_backorder && <BackorderBadge sequence={t.sequence} />}
                       </span>
                       <span className="mt-1 block text-xs text-slate-500">
                         {t.lines.length} línea(s) · {assignedName(t.assigned_to)}

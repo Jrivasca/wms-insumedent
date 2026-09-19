@@ -376,6 +376,21 @@ async def complete(
     return serialize(task)
 
 
+async def _current_picking_task(db, tenant_id: str, order_id: str) -> Optional[Dict[str, Any]]:
+    """La tarea de picking vigente del pedido: la más reciente no cancelada. Con un pendiente
+    (A.7) el pedido tiene más de una. Se ordena también por ``_id`` porque Mongo guarda las
+    fechas al milisegundo y dos tareas del mismo milisegundo empatarían."""
+    found = await (
+        db[Collections.PICKING_TASKS]
+        .find({"tenant_id": tenant_id, "order_id": order_id,
+               "status": {"$ne": PickingTaskStatus.CANCELLED.value}})
+        .sort([("created_at", -1), ("_id", -1)])
+        .limit(1)
+        .to_list(length=1)
+    )
+    return found[0] if found else None
+
+
 async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Dict[str, Any]:
     """Retroceso (supervisor): reabrir el picking. El pedido vuelve a 'picking', la tarea
     de picking a 'in_progress' y la de packing se cancela (se regenera al recompletar el
@@ -398,6 +413,46 @@ async def reopen_picking(tenant_id: str, order_id: str, user: CurrentUser) -> Di
             detail="El pedido no está en una etapa que permita reabrir picking.",
         )
     now = now_utc()
+
+    # Pendiente en curso (segunda tarea de un pedido ya despachado en parte): se reabre SOLO
+    # esa tarea. Revertir el packing de la guía anterior devolvería a staging mercadería que
+    # ya salió, y poner lo despachado en cero borraría el registro de esa guía.
+    current = await _current_picking_task(db, tenant_id, order_id)
+    if current and current.get("is_backorder"):
+        current_id = str(current["_id"])
+        own_packing = await db[Collections.PACKING_TASKS].find(
+            {"tenant_id": tenant_id, "order_id": order_id, "picking_task_id": current_id}
+        ).to_list(length=20)
+        for pt in own_packing:
+            await inventory_service.reverse_moves_for_reference(
+                tenant_id=tenant_id, reference_type=ReferenceType.PACKING_TASK.value,
+                reference_id=str(pt["_id"]), created_by=user.id,
+                reason="Reverso por reapertura de picking (pendiente)",
+            )
+        await db[Collections.PACKING_TASKS].update_many(
+            {"tenant_id": tenant_id, "order_id": order_id, "picking_task_id": current_id,
+             "status": {"$ne": PackingTaskStatus.CANCELLED.value}},
+            {"$set": {"status": PackingTaskStatus.CANCELLED.value, "updated_at": now,
+                      "updated_by": user.id}},
+        )
+        await inventory_service.reverse_moves_for_reference(
+            tenant_id=tenant_id, reference_type=ReferenceType.PICKING_TASK.value,
+            reference_id=current_id, created_by=user.id,
+            reason="Reverso por reapertura de picking (pendiente)",
+        )
+        await db[Collections.PICKING_TASKS].update_one(
+            {"_id": current["_id"]},
+            {"$set": {"status": PickingTaskStatus.IN_PROGRESS.value, "completed_at": None,
+                      "updated_at": now, "updated_by": user.id}},
+        )
+        await db[Collections.ORDERS].update_one(
+            {"_id": order["_id"]},
+            {"$set": {"status": OrderStatus.PICKING.value, "updated_at": now}},
+        )
+        await order_service.recompute_after_backorder_reopen(tenant_id, order_id)
+        await replenishment_alert_service.release_for_order(tenant_id, order_id)
+        return serialize(await _load_task(tenant_id, current_id))
+
     # Ajuste automático: revertir los movimientos de packing (si los hubo) y de picking.
     packing_tasks = await db[Collections.PACKING_TASKS].find(
         {"tenant_id": tenant_id, "order_id": order_id}
@@ -452,12 +507,40 @@ async def resume_partial(tenant_id: str, order_id: str, user: CurrentUser) -> Di
     )
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    allowed = (replenishment_alert_service.RESUMABLE_STATUSES
+               + replenishment_alert_service.BACKORDER_STATUSES)
     if (order.get("fulfillment") != OrderFulfillment.PARTIAL.value
-            or order.get("status") not in replenishment_alert_service.RESUMABLE_STATUSES):
+            or order.get("status") not in allowed):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Este pedido no quedó parcial en una etapa que se pueda retomar.",
         )
+
+    if order.get("status") in replenishment_alert_service.BACKORDER_STATUSES:
+        # Ya se despachó todo lo que había (decisión A.7): el faltante sale en una tarea
+        # NUEVA con solo lo pendiente, y después en otra guía. Lo despachado no se reabre.
+        in_progress = await db[Collections.PICKING_TASKS].find_one(
+            {"tenant_id": tenant_id, "order_id": order_id,
+             "status": {"$in": [PickingTaskStatus.PENDING.value,
+                                PickingTaskStatus.IN_PROGRESS.value,
+                                PickingTaskStatus.PAUSED.value]}}
+        )
+        if in_progress:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya hay un pendiente en preparación para este pedido.",
+            )
+        last = await _current_picking_task(db, tenant_id, order_id)
+        if last:
+            user.assert_warehouse_allowed(last.get("warehouse_id"))
+        if not await replenishment_alert_service.evaluate_completable(tenant_id, order_id=order_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Aún no hay stock disponible para completar las líneas faltantes.",
+            )
+        backorder = await order_service.create_backorder_picking_task(tenant_id, order, user.id)
+        await replenishment_alert_service.release_for_order(tenant_id, order_id)
+        return backorder
     task = await db[Collections.PICKING_TASKS].find_one(
         {"tenant_id": tenant_id, "order_id": order_id,
          "status": {"$ne": PickingTaskStatus.CANCELLED.value}}

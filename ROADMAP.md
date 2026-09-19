@@ -135,13 +135,16 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
 - **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(pendiente de valores)*. Falta el
   mapeo de `dispatchInfo` (tipo de bien `1` "Constituye una venta", tipo de despacho `1` "Por
   cuenta del cliente") y `originStorageInfo.motive`.
-- **Reemplazo de productos en picking** *(decidido, por construir: despachar sin la línea y
-  guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se despacha lo que
-  hay y lo que falta sale después en otra guía. **Hoy el WMS no lo permite**: "Completar
-  faltante" no se ofrece para un pedido ya despachado en parte, porque reabriría el picking
-  completo y revertiría stock que ya salió. Hace falta un mecanismo nuevo (una tarea solo con lo
-  pendiente), y la conciliación de pedidos asume hoy una sola tarea por pedido. El lado del ERP
-  sigue esperando el mapeo de `Order/DispatchOrder` (ver Flujo 3).
+- **Reemplazo de productos en picking** *(decidido y construido del lado WMS: despachar sin la
+  línea y guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se
+  despacha lo que hay y lo que falta sale después en otra guía. Un pedido **despachado** con
+  cumplimiento parcial vuelve a aparecer en "Llegó stock · listos para completar" cuando hay
+  stock; "Preparar pendiente" crea una tarea de picking **nueva** solo con lo que falta
+  (`is_backorder`, `sequence` 2, 3…), que sigue a packing y a una segunda guía. Las cantidades
+  del pedido son la suma de las tareas cerradas, y reabrir picking o packing sobre el pendiente
+  solo toca esa tarea: la guía anterior y su inventario quedan intactos. Un pedido "despachado
+  en parte" (queda algo empacado sin despachar) no se ofrece: primero se despacha eso. El lado
+  del ERP sigue esperando el mapeo de `Order/DispatchOrder` (ver Flujo 3).
   **Defontana confirmó que un pedido solo se puede editar en estado P**; los que el WMS prepara
   ya están aprobados (`E..`), así que no se pueden modificar con `Order/UpdateOrder`. Hay que
   definir con Defontana y con Insumedent cómo se hace hoy un reemplazo en un pedido aprobado.

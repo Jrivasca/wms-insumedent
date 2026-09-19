@@ -345,6 +345,10 @@ export interface PickingTask {
   warehouse_id?: string;
   status: string;
   lines: PickingLine[];
+  /** Pendiente de un pedido ya despachado en parte: sale en otra guía (decisión A.7). */
+  is_backorder?: boolean;
+  /** Número de tarea del pedido: 1 la original, 2 el primer pendiente, etc. */
+  sequence?: number;
 }
 
 export interface PackageItem {

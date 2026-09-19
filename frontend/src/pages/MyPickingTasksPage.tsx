@@ -7,6 +7,7 @@ import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
+import BackorderBadge from '../components/BackorderBadge';
 import type { CompletableOrder, PickingTask } from '../types';
 
 export default function MyPickingTasksPage() {
@@ -101,12 +102,21 @@ export default function MyPickingTasksPage() {
                         </li>
                       ))}
                     </ul>
+                    {o.status === 'dispatched' && (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Lo demás ya se despachó: esto sale en una guía aparte.
+                      </p>
+                    )}
                     <button
                       onClick={() => handleResume(o.order_id)}
                       className="btn-xl mt-3 w-full bg-emerald-600 text-white hover:bg-emerald-700"
                       disabled={resuming !== null}
                     >
-                      {resuming === o.order_id ? 'Retomando…' : 'Completar faltante'}
+                      {resuming === o.order_id
+                        ? 'Retomando…'
+                        : o.status === 'dispatched'
+                          ? 'Preparar pendiente'
+                          : 'Completar faltante'}
                       {resuming !== o.order_id && (
                         <ArrowRight className="h-5 w-5" aria-hidden="true" />
                       )}
@@ -141,6 +151,7 @@ export default function MyPickingTasksPage() {
                           {t.erp_order_number ?? t.order_id}
                         </span>
                         <StatusBadge status={t.status} />
+                        {t.is_backorder && <BackorderBadge sequence={t.sequence} />}
                       </span>
                       <span className="mt-0.5 block text-sm text-slate-500">
                         {t.lines.length} línea(s)

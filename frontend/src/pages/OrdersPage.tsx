@@ -82,6 +82,21 @@ const REVERT: Record<RevertKind, { title: string; message: string; confirmLabel:
 /** Marca visible de pedido incompleto por falta de stock (eje fulfillment). */
 function PartialPill({ order }: { order: Order }) {
   if (order.fulfillment !== 'partial') return null;
+  if (order.status === 'dispatched') {
+    // Se despachó lo que había; el resto sale en otra guía cuando llegue stock (A.7).
+    const pending = order.lines.reduce(
+      (a, l) => a + Math.max(0, l.ordered_quantity - (l.dispatched_quantity ?? 0)),
+      0,
+    );
+    return (
+      <span
+        className="badge bg-amber-100 text-amber-900"
+        title="Se despachó lo disponible; el resto sale en una guía aparte cuando llegue stock"
+      >
+        Pendiente {pending} u
+      </span>
+    );
+  }
   return (
     <span
       className="badge bg-amber-100 text-amber-900"
