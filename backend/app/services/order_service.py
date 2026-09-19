@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
+from app.models.location import NON_PICKABLE_LOCATION_TYPES
 from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.models.notification import NotificationType
@@ -30,6 +31,21 @@ async def _suggested_location(
     tenant_id: str, product_id: str, warehouse_id: str
 ) -> Optional[str]:
     db = tenant_db(tenant_id)
+    # Nunca sugerir stock no pickeable: lo que está en staging, packing o despacho ya es de
+    # otro pedido, cuarentena está bloqueada y recepción todavía no se guardó en un estante.
+    # Antes se sugería cualquier ubicación con stock, así que FEFO podía mandar a un operario
+    # a sacar mercadería que estaba en preparación para otro pedido.
+    excluded = [
+        str(location["_id"])
+        async for location in db[Collections.LOCATIONS].find(
+            {
+                "tenant_id": tenant_id,
+                "warehouse_id": warehouse_id,
+                "type": {"$in": list(NON_PICKABLE_LOCATION_TYPES)},
+            },
+            {"_id": 1},
+        )
+    ]
     # FEFO (Fase 5): prefer the lot with the nearest expiration among those with stock.
     fefo = (
         await db[Collections.INVENTORY_BALANCES]
@@ -38,6 +54,7 @@ async def _suggested_location(
                 "tenant_id": tenant_id,
                 "product_id": product_id,
                 "warehouse_id": warehouse_id,
+                "location_id": {"$nin": excluded},
                 "quantity_on_hand": {"$gt": 0},
                 "expiration_date": {"$ne": None},
             }
@@ -47,12 +64,13 @@ async def _suggested_location(
     )
     if fefo:
         return fefo[0]["location_id"]
-    # Otherwise any location that already holds stock for this product.
+    # Otherwise any pickable location that already holds stock for this product.
     balance = await db[Collections.INVENTORY_BALANCES].find_one(
         {
             "tenant_id": tenant_id,
             "product_id": product_id,
             "warehouse_id": warehouse_id,
+            "location_id": {"$nin": excluded},
             "quantity_on_hand": {"$gt": 0},
         }
     )

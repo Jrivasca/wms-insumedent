@@ -18,8 +18,14 @@ from app.models import Collections
 from app.models.location import LocationType
 
 _EPSILON = 1e-9
-# Dónde queda lo que aparece de más en el ERP hasta que bodega lo ubique.
-_INBOUND_LOCATION_TYPES = (LocationType.STORAGE.value, LocationType.STAGING.value)
+# Dónde queda lo que aparece de más en el ERP hasta que bodega lo ubique: primero una ubicación
+# de recepción (no pickeable, así el picking no manda a buscar ahí antes de ubicarlo); si la
+# bodega no tiene, se mantiene el comportamiento anterior.
+_INBOUND_LOCATION_TYPES = (
+    LocationType.RECEIVING.value,
+    LocationType.STORAGE.value,
+    LocationType.STAGING.value,
+)
 
 
 def _fefo_key(balance: Dict[str, Any]) -> Tuple[int, Any, str]:
@@ -29,7 +35,8 @@ def _fefo_key(balance: Dict[str, Any]) -> Tuple[int, Any, str]:
 
 
 async def _inbound_location(db, warehouse_id: str) -> Optional[Dict[str, Any]]:
-    """Ubicación donde dejar lo que falta: la configurada, o la primera de almacenamiento."""
+    """Ubicación donde dejar lo que falta: la configurada (``SIN-UBICAR``) o, si no existe,
+    la primera de recepción, almacenamiento o staging, en ese orden."""
     if settings.defontana_reconcile_location_code:
         located = await db[Collections.LOCATIONS].find_one(
             {"warehouse_id": warehouse_id, "code": settings.defontana_reconcile_location_code}
