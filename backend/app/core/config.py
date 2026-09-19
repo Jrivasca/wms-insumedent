@@ -32,6 +32,47 @@ class Settings(BaseSettings):
     defontana_env: str = "test"
     defontana_test_base_url: str = "https://replapi.defontana.com/api"
     defontana_prod_base_url: str = "https://api.defontana.com/api"
+    # Días hacia atrás para traer pedidos EN DESPACHO desde Defontana (Order/List).
+    defontana_orders_window_days: int = 90
+    # Sincronización automática de pedidos (worker). Apagada por defecto. Corre cada
+    # N minutos dentro del horario "HH:MM-HH:MM" (hora de ``defontana_timezone``).
+    defontana_orders_sync_enabled: bool = False
+    defontana_orders_sync_interval_minutes: int = 15
+    defontana_orders_sync_hours: str = "08:00-19:00"
+    defontana_orders_sync_weekdays_only: bool = True
+    # Sincronización diaria de lotes + foto de stock del ERP (de madrugada: son ~70 llamadas).
+    defontana_stock_sync_enabled: bool = False
+    defontana_stock_sync_at: str = "03:30"
+    defontana_timezone: str = "America/Santiago"
+    # Movimientos del WMS que cambian la cantidad total (recepción y ajuste/merma) →
+    # Inventory/Insert. Tipos de documento y motivos definidos (decisión A.1) y PROBADOS contra
+    # la API de pruebas el 2026-09-19: cada combinación se creó y se borró. El envío sigue con su
+    # propio flag, apagado, porque el centro de negocio va dentro de cada documento y todavía
+    # está pendiente de confirmar por Insumedent (A.2).
+    defontana_inventory_sync_enabled: bool = False
+    # Parte de Entrada: la sugerencia de Defontana para ingresar stock.
+    defontana_reception_document_type: str = "PE"
+    defontana_adjustment_in_document_type: str = "XAJ_ENT_UN"
+    defontana_adjustment_out_document_type: str = "XAJ_SAL_UNID"
+    defontana_reception_reason_id: str = "COMPRA"
+    # Motivo de los ajustes, separado por sentido: un ajuste negativo o una merma no puede
+    # viajar con el motivo de una entrada (antes había uno solo que, vacío, caía en COMPRA).
+    defontana_adjustment_in_reason_id: str = "ENTRADA"
+    defontana_adjustment_out_reason_id: str = "SALIDA"
+    defontana_business_center: str = "EMPNEGVTAVTA000"
+    defontana_reception_centralizable: bool = False
+    # Conciliación WMS ← Defontana: código de la ubicación donde queda lo que aparece de más en
+    # el ERP hasta que bodega lo ubique (decisión A.3). SIN-UBICAR es de tipo recepción, no
+    # pickeable, y se crea por defecto en toda bodega nueva.
+    defontana_reconcile_location_code: str = "SIN-UBICAR"
+    # Corrida diaria de madrugada, después de la foto de stock (decisión A.4). Aplica sola las
+    # diferencias chicas; las que superan DEFONTANA_RECONCILE_REVIEW_UNITS quedan para revisión
+    # humana (A.5) y un supervisor las aprueba una por una en Stock ERP vs WMS. Apagada por
+    # defecto: la primera corrida conviene hacerla a mano, porque el WMS arranca muy distinto
+    # del ERP.
+    defontana_reconcile_enabled: bool = False
+    defontana_reconcile_at: str = "04:30"
+    defontana_reconcile_review_units: float = 20
 
     # Push de altas hacia el ERP (crear producto / pedido / documento de entrada).
     # En operación stand-alone (sin Defontana) va en false: el WMS opera solo y no

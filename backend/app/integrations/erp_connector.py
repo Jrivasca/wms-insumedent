@@ -22,17 +22,18 @@ class ERPConnector(ABC):
         ...
 
     @abstractmethod
-    async def get_product_by_barcode(self, barcode: str) -> Optional[Dict[str, Any]]:
+    async def get_stock_levels(self) -> List[Dict[str, Any]]:
+        """Stock per product and warehouse as the ERP sees it."""
         ...
 
     @abstractmethod
-    async def get_warehouses(self) -> List[Dict[str, Any]]:
+    async def get_orders(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Order headers in the window (all pages)."""
         ...
 
     @abstractmethod
-    async def get_orders(
-        self, from_date: str, to_date: str, page: int = 1, items_per_page: int = 50
-    ) -> List[Dict[str, Any]]:
+    async def get_order(self, number: Any) -> Optional[Dict[str, Any]]:
+        """Full order with its lines."""
         ...
 
     @abstractmethod

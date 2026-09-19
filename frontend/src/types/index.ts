@@ -23,6 +23,9 @@ export type NotificationType =
   | 'order_dispatched'
   | 'stock_zero'
   | 'receipt_unblocks_order'
+  | 'erp_order_changed'
+  | 'sync_job_failed'
+  | 'reconcile_review'
   | string;
 
 export interface AppNotification {
@@ -171,6 +174,100 @@ export interface Order {
   order_date?: string;
   delivery_date?: string;
   lines: OrderLine[];
+  /** Estado del pedido en Defontana (p. ej. "EEX (EN_DESPACHO_EN_FACTURACION)"). */
+  erp_status?: string | null;
+  /** Cambió en Defontana mientras estaba en preparación: requiere revisión. */
+  erp_attention?: { reason: string; erp_status?: string; detected_at?: string } | null;
+  cancel_reason?: string | null;
+}
+
+/** Lote informado por Defontana (referencia; no mueve stock del WMS). */
+export interface ErpStockLot {
+  lot_number: string;
+  stock: number;
+  expiration_date?: string | null;
+}
+
+/** Stock de Defontana vs stock del WMS para un SKU en una bodega. */
+export interface ErpStockRow {
+  sku: string;
+  name?: string | null;
+  storage_code: string;
+  erp_stock: number | null;
+  erp_reserved: number | null;
+  erp_to_receive: number | null;
+  wms_stock: number;
+  difference: number;
+  in_erp: boolean;
+  in_wms_catalog: boolean;
+  erp_lots: ErpStockLot[];
+}
+
+export interface ErpStockComparison extends Page<ErpStockRow> {
+  summary: {
+    rows: number;
+    with_difference: number;
+    erp_only: number;
+    wms_only: number;
+    snapshot_at?: string | null;
+    unmapped_warehouses: string[];
+    unknown_storage_codes: string[];
+  };
+}
+
+/** Movimiento que propondría la conciliación para igualar el WMS al ERP. */
+export interface ReconcileAction {
+  type: 'add' | 'remove';
+  location_id?: string | null;
+  location_code?: string | null;
+  lot_number?: string | null;
+  serial_number?: string | null;
+  expiration_date?: string | null;
+  quantity: number;
+}
+
+export interface ReconcileRow {
+  sku: string;
+  name?: string | null;
+  storage_code: string;
+  warehouse_name?: string | null;
+  erp_stock: number;
+  wms_stock: number;
+  difference: number;
+  actions: ReconcileAction[];
+  blocked?: string | null;
+  /** Diferencia grande: la corrida automática no la aplica; la aprueba un supervisor. */
+  needs_review: boolean;
+}
+
+export interface ReconcilePreview extends Page<ReconcileRow> {
+  summary: {
+    rows: number;
+    to_add: number;
+    to_remove: number;
+    units_to_add: number;
+    units_to_remove: number;
+    blocked: number;
+    /** Filas que la corrida automática aplicaría sola. */
+    auto: number;
+    /** Filas que esperan revisión humana. */
+    to_review: number;
+    /** Umbral en unidades sobre el que una diferencia va a revisión. */
+    review_units: number;
+    snapshot_at?: string | null;
+  };
+}
+
+/** Resultado de aplicar la conciliación (nunca envía nada al ERP). */
+export interface ReconcileApplyResult {
+  applied: number;
+  units_added: number;
+  units_removed: number;
+  skipped_review: number;
+  skipped_blocked: number;
+  pending_review: number;
+  errors: { sku: string; storage_code: string; error: string }[];
+  snapshot_at?: string | null;
 }
 
 /** Línea corta de un pedido parcial cuyo faltante ya está cubierto por stock. */
@@ -248,6 +345,10 @@ export interface PickingTask {
   warehouse_id?: string;
   status: string;
   lines: PickingLine[];
+  /** Pendiente de un pedido ya despachado en parte: sale en otra guía (decisión A.7). */
+  is_backorder?: boolean;
+  /** Número de tarea del pedido: 1 la original, 2 el primer pendiente, etc. */
+  sequence?: number;
 }
 
 export interface PackageItem {
@@ -343,7 +444,32 @@ export interface SyncJob {
 
 export interface DefontanaStatus {
   status: string;
+  configured?: boolean;
   environment?: string;
+  auth_mode?: string;
+  base_url?: string;
+  /** Identificadores guardados (solo supervisores). La contraseña nunca viaja: solo si existe. */
+  credentials?: {
+    client?: string | null;
+    company?: string | null;
+    user?: string | null;
+    email?: string | null;
+    has_password: boolean;
+    has_email_password: boolean;
+  };
+  /** Última foto de stock traída de Defontana (Inventory/GetFutureStockInfo). */
+  last_stock_sync_at?: string | null;
+  /** Última sincronización de lotes (Inventory/GetBatchesInfo). */
+  last_lots_sync_at?: string | null;
+  orders_auto_sync?: {
+    enabled: boolean;
+    interval_minutes: number;
+    hours: string;
+    weekdays_only: boolean;
+    last_run_at?: string | null;
+    last_summary?: Record<string, number> | null;
+    last_error?: string | null;
+  };
   mock?: boolean;
   last_check_at?: string;
   last_error?: string;

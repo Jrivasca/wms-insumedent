@@ -7,10 +7,13 @@ ya se pueden completar, para que el operario los retome solo ("Completar faltant
 
 Reglas:
 - Solo pedidos ``fulfillment=partial`` en una etapa desde la que se puede reabrir el
-  picking (picked → ready_to_dispatch). Uno despachado en parte exige anular la guía
-  (supervisor), así que no se ofrece.
+  picking (picked → ready_to_dispatch), o ya despachados enteros (lo que había): su
+  pendiente sale en una tarea nueva y otra guía, sin tocar lo despachado (decisión A.7).
+  Uno "despachado en parte" (queda algo empacado sin despachar) no se ofrece: primero se
+  despacha eso.
 - Solo cuenta stock pickeable: se excluyen las ubicaciones operativas (staging, packing,
-  dispatch) y cuarentena, donde la mercadería ya está comprometida o bloqueada.
+  dispatch), cuarentena y recepción, donde la mercadería ya está comprometida, bloqueada o
+  todavía sin ubicar.
 - Una línea es completable si el disponible cubre TODO su faltante. El stock se asigna
   al pedido más antiguo primero, para no avisar dos pedidos con las mismas unidades.
 - Sin duplicados: un marcador activo por (pedido, producto) en ``replenishment_alerts``;
@@ -23,7 +26,7 @@ from app.core.logging import get_logger
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, to_object_id
 from app.models import Collections
-from app.models.location import LocationType
+from app.models.location import NON_PICKABLE_LOCATION_TYPES, LocationType
 from app.models.notification import NotificationType
 from app.models.order import OrderFulfillment, OrderStatus
 from app.models.picking import PickingTaskStatus
@@ -39,13 +42,12 @@ RESUMABLE_STATUSES = (
     OrderStatus.READY_TO_DISPATCH.value,
 )
 
-# Ubicaciones cuyo stock no está disponible para pickear.
-NON_PICKABLE_LOCATION_TYPES = (
-    LocationType.STAGING.value,
-    LocationType.PACKING.value,
-    LocationType.DISPATCH.value,
-    LocationType.QUARANTINE.value,
-)
+# Pedido parcial ya despachado entero: el faltante sale en una tarea nueva (ver
+# ``picking_service.resume_partial``), sin reabrir nada de lo que ya salió.
+BACKORDER_STATUSES = (OrderStatus.DISPATCHED.value,)
+
+# Ubicaciones cuyo stock no está disponible para pickear: ``NON_PICKABLE_LOCATION_TYPES`` se
+# importa de ``models.location``, fuente única que comparte con la sugerencia del picking.
 
 
 def _shortfall(line: Dict[str, Any]) -> float:
@@ -96,7 +98,7 @@ async def evaluate_completable(
     db = tenant_db(tenant_id)
     query: Dict[str, Any] = {
         "fulfillment": OrderFulfillment.PARTIAL.value,
-        "status": {"$in": list(RESUMABLE_STATUSES)},
+        "status": {"$in": list(RESUMABLE_STATUSES) + list(BACKORDER_STATUSES)},
     }
     if product_id:
         query["lines.product_id"] = product_id

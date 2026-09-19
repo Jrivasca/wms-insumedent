@@ -12,6 +12,141 @@ las APIs que se decide no contratar.
 
 ---
 
+## Actualización v3 (2026-09-15) — contratación confirmada y prueba con credenciales reales
+
+**APIs contratadas** (empresa `20210930182429072002`): **Guías de Despacho, Inventario y
+Pedidos**. **Ventas (`Sale/*`) no se contrató.**
+
+Consecuencias:
+- `Sale/GetStorages`, `Sale/GetSimpleProducts` y `Sale/GetProductsPOSByBarCode` responden en
+  el ambiente de pruebas pero **no estarán disponibles en producción**; el WMS ya no los usa.
+- **Inventario (contratado) cubre lotes y stock, pero no el maestro completo**:
+  `Inventory/GetBatchesInfo` trae código, nombre, unidad, activo, uso de lotes/series, precio,
+  stock por bodega y lotes con vencimiento **solo de los artículos que manejan lotes** (536 en
+  pruebas, aunque su `totalItems` informa 3.359; página desde **0**, máx. 100 por página).
+  `Inventory/GetFutureStockInfo` trae **los 3.359 productos** (incluidos inactivos) con
+  descripción y stock actual, reservado, por recibir y futuro por bodega, pero sin unidad,
+  estado ni uso de lotes (página desde **1**; si se piden más de 100 los recorta sin avisar).
+  "Sync lotes" usa `GetBatchesInfo`; el informe "Stock ERP vs WMS" usa `GetFutureStockInfo`. El
+  catálogo completo, los códigos de barra, la marca y la familia siguen por el importador de
+  Excel. Las bodegas se administran solo en el WMS (se eliminó su sincronización).
+- Pedidos sí: lectura (`Order/List` + `Order/Get`) y despacho (`Order/DispatchOrder`).
+
+### Hallazgos verificados contra `replapi.defontana.com` (ya corregidos en el conector)
+
+| Tema | Lo que suponía el conector | Lo real |
+|---|---|---|
+| Respuestas | Lista directa, campos PascalCase | Sobre `{success, message, exceptionMessage}` con la lista en `storageList` / `productList` / `items`; campos camelCase; `success=false` con HTTP 200 es un error |
+| Paginación | Sin parámetros | Obligatoria: `GetStorages` / `GetSimpleProducts` desde página 1; `Order/List` con `PageNumber` desde 0 |
+| Pedidos | `Order/List` con líneas | `Order/List` trae solo número, fecha, cliente y estado; las líneas vienen en `Order/Get` (`orderData.details`) |
+| Estado del pedido | — | Código de 3 letras: 1ª = despacho (`E` en despacho, `D` despachado), 2ª = facturación, 3ª = prestación. El WMS importa solo `E..` en una ventana de `DEFONTANA_ORDERS_WINDOW_DAYS` (90 días por defecto) |
+| Idempotencia | 404 si no existe | `GetDocumentByExternalDocumentID` responde HTTP 200 + `success=false` "No existe un documento con el ID externo …" |
+| Token | 50 min fijos | `/api/Auth` entrega `expires_in` |
+| `Inventory/Insert` | `PUT` | `POST` (la wiki dice PUT y está desactualizada; manda el Swagger) |
+
+Prueba de lectura real en local: 2 bodegas, 3.044 productos activos, 29 pedidos en despacho
+(90 días) con 877 de 878 líneas enlazadas a productos del maestro.
+
+**Ojo con la copia de pruebas:** está desactualizada (último pedido del 2026-08-06, pese a que
+la guía de acceso de Defontana dice que se refresca cada fin de semana) y tiene 116 pedidos
+"en despacho" en 180 días, algunos desde marzo, que probablemente quedaron abiertos en el ERP.
+
+### Escrituras
+
+**`Inventory/Insert` — funciona.** Grabado en pruebas un `MOV001` (folio 265, 1 unidad del
+artículo `0004357` en `BODEGACENTRAL`), encontrado por `externalDocumentID` y eliminado con
+`Inventory/Delete`; no quedó nada en el ambiente. Lo que faltaba (seis intentos previos fallaron
+en el servidor con "Object reference not set to an instance of an object" / "An error occurred
+while saving the entity changes") eran dos datos de la empresa:
+
+| Campo | Valor que funcionó | Origen |
+|---|---|---|
+| `reasonId` | `COMPRA` | Movimiento de inventario de una guía real |
+| `analysis.businessCenter` (cabecera y cada línea) | `EMPNEGVTAVTA000` | Ídem |
+| `clientId`, `providerId`, `originStowageId` | `null` en una entrada | — |
+| `isCentralizable` | `false` | — |
+
+Los valores salieron de leer una guía real ya emitida (`GDVELECT` folio 3355, vía
+`Sale/GetSalebyDate`, solo en pruebas) y su movimiento de inventario (`Inventory/GetDocument`):
+motivo `COMPRA`, bodega de origen `BODEGACENTRAL`, centro de negocio `EMPNEGVTAVTA000`, cuenta
+`4110101001`, cliente = RUT del cliente, proveedor vacío. Los centros de negocio **no se pueden
+listar por API**: `Accounting/*` responde "la empresa INSUMEDENT SPA no tiene habilitada la
+funcionalidad" (Contabilidad no contratada).
+
+**Tipos de documento definidos, probados el 2026-09-19.** Con el mismo `build_inventory_entry`
+que usa el WMS se creó en pruebas un documento de cada combinación, los tres sin error, y se
+borraron: `PE`/`COMPRA` (entrada, folio 884), `XAJ_ENT_UN`/`ENTRADA` (entrada, folio 1) y
+`XAJ_SAL_UNID`/`SALIDA` (salida: la bodega va en `originStowageId`, folio 1). Los dos `XAJ_*`
+recibieron el folio 1: eran los primeros documentos de su tipo en el ambiente.
+
+Comportamientos de la API verificados en esa prueba:
+
+- **`DELETE Inventory/Delete` exige el folio como entero** (`DocumentTypeId`, `Folio`,
+  `FiscalYear` por query). Con `Folio=884.0`, tal como lo devuelve la propia API, responde
+  `400 BadRequest`; con `884` responde "Documento eliminado exitosamente".
+- **`GET Inventory/GetDocument` no avisa la inexistencia con un error:** para un documento
+  borrado responde HTTP 200, `success: true` y `stockLoadOutputData: null`. Un documento que
+  existe trae ese campo con datos (compañía, usuario, tipo, número, año fiscal). Hay que mirar
+  el campo, no el código ni `success`. Es la misma idea que `GetDocumentByExternalDocumentID`,
+  que avisa con HTTP 200 y `success: false`: la API no es uniforme en cómo dice "no existe".
+
+**`Order/DispatchOrder` — pendiente de valores.** La guía real trae `dispatchTypeData` con tipo de
+bien `1` = "Constituye una venta" y tipo de despacho `1` = "Por cuenta del cliente", pero falta
+confirmar cómo se mapean a `dispatchInfo.assetsType` / `dispatchType` / `transactionType` y qué va
+en `originStorageInfo.motive`. No se emitió guía de prueba (consume folio).
+
+**Usuario `INTEGRACION`:** la guía real de junio fue emitida por el usuario de API
+`INTEGRACION`, que es el mismo IDUsuario entregado para esta integración (Defontana crea usuarios
+`APPTOMATOR` / `REPLICACION` / `INTEGRACION`). Hay que confirmar qué proceso emite hoy guías con ese
+usuario antes de que el WMS también lo haga, para no duplicarlas.
+
+Tipos de movimiento de inventario de la empresa (`Inventory/GetTypeInventoryInfo`), los
+candidatos para las recepciones del WMS:
+
+| Código | Nombre | Centralización contable |
+|---|---|---|
+| `PE` | Parte de entrada | (sin dato en la API) |
+| `MOV001` | Movimiento de inventario entrada | Sí (`INV_MOV001`) |
+| `XAJ_ENT_UN` | Ajuste entrada unidades | No ("Sin Centralización") |
+| `GDVELECT` | 52 Guía de Despacho Electrónica | Sí (`INV_GDVELECT`) |
+
+### Respuestas de Defontana (soporte, 2026-09-15 y 2026-09-17)
+
+- **Pedidos:** el filtro `Status` de `Order/List` acepta **un solo código por consulta**. Ciclo
+  del pedido: **P → AC → AF → EEX**, y puede pasar a `D..` si la guía se emite en el ERP. **Un
+  pedido solo se puede editar en estado P.**
+- **Motivos de movimiento de inventario** (ERP → Configuración → Inventario → Motivos de
+  Movimiento): `COMPRA`, `DEVOLUCION`, `ENTRADA`, `SALIDA`, `TRASPASO`, `VENTA`.
+- **Tipo de documento para ingresar stock:** por experiencia con otros clientes, Defontana
+  sugiere **Parte de Entrada (`PE`)**, pero es una **definición del cliente** según el efecto
+  contable que busque. Igual para ajustes/mermas (`XAJ_*` vs `MM`).
+- **Centro de negocio:** también lo define el cliente por flujo. Soporte indicó consultarlo con
+  `api/Accounting/BusinessCenterPlan`, pero **no sirve para Insumedent**: la ruta real es
+  `api/Accounting/GetBusinessCenterPlan` (la otra da 404) y responde "la empresa INSUMEDENT SPA
+  no tiene habilitada la funcionalidad" porque **Contabilidad no está contratado**. Hay que
+  verlo en el ERP web (Configuración → Contabilidad → Centros de negocio).
+- **`providerId`:** depende de cómo esté configurado el tipo de movimiento de inventario usado.
+- **Usuarios de API:** en el **ambiente de pruebas** se puede usar cualquiera de los tres
+  (`APPTOMATOR`, `REPLICACION`, `INTEGRACION`).
+- **Ambiente de pruebas:** el desfase es de una semana por diseño; el atraso de esta semana fue
+  un problema interno y se corrige el fin de semana.
+
+### Pendientes
+
+1. **Decisiones del cliente (Insumedent), no de Defontana:** tipo de documento para recepción y
+   para ajuste/merma, motivo a usar en cada flujo y centro de negocio de los movimientos de
+   inventario.
+2. **Guía con `Order/DispatchOrder`:** mapeo de tipo de bien `1` / tipo de despacho `1` a
+   `dispatchInfo.assetsType` / `dispatchType` / `transactionType`, valor de
+   `originStorageInfo.motive` y campos realmente obligatorios; idealmente un JSON de ejemplo.
+3. **Usuario de API en producción:** qué proceso emite hoy guías con `INTEGRACION` allá (en
+   pruebas ya está aclarado), para que el WMS use uno propio y no le invalide el token.
+4. **Reemplazo de productos** en un pedido ya aprobado (ver `Modelo-de-stock-con-Defontana.md`):
+   consulta pendiente de definir con el negocio antes de llevarla a Defontana.
+5. Confirmar que `Sale/*` no estará disponible en producción al no haber contratado Ventas.
+
+---
+
 ## Actualización v2 (2026-08-13) — modelo "por archivos" ya implementado
 
 Tras revisar el Swagger y decidir minimizar APIs con automatizaciones por archivos, se
@@ -102,7 +237,7 @@ De ahí la regla de decisión:
 |---|---|---|---|
 | `get_products` | `GET /sale/GetSimpleProducts` | Ventas | Sincronizar catálogo |
 | `get_product_by_barcode` | `GET /sale/GetProductsPOSByBarCode` | Ventas | Buscar producto al escanear |
-| `get_warehouses` | `GET /sale/GetStorages` | Ventas | Sincronizar bodegas |
+| `get_warehouses` | `GET /sale/GetStorages` | Ventas | Sincronizar bodegas *(eliminado 2026-09: las bodegas se administran solo en el WMS)* |
 | `get_orders` | `GET /Order/List` | Pedidos | Traer pedidos a preparar |
 | `dispatch_order` | `POST /Order/DispatchOrder` | Pedidos | Confirmar despacho |
 | `create_inventory_document` | `PUT /Inventory/Insert` | Inventario | Recepción / ajuste / transferencia |
@@ -287,7 +422,9 @@ El conector hoy apunta a `replapi`, es decir al ambiente de pruebas.
 - Se **actualiza semanalmente** desde producción: todo lo creado o configurado en
   pruebas durante la semana **se pierde**. Por eso Defontana recomienda hacer las
   configuraciones y maestros directamente en producción, para que se repliquen.
-- **Disponible lunes a viernes, 09:00–20:00.** Sábado y domingo no disponible.
+- **Disponible lunes a viernes, 08:30–18:00** (según la "Guía paso a paso para el ingreso al
+  ERP y API de pruebas" de Defontana). Fines de semana no disponible; se refresca con datos de
+  producción cada fin de semana, con hasta una semana de desfase.
 
 **Autenticación:** token JWT vía `/api/auth` (parámetros `Client`, `Company`,
 `User`, `Password`). Cada token nuevo **invalida los anteriores del mismo usuario**,

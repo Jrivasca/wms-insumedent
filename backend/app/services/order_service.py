@@ -6,7 +6,9 @@ from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
+from app.models.location import NON_PICKABLE_LOCATION_TYPES
 from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
+from app.models.packing import PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
@@ -30,6 +32,21 @@ async def _suggested_location(
     tenant_id: str, product_id: str, warehouse_id: str
 ) -> Optional[str]:
     db = tenant_db(tenant_id)
+    # Nunca sugerir stock no pickeable: lo que está en staging, packing o despacho ya es de
+    # otro pedido, cuarentena está bloqueada y recepción todavía no se guardó en un estante.
+    # Antes se sugería cualquier ubicación con stock, así que FEFO podía mandar a un operario
+    # a sacar mercadería que estaba en preparación para otro pedido.
+    excluded = [
+        str(location["_id"])
+        async for location in db[Collections.LOCATIONS].find(
+            {
+                "tenant_id": tenant_id,
+                "warehouse_id": warehouse_id,
+                "type": {"$in": list(NON_PICKABLE_LOCATION_TYPES)},
+            },
+            {"_id": 1},
+        )
+    ]
     # FEFO (Fase 5): prefer the lot with the nearest expiration among those with stock.
     fefo = (
         await db[Collections.INVENTORY_BALANCES]
@@ -38,6 +55,7 @@ async def _suggested_location(
                 "tenant_id": tenant_id,
                 "product_id": product_id,
                 "warehouse_id": warehouse_id,
+                "location_id": {"$nin": excluded},
                 "quantity_on_hand": {"$gt": 0},
                 "expiration_date": {"$ne": None},
             }
@@ -47,12 +65,13 @@ async def _suggested_location(
     )
     if fefo:
         return fefo[0]["location_id"]
-    # Otherwise any location that already holds stock for this product.
+    # Otherwise any pickable location that already holds stock for this product.
     balance = await db[Collections.INVENTORY_BALANCES].find_one(
         {
             "tenant_id": tenant_id,
             "product_id": product_id,
             "warehouse_id": warehouse_id,
+            "location_id": {"$nin": excluded},
             "quantity_on_hand": {"$gt": 0},
         }
     )
@@ -213,6 +232,34 @@ async def create_order_from_lines(
     return serialize(doc)
 
 
+async def _picking_line(
+    tenant_id: str, line: Dict[str, Any], warehouse_id: str, quantity: float
+) -> Dict[str, Any]:
+    """Línea de una tarea de picking a partir de una línea del pedido. La comparten la tarea
+    normal (pide todo lo pedido) y la del pendiente (pide solo lo que falta)."""
+    product_id = line.get("product_id")
+    sku = line.get("sku", "")
+    expected = await _expected_barcodes(tenant_id, product_id, sku) if product_id else [sku]
+    suggested = (
+        await _suggested_location(tenant_id, product_id, warehouse_id)
+        if product_id
+        else None
+    )
+    return {
+        "line_id": line.get("line_id"),
+        "product_id": product_id,
+        "sku": sku,
+        "name": line.get("name"),
+        "unit": line.get("unit", "UN"),
+        "barcode_expected": expected,
+        "quantity_required": quantity,
+        "quantity_picked": 0,
+        "suggested_location_id": suggested,
+        "scans": [],
+        "status": PickingLineStatus.PENDING.value,
+    }
+
+
 async def create_picking_task(
     tenant_id: str, order_id: str, created_by: str
 ) -> Dict[str, Any]:
@@ -255,31 +302,10 @@ async def create_picking_task(
     if not warehouse_id:
         raise HTTPException(status_code=400, detail="No warehouse available for picking")
 
-    lines = []
-    for line in order.get("lines", []):
-        product_id = line.get("product_id")
-        sku = line.get("sku", "")
-        expected = await _expected_barcodes(tenant_id, product_id, sku) if product_id else [sku]
-        suggested = (
-            await _suggested_location(tenant_id, product_id, warehouse_id)
-            if product_id
-            else None
-        )
-        lines.append(
-            {
-                "line_id": line.get("line_id"),
-                "product_id": product_id,
-                "sku": sku,
-                "name": line.get("name"),
-                "unit": line.get("unit", "UN"),
-                "barcode_expected": expected,
-                "quantity_required": line.get("ordered_quantity", 0),
-                "quantity_picked": 0,
-                "suggested_location_id": suggested,
-                "scans": [],
-                "status": PickingLineStatus.PENDING.value,
-            }
-        )
+    lines = [
+        await _picking_line(tenant_id, line, warehouse_id, line.get("ordered_quantity", 0))
+        for line in order.get("lines", [])
+    ]
 
     now = now_utc()
     task = {
@@ -333,18 +359,47 @@ def compute_fulfillment(lines: List[Dict[str, Any]]) -> str:
     return OrderFulfillment.COMPLETE.value
 
 
+# Tareas cerradas: las que cuentan para las cantidades del pedido.
+_DONE_PICKING = (
+    PickingTaskStatus.COMPLETED.value,
+    PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
+)
+_DONE_PACKING = (PackingTaskStatus.COMPLETED.value,)
+
+
+async def _task_totals(
+    db, tenant_id: str, collection: str, order_id: str, statuses, field: str
+) -> Dict[str, float]:
+    """Suma por línea de ``field`` en las tareas del pedido con estado en ``statuses``.
+
+    Un pedido puede tener más de una tarea: el pendiente de un pedido parcial sale en una
+    tarea nueva (decisión A.7). Lo pickeado y lo empacado del pedido es la suma de todas;
+    con una sola tarea, el resultado es el mismo de antes."""
+    totals: Dict[str, float] = {}
+    async for task in db[collection].find(
+        {"tenant_id": tenant_id, "order_id": order_id, "status": {"$in": list(statuses)}}
+    ):
+        for line in task.get("lines", []):
+            line_id = line.get("line_id")
+            totals[line_id] = totals.get(line_id, 0) + (line.get(field, 0) or 0)
+    return totals
+
+
 async def reconcile_order_from_picking(
     tenant_id: str, order_id: str, picking_task: Dict[str, Any]
 ) -> None:
+    """Lo pickeado del pedido es la suma de sus tareas de picking cerradas. ``picking_task``
+    se conserva por compatibilidad: las cantidades se leen de la base, donde quien llama ya
+    dejó la tarea cerrada."""
     db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
         return
-    picked_by_line = {
-        l.get("line_id"): l.get("quantity_picked", 0) for l in picking_task.get("lines", [])
-    }
+    picked_by_line = await _task_totals(
+        db, tenant_id, Collections.PICKING_TASKS, order_id, _DONE_PICKING, "quantity_picked"
+    )
     lines = order.get("lines", [])
     for ol in lines:
         picked = picked_by_line.get(ol.get("line_id"))
@@ -363,15 +418,17 @@ async def reconcile_order_from_picking(
 async def reconcile_order_from_packing(
     tenant_id: str, order_id: str, packing_task: Dict[str, Any]
 ) -> None:
+    """Lo empacado del pedido es la suma de sus tareas de packing cerradas (ver
+    ``reconcile_order_from_picking``)."""
     db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
         return
-    packed_by_line = {
-        l.get("line_id"): l.get("quantity_packed", 0) for l in packing_task.get("lines", [])
-    }
+    packed_by_line = await _task_totals(
+        db, tenant_id, Collections.PACKING_TASKS, order_id, _DONE_PACKING, "quantity_packed"
+    )
     lines = order.get("lines", [])
     for ol in lines:
         packed = packed_by_line.get(ol.get("line_id"))
@@ -422,3 +479,109 @@ async def reset_order_reconciliation(
     if stage == "picking":
         # El pedido se retomó: un nuevo faltante al recompletar debe volver a avisar.
         await replenishment_alert_service.release_for_order(tenant_id, order_id)
+
+
+# ---------------------------------------------------------------------------
+# Pendiente de un pedido parcial ya despachado (decisión A.7)
+# ---------------------------------------------------------------------------
+# Se despacha lo que hay y lo que falta sale después en otra guía. El pendiente es una
+# tarea de picking NUEVA con solo lo que falta; lo ya despachado nunca se toca.
+
+
+async def recompute_after_backorder_reopen(tenant_id: str, order_id: str) -> None:
+    """Retroceso de un pendiente: las cantidades del pedido se recalculan desde las tareas
+    que siguen cerradas, en vez de ponerse en cero como en un pedido de una sola tarea. Lo
+    que salió en la guía anterior (pickeado, empacado y despachado) se conserva; solo se
+    descuenta el aporte de la tarea que se reabrió."""
+    db = tenant_db(tenant_id)
+    order = await db[Collections.ORDERS].find_one(
+        {"_id": to_object_id(order_id), "tenant_id": tenant_id}
+    )
+    if not order:
+        return
+    picked = await _task_totals(
+        db, tenant_id, Collections.PICKING_TASKS, order_id, _DONE_PICKING, "quantity_picked"
+    )
+    packed = await _task_totals(
+        db, tenant_id, Collections.PACKING_TASKS, order_id, _DONE_PACKING, "quantity_packed"
+    )
+    lines = order.get("lines", [])
+    for ol in lines:
+        line_id = ol.get("line_id")
+        ordered = ol.get("ordered_quantity", 0)
+        ol["picked_quantity"] = picked.get(line_id, 0)
+        ol["packed_quantity"] = packed.get(line_id, 0)
+        # dispatched_quantity no se toca: esa mercadería ya salió.
+        if ol["packed_quantity"] > 0:
+            ol["status"] = _line_status_for(ol["packed_quantity"], ordered,
+                                            OrderLineStatus.PACKED.value)
+        else:
+            ol["status"] = _line_status_for(ol["picked_quantity"], ordered,
+                                            OrderLineStatus.PICKED.value)
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"lines": lines, "fulfillment": compute_fulfillment(lines),
+                  "updated_at": now_utc()}},
+    )
+
+
+async def create_backorder_picking_task(
+    tenant_id: str, order: Dict[str, Any], created_by: str
+) -> Dict[str, Any]:
+    """Tarea de picking con SOLO lo que falta de un pedido ya despachado en parte: por
+    línea, lo pedido menos lo pickeado. Queda asignada a quien la crea y marcada como
+    pendiente (``is_backorder``), con su número correlativo entre las tareas del pedido."""
+    db = tenant_db(tenant_id)
+    order_id = str(order["_id"])
+    previous = await (
+        db[Collections.PICKING_TASKS]
+        .find({"tenant_id": tenant_id, "order_id": order_id,
+               "status": {"$ne": PickingTaskStatus.CANCELLED.value}})
+        .sort("created_at", -1)
+        .to_list(length=50)
+    )
+    warehouse_id = (
+        (previous[0].get("warehouse_id") if previous else None)
+        or order.get("warehouse_id")
+        or await _default_warehouse_id(tenant_id)
+    )
+    if not warehouse_id:
+        raise HTTPException(status_code=400, detail="No warehouse available for picking")
+
+    lines = []
+    for line in order.get("lines", []):
+        shortfall = (line.get("ordered_quantity", 0) or 0) - (line.get("picked_quantity", 0) or 0)
+        if line.get("product_id") and shortfall > 0:
+            lines.append(await _picking_line(tenant_id, line, warehouse_id, shortfall))
+    if not lines:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El pedido no tiene líneas pendientes.",
+        )
+
+    now = now_utc()
+    task = {
+        "tenant_id": tenant_id,
+        "order_id": order_id,
+        "erp_order_number": order.get("erp_order_number"),
+        "assigned_to": created_by,
+        "warehouse_id": warehouse_id,
+        "status": PickingTaskStatus.PENDING.value,
+        "started_at": None,
+        "completed_at": None,
+        "lines": lines,
+        "is_backorder": True,
+        "sequence": len(previous) + 1,
+        "created_by": created_by,
+        "updated_by": created_by,
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await db[Collections.PICKING_TASKS].insert_one(task)
+    task["_id"] = result.inserted_id
+    await db[Collections.ORDERS].update_one(
+        {"_id": order["_id"]},
+        {"$set": {"status": OrderStatus.PENDING_PICKING.value, "updated_at": now}},
+    )
+    return serialize(task)

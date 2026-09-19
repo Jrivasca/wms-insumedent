@@ -23,3 +23,18 @@ def make_user(user_doc: dict, role: str = "admin") -> CurrentUser:
         role=user_doc.get("role", role),
         allowed_warehouse_ids=user_doc.get("allowed_warehouse_ids", []),
     )
+
+
+@pytest.fixture(autouse=True)
+def default_settings(monkeypatch):
+    """Cada test corre con la configuración por defecto de ``config.py``, no con el ``.env``
+    de quien lo ejecuta. Dentro del contenedor, el ``.env`` real apaga el modo simulado de
+    Defontana y enciende sincronizaciones: cuatro tests escritos para el modo simulado
+    fallaban intentando autenticarse contra el ERP de verdad. El test que necesite otro valor
+    lo fija él mismo con ``monkeypatch``, que corre después de este fixture."""
+    from app.core.config import settings
+
+    for name, field in type(settings).model_fields.items():
+        if field.is_required():
+            continue
+        monkeypatch.setattr(settings, name, field.get_default(call_default_factory=True))

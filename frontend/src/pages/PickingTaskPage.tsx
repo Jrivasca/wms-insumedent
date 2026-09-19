@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, PackageX, RotateCcw } from 'lucide-react';
 import {
   completePicking,
   getPickingTask,
@@ -11,7 +12,9 @@ import {
 import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
+import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
+import BackorderBadge from '../components/BackorderBadge';
 import Toast from '../components/Toast';
 import type { PickingLine, PickingTask } from '../types';
 
@@ -113,7 +116,10 @@ export default function PickingTaskPage() {
         tone = 'error'; // code not part of this order
       }
       setFeedback(tone);
-      showMessage(res.message ?? (res.status === 'ok' ? 'Código correcto' : 'Escaneo no válido'), tone);
+      showMessage(
+        res.message ?? (res.status === 'ok' ? 'Código correcto' : 'Escaneo no válido'),
+        tone
+      );
 
       // Refresh task to get authoritative quantities.
       const refreshed =
@@ -173,7 +179,7 @@ export default function PickingTaskPage() {
     try {
       const t = await resetPickingLine(id, { sku });
       setTask(t);
-      showMessage(`Línea ${sku} reiniciada — vuelva a escanearla`, 'info');
+      showMessage(`Línea ${sku} reiniciada: vuelve a escanearla`, 'info');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -205,12 +211,12 @@ export default function PickingTaskPage() {
     try {
       const t = await completePicking(id, allowPartial);
       setTask(t);
-      showMessage('Picking completado. Continúe en Packing.', 'success');
+      showMessage('Picking completado. Continúa en Packing.', 'success');
       setTimeout(() => navigate('/my/packing'), 900);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 409) {
-        setError('Hay líneas pendientes. Puede completar parcialmente.');
+        setError('Hay líneas pendientes. Puedes completar el picking de forma parcial.');
       } else {
         setError(errorMessage(err));
       }
@@ -227,96 +233,137 @@ export default function PickingTaskPage() {
   const hasPending = task.lines.some(
     (l) => l.quantity_picked < l.quantity_required && l.status !== 'missing'
   );
+  const remainingCurrent = currentLine
+    ? Math.max(currentLine.quantity_required - currentLine.quantity_picked, 0)
+    : 0;
 
   return (
-    <div className="mx-auto max-w-xl pb-24">
-      <div className="mb-4 flex items-center justify-between">
-        <button onClick={() => navigate('/my/picking')} className="text-sm text-slate-500 underline">
-          ‹ Volver
+    <div className="mx-auto max-w-xl">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <button onClick={() => navigate('/my/picking')} className="btn-ghost btn-sm -ml-2">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Volver
         </button>
-        <StatusBadge status={task.status} />
+        <StatusBadge status={task.status} withDot />
       </div>
 
-      <h1 className="text-2xl font-bold">{task.erp_order_number ?? `Pedido ${task.order_id}`}</h1>
-      <div className="mt-1 mb-4 text-sm text-slate-500">
-        Progreso: {progress.done}/{progress.lines} líneas · {progress.picked}/{progress.total} unidades
-      </div>
-      <div className="mb-4 h-3 w-full overflow-hidden rounded-full bg-slate-200">
-        <div
-          className="h-full bg-emerald-500 transition-all"
-          style={{ width: `${progress.total ? (progress.picked / progress.total) * 100 : 0}%` }}
-        />
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+        {task.erp_order_number ?? `Pedido ${task.order_id}`}
+      </h1>
+      {task.is_backorder && (
+        <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-amber-800">
+          <BackorderBadge sequence={task.sequence} />
+          Solo lo que faltó; lo anterior ya se despachó.
+        </p>
+      )}
+      <p className="mt-1 text-sm text-slate-500">
+        {progress.done} de {progress.lines} líneas resueltas
+      </p>
+      <div className="mb-4 mt-2">
+        <ProgressBar value={progress.picked} total={progress.total} unit="unidades" />
       </div>
 
       {notStarted && (
-        <button onClick={handleStart} className="btn-xl mb-4 w-full bg-brand text-white" disabled={busy}>
+        <button
+          onClick={handleStart}
+          className="btn-xl mb-4 w-full bg-brand text-white hover:bg-brand-dark"
+          disabled={busy}
+        >
           Iniciar picking
+          <ArrowRight className="h-5 w-5" aria-hidden="true" />
         </button>
       )}
 
       <Toast message={message} tone={messageTone} onClose={() => setMessage(null)} />
       {error && <ErrorBox message={error} />}
 
-      {/* Current line */}
+      {/* Línea actual: es lo único que el operario mira mientras escanea, así que va
+          en el panel de mayor contraste. */}
       {currentLine ? (
-        <div className="card mb-4 border-2 border-brand">
-          <div className="text-xs uppercase tracking-wide text-slate-400">Línea actual</div>
-          <div className="text-xl font-bold">{currentLine.name}</div>
-          <div className="font-mono text-sm text-slate-500">SKU: {currentLine.sku}</div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-3xl font-bold">
+        <div className="panel-dark mb-4 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-graphite-400">
+            Línea actual
+          </p>
+          <p className="mt-1 text-xl font-bold leading-tight text-white">{currentLine.name}</p>
+          <p className="mt-0.5 font-mono text-sm tracking-tight text-graphite-200">
+            SKU {currentLine.sku}
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
+            <span className="text-4xl font-bold tabular-nums text-white">
               {currentLine.quantity_picked}
-              <span className="text-lg text-slate-400"> / {currentLine.quantity_required}</span>
+              <span className="text-xl font-semibold text-graphite-400">
+                {' '}
+                / {currentLine.quantity_required}
+              </span>
             </span>
-            <span className="text-sm text-slate-500">
-              {currentLine.barcode_expected?.length
-                ? `Espera: ${currentLine.barcode_expected.join(', ')}`
-                : ''}
-            </span>
+            <span className="text-sm font-semibold text-amber-300">Faltan {remainingCurrent}</span>
           </div>
-          <div className="mt-1 text-sm font-medium text-amber-700">
-            Faltan {Math.max(currentLine.quantity_required - currentLine.quantity_picked, 0)}
-          </div>
+
+          {currentLine.barcode_expected?.length ? (
+            <p className="mt-2 font-mono text-xs tracking-tight text-graphite-400">
+              Espera: {currentLine.barcode_expected.join(', ')}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-amber-300">
+              Esta línea no tiene código de barras: confírmala sin escáner.
+            </p>
+          )}
+
           <button
             onClick={pickWithoutScanner}
-            className="btn mt-3 w-full bg-brand text-white"
+            className="btn-xl mt-4 w-full bg-brand text-white hover:bg-brand-dark"
             disabled={busy}
           >
             Confirmar sin escáner (+
-            {Math.min(quantity, currentLine.quantity_required - currentLine.quantity_picked)})
+            {Math.min(quantity, remainingCurrent)})
           </button>
         </div>
       ) : (
-        <div className="card mb-4 border-2 border-emerald-400 bg-emerald-50 text-center font-semibold text-emerald-700">
+        <div className="mb-4 rounded-card border border-emerald-200 bg-emerald-50 p-4 text-center font-semibold text-emerald-900">
           Todas las líneas resueltas
         </div>
       )}
 
-      {/* Quantity + scanner */}
+      {/* Cantidad + escáner */}
       {!notStarted && (
         <div className="card mb-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <label className="label mb-0">Cantidad por escaneo</label>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="label mb-0" htmlFor="qty">
+              Cantidad por escaneo
+            </label>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="btn-secondary h-12 w-12 text-xl"
+                className="btn-secondary h-touch w-touch text-xl"
+                aria-label="Restar uno"
               >
                 −
               </button>
-              <span className="w-12 text-center text-2xl font-bold">{quantity}</span>
+              <span
+                id="qty"
+                className="w-12 text-center text-2xl font-bold tabular-nums"
+                aria-live="polite"
+              >
+                {quantity}
+              </span>
               <button
                 type="button"
                 onClick={() => setQuantity((q) => q + 1)}
-                className="btn-secondary h-12 w-12 text-xl"
+                className="btn-secondary h-touch w-touch text-xl"
+                aria-label="Sumar uno"
               >
                 +
               </button>
             </div>
           </div>
 
-          <BarcodeScanner onScan={handleScan} feedback={feedback} hint="Escanee el producto de la línea actual" />
+          <BarcodeScanner
+            onScan={handleScan}
+            feedback={feedback}
+            hint="Escanea el producto de la línea actual"
+          />
 
           {currentLine && (
             <button
@@ -324,19 +371,22 @@ export default function PickingTaskPage() {
                 setMissingFor(currentLine);
                 setMissingReason('');
               }}
-              className="btn-danger w-full"
+              className="btn-secondary w-full text-red-700"
             >
+              <PackageX className="h-4 w-4" aria-hidden="true" />
               Marcar faltante
             </button>
           )}
         </div>
       )}
 
-      {/* All lines */}
+      {/* Todas las líneas */}
       <div className="card mb-4">
-        <h2 className="mb-1 font-semibold">Líneas</h2>
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Líneas
+        </h2>
         {!notStarted && hasPending && (
-          <p className="mb-2 text-xs text-slate-400">Toca una línea para pickearla.</p>
+          <p className="mb-2 text-xs text-slate-500">Toca una línea para pickearla.</p>
         )}
         <div className="space-y-2">
           {task.lines.map((l) => {
@@ -348,39 +398,40 @@ export default function PickingTaskPage() {
               <div
                 key={l.sku}
                 onClick={selectable ? () => setSelectedSku(l.sku) : undefined}
-                className={`flex items-center justify-between rounded-md border px-3 py-2 ${
+                className={`flex min-h-touch items-center justify-between gap-3 rounded-md border px-3 py-2 ${
                   missing
                     ? 'border-red-300 bg-red-50'
                     : complete
-                    ? 'border-emerald-300 bg-emerald-50'
-                    : isCurrent
-                    ? 'border-brand ring-1 ring-brand'
-                    : 'border-slate-200'
+                      ? 'border-emerald-300 bg-emerald-50'
+                      : isCurrent
+                        ? 'border-brand ring-1 ring-brand'
+                        : 'border-slate-200'
                 } ${selectable ? 'cursor-pointer' : ''}`}
               >
-                <div>
-                  <div className="font-medium">
-                    {l.name}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-slate-900">{l.name}</span>
                     {isCurrent && (
-                      <span className="badge ml-2 bg-blue-100 text-blue-800">pickeando</span>
+                      <span className="badge bg-brand-soft text-brand-darker">pickeando</span>
                     )}
+                    {missing && <StatusBadge status="missing" />}
                   </div>
-                  <div className="font-mono text-xs text-slate-500">{l.sku}</div>
+                  <span className="code">{l.sku}</span>
                 </div>
-                <div className="text-right">
-                  <div className="font-bold">
+                <div className="shrink-0 text-right">
+                  <div className="font-bold tabular-nums text-slate-900">
                     {l.quantity_picked}/{l.quantity_required}
                   </div>
-                  {missing && <div className="text-xs text-red-600">faltante</div>}
                   {(l.quantity_picked > 0 || missing) && !notStarted && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         resetLine(l.sku);
                       }}
-                      className="mt-1 text-xs font-medium text-brand underline disabled:opacity-50"
+                      className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline disabled:opacity-50"
                       disabled={busy}
                     >
+                      <RotateCcw className="h-3 w-3" aria-hidden="true" />
                       Volver a escanear
                     </button>
                   )}
@@ -391,12 +442,12 @@ export default function PickingTaskPage() {
         </div>
       </div>
 
-      {/* Complete */}
+      {/* Cierre de la tarea */}
       {!notStarted && (
         <div className="space-y-2">
           <button
             onClick={() => handleComplete(false)}
-            className="btn-xl w-full bg-emerald-600 text-white"
+            className="btn-xl w-full bg-emerald-600 text-white hover:bg-emerald-700"
             disabled={busy}
           >
             Completar picking
@@ -407,37 +458,50 @@ export default function PickingTaskPage() {
               className="btn w-full bg-amber-500 text-white hover:bg-amber-600"
               disabled={busy}
             >
-              Completar parcial (con pendientes)
+              Completar parcial (quedan líneas pendientes)
             </button>
           )}
         </div>
       )}
 
-      {/* Missing modal */}
+      {/* Marcar faltante: necesita un motivo escrito, por eso no usa ConfirmDialog */}
       {missingFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-lg bg-white p-4">
-            <h3 className="text-lg font-bold">Marcar faltante</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-graphite-950/50 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="missing-title"
+        >
+          <div className="w-full max-w-sm rounded-card bg-white p-5 shadow-raised">
+            <h3 id="missing-title" className="text-lg font-bold text-slate-900">
+              Marcar faltante
+            </h3>
             <p className="mb-3 text-sm text-slate-500">
-              {missingFor.name} ({missingFor.sku})
+              {missingFor.name} · <span className="code">{missingFor.sku}</span>
             </p>
-            <label className="label">Motivo (obligatorio)</label>
+            <label className="label" htmlFor="missing-reason">
+              Motivo (obligatorio)
+            </label>
             <textarea
+              id="missing-reason"
               value={missingReason}
               onChange={(e) => setMissingReason(e.target.value)}
-              className="input mb-3 h-24"
-              placeholder="Ej: sin stock en ubicación, producto dañado…"
+              className="input mb-1 h-24"
+              placeholder="Ej: sin stock en la ubicación, producto dañado…"
             />
-            <div className="flex gap-2">
+            <p className="hint mb-3">
+              El pedido queda incompleto y se avisará cuando llegue stock de esta línea.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button onClick={() => setMissingFor(null)} className="btn-secondary">
+                Cancelar
+              </button>
               <button
                 onClick={submitMissing}
-                className="btn-danger flex-1"
+                className="btn-danger"
                 disabled={!missingReason.trim() || busy}
               >
                 Confirmar faltante
-              </button>
-              <button onClick={() => setMissingFor(null)} className="btn-secondary flex-1">
-                Cancelar
               </button>
             </div>
           </div>

@@ -56,7 +56,9 @@ export async function listCompletableOrders(): Promise<CompletableOrder[]> {
   return data.items;
 }
 
-/** "Completar faltante": reabre el picking del pedido parcial y lo asigna a quien lo retoma. */
+/** "Completar faltante": reabre el picking del pedido parcial y lo asigna a quien lo retoma.
+ *  Si el pedido ya se despachó (lo que había), crea en cambio una tarea nueva con solo el
+ *  pendiente, que sale en otra guía (decisión A.7). */
 export async function resumePartialOrder(orderId: string): Promise<PickingTask> {
   const { data } = await http.post<PickingTask>(`/orders/${orderId}/resume-partial`);
   return data;

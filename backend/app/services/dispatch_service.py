@@ -59,11 +59,18 @@ def _remaining_by_line(order_lines: List[Dict[str, Any]]) -> Dict[str, int]:
 
 
 async def _active_packing_task(tenant_id: str, order_id: str) -> Optional[Dict[str, Any]]:
+    """La tarea de packing vigente: la más reciente no cancelada. Con un pendiente (A.7) el
+    pedido tiene más de una, y los bultos por despachar están en la última."""
     db = tenant_db(tenant_id)
-    return await db[Collections.PACKING_TASKS].find_one(
-        {"tenant_id": tenant_id, "order_id": order_id,
-         "status": {"$ne": PackingTaskStatus.CANCELLED.value}}
+    found = await (
+        db[Collections.PACKING_TASKS]
+        .find({"tenant_id": tenant_id, "order_id": order_id,
+               "status": {"$ne": PackingTaskStatus.CANCELLED.value}})
+        .sort([("created_at", -1), ("_id", -1)])
+        .limit(1)
+        .to_list(length=1)
     )
+    return found[0] if found else None
 
 
 async def confirm_dispatch(
@@ -276,10 +283,14 @@ async def _revert_dispatch_effects(
             ol["dispatched_quantity"] = max(
                 0, (ol.get("dispatched_quantity", 0) or 0) - int(dl.get("quantity") or 0)
             )
-    # Liberar los bultos de esta guía.
+    # Liberar los bultos de esta guía en la tarea de packing que los tenga: con un pendiente
+    # (A.7) hay más de una, y la guía anulada puede ser la de la tarea anterior.
     db = tenant_db(tenant_id)
-    packing_task = await _active_packing_task(tenant_id, dispatch.get("order_id"))
-    if packing_task:
+    packing_tasks = await db[Collections.PACKING_TASKS].find(
+        {"tenant_id": tenant_id, "order_id": dispatch.get("order_id"),
+         "status": {"$ne": PackingTaskStatus.CANCELLED.value}}
+    ).to_list(length=50)
+    for packing_task in packing_tasks:
         changed = False
         for pkg in packing_task.get("packages", []):
             if pkg.get("dispatch_id") == dispatch_id:

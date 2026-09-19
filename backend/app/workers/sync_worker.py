@@ -15,13 +15,14 @@ from app.core.logging import configure_logging, get_logger
 from app.core.utils import now_utc, to_object_id
 from app.models import Collections
 from app.models.dispatch import DispatchStatus
+from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobStatus, SyncJobType
+from app.services import notification_service
 from app.integrations.defontana import (
     dispatch_sync,
     inventory_sync,
     order_sync,
     product_sync,
-    warehouse_sync,
 )
 from app.integrations.defontana.client import DefontanaConnector
 
@@ -102,10 +103,6 @@ async def _handle_sync_products(job: Dict[str, Any]) -> Dict[str, Any]:
     return await product_sync.sync_products(job["tenant_id"])
 
 
-async def _handle_sync_warehouses(job: Dict[str, Any]) -> Dict[str, Any]:
-    return await warehouse_sync.sync_warehouses(job["tenant_id"])
-
-
 async def _handle_sync_orders(job: Dict[str, Any]) -> Dict[str, Any]:
     return await order_sync.sync_orders(job["tenant_id"])
 
@@ -116,7 +113,6 @@ HANDLERS = {
     SyncJobType.CREATE_PRODUCT.value: _handle_create_product,
     SyncJobType.CREATE_ORDER.value: _handle_create_order,
     SyncJobType.SYNC_PRODUCTS.value: _handle_sync_products,
-    SyncJobType.SYNC_WAREHOUSES.value: _handle_sync_warehouses,
     SyncJobType.SYNC_ORDERS.value: _handle_sync_orders,
 }
 
@@ -177,6 +173,16 @@ async def process_job(job: Dict[str, Any]) -> None:
                 "Job %s (%s) failed permanently after %s attempts: %s",
                 job["_id"], job_type, attempts, exc,
             )
+            # Sin aviso, un envío perdido descuadra el WMS y Defontana en silencio.
+            await notification_service.emit(
+                tenant_id=job["tenant_id"],
+                notification_type=NotificationType.SYNC_JOB_FAILED.value,
+                title=f"Falló el envío a Defontana ({job_type})",
+                body=f"Tras {attempts} intentos: {str(exc)[:200]}",
+                entity_type="sync_job",
+                entity_id=str(job["_id"]),
+                metadata={"job_type": job_type, "attempts": attempts},
+            )
         await db[Collections.SYNC_JOBS].update_one({"_id": job["_id"]}, {"$set": update})
 
 
@@ -195,11 +201,15 @@ async def run_forever() -> None:
 
 
 async def _run_all() -> None:
-    """Run the ERP sync-job drain, the folder-watch intake and the near-expiry watch."""
-    from app.workers import expiry_watch, folder_intake
+    """Run the ERP sync-job drain, the folder-watch intake, the near-expiry watch and the
+    Defontana scheduler (orders / stock; off unless their flags are on)."""
+    from app.workers import defontana_scheduler, expiry_watch, folder_intake
 
     await asyncio.gather(
-        run_forever(), folder_intake.run_forever(), expiry_watch.run_forever()
+        run_forever(),
+        folder_intake.run_forever(),
+        expiry_watch.run_forever(),
+        defontana_scheduler.run_forever(),
     )
 
 

@@ -36,3 +36,9 @@ class Collections:
     # "Llegó stock para un pedido parcial" dedupe: one active row per order+product,
     # released when the order is resumed (picking reopened).
     REPLENISHMENT_ALERTS = "replenishment_alerts"
+    # Referencia de Defontana (no mueve stock del WMS): lotes con vencimiento
+    # (Inventory/GetBatchesInfo) y foto de stock por bodega (Inventory/GetFutureStockInfo).
+    ERP_BATCHES = "erp_batches"
+    ERP_STOCK = "erp_stock"
+    # Última corrida de cada tarea periódica de Defontana, por empresa (sobrevive reinicios).
+    SCHEDULER_RUNS = "scheduler_runs"

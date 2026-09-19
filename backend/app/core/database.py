@@ -112,5 +112,9 @@ async def ensure_indexes() -> None:
         [("tenant_id", 1), ("product_id", 1), ("warehouse_id", 1), ("lot_number", 1)], unique=True
     )
     await db.inventory_balances.create_index([("tenant_id", 1), ("expiration_date", 1)])
+    # Referencia de Defontana (solo lectura): lotes y foto de stock del ERP.
+    await db.erp_batches.create_index([("tenant_id", 1), ("sku", 1), ("storage_code", 1)])
+    await db.erp_stock.create_index([("tenant_id", 1), ("sku", 1), ("storage_code", 1)])
+    await db.scheduler_runs.create_index([("task", 1), ("tenant_id", 1)], unique=True)
 
     logger.info("MongoDB indexes ensured")

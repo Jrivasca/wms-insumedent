@@ -456,10 +456,23 @@ async def reopen_packing(tenant_id: str, order_id: str, user: CurrentUser) -> Di
             detail="Solo se puede reabrir packing de un pedido listo para despacho.",
         )
     now = now_utc()
-    task = await db[Collections.PACKING_TASKS].find_one(
-        {"tenant_id": tenant_id, "order_id": order_id,
-         "status": {"$ne": PackingTaskStatus.CANCELLED.value}}
+    # La vigente: con un pendiente en curso (A.7) hay dos tareas de packing, y la de la guía
+    # anterior, ya despachada, no se toca.
+    latest = await (
+        db[Collections.PACKING_TASKS]
+        .find({"tenant_id": tenant_id, "order_id": order_id,
+               "status": {"$ne": PackingTaskStatus.CANCELLED.value}})
+        .sort([("created_at", -1), ("_id", -1)])
+        .limit(1)
+        .to_list(length=1)
     )
+    task = latest[0] if latest else None
+    is_backorder = False
+    if task and task.get("picking_task_id"):
+        picking_task = await db[Collections.PICKING_TASKS].find_one(
+            {"_id": to_object_id(task["picking_task_id"])}
+        )
+        is_backorder = bool((picking_task or {}).get("is_backorder"))
     if task:
         await db[Collections.PACKING_TASKS].update_one(
             {"_id": task["_id"]},
@@ -477,6 +490,10 @@ async def reopen_packing(tenant_id: str, order_id: str, user: CurrentUser) -> Di
         {"_id": order["_id"]},
         {"$set": {"status": OrderStatus.PACKING.value, "updated_at": now}},
     )
-    # Resetear solo lo empacado en el pedido (el picking se conserva).
-    await order_service.reset_order_reconciliation(tenant_id, order_id, stage="packing")
+    if is_backorder:
+        # Pendiente: recalcular desde las tareas cerradas, conservando la guía anterior.
+        await order_service.recompute_after_backorder_reopen(tenant_id, order_id)
+    else:
+        # Resetear solo lo empacado en el pedido (el picking se conserva).
+        await order_service.reset_order_reconciliation(tenant_id, order_id, stage="packing")
     return serialize(await _load_task(tenant_id, str(task["_id"]))) if task else {"status": "reverted"}

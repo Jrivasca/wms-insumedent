@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { Ban, Check, CheckCheck, Pencil, Plus, X } from 'lucide-react';
 import { createUser, listUsers, updateUser } from '../api/users';
 import { errorMessage } from '../api/http';
-import { Empty, ErrorBox, Loading, PageHeader } from '../components/Async';
+import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
+import DataTable, { MobileCardList, type Column } from '../components/DataTable';
 import { Field, SelectField } from '../components/Form';
+import StatusBadge from '../components/StatusBadge';
 import { ROLE_OPTIONS } from '../permissions';
 import { useAuth } from '../store/auth';
 import type { User } from '../types';
@@ -125,6 +128,105 @@ export default function UsersPage() {
     }
   }
 
+  function RowActions({ u, isSelf }: { u: User; isSelf: boolean }) {
+    return (
+      <div className="flex flex-wrap gap-2 lg:justify-end">
+        <button
+          onClick={() => {
+            setEditFor(u);
+            setEditName(u.name);
+            setEditEmail(u.email);
+          }}
+          className="btn-secondary btn-sm whitespace-nowrap"
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          Editar
+        </button>
+        <button
+          onClick={() => {
+            setResetFor(u);
+            setNewPassword('');
+          }}
+          className="btn-secondary btn-sm whitespace-nowrap"
+        >
+          Cambiar clave
+        </button>
+        <button
+          onClick={() => toggleActive(u)}
+          disabled={isSelf}
+          title={isSelf ? 'No puedes desactivar tu propia cuenta' : undefined}
+          className="btn-secondary btn-sm whitespace-nowrap disabled:opacity-40"
+        >
+          {u.is_active === false ? (
+            <>
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              Activar
+            </>
+          ) : (
+            <>
+              <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+              Desactivar
+            </>
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  const columns: Column<User>[] = [
+    {
+      key: 'name',
+      header: 'Nombre',
+      render: (u) => (
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-medium text-slate-900">{u.name}</span>
+          {u.id === currentUser?.id && (
+            <span className="badge bg-brand-soft text-brand-darker">tú</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'email',
+      header: 'Correo',
+      render: (u) => <span className="text-sm text-slate-600">{u.email}</span>,
+    },
+    {
+      key: 'role',
+      header: 'Rol',
+      render: (u) => {
+        const isSelf = u.id === currentUser?.id;
+        return (
+          <select
+            value={u.role}
+            onChange={(e) => changeRole(u, e.target.value)}
+            disabled={isSelf}
+            title={isSelf ? 'No puedes cambiar tu propio rol' : undefined}
+            className="input max-w-[12rem] disabled:opacity-60"
+            aria-label={`Rol de ${u.name}`}
+          >
+            {ROLES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        );
+      },
+    },
+    {
+      key: 'status',
+      header: 'Estado',
+      render: (u) => <StatusBadge status={u.is_active === false ? 'inactive' : 'active'} />,
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (u) => <RowActions u={u} isSelf={u.id === currentUser?.id} />,
+    },
+  ];
+
   return (
     <div>
       <PageHeader
@@ -132,20 +234,44 @@ export default function UsersPage() {
         subtitle="Equipo de la empresa: acceso y roles"
         actions={
           <button onClick={() => setShowCreate((v) => !v)} className="btn-primary">
-            {showCreate ? 'Cerrar' : '+ Nuevo usuario'}
+            {showCreate ? (
+              <>
+                <X className="h-4 w-4" aria-hidden="true" />
+                Cerrar
+              </>
+            ) : (
+              <>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Nuevo usuario
+              </>
+            )}
           </button>
         }
       />
 
       {notice && (
-        <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
+        <div className="mb-3 flex items-start gap-2 rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <CheckCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          {notice}
+        </div>
       )}
-      {error && <ErrorBox message={error} />}
+      {error && <ErrorBox message={error} onRetry={load} />}
 
       {showCreate && (
         <form onSubmit={handleCreate} className="card mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Nombre *" value={nu.name} onChange={(v) => setNu({ ...nu, name: v })} required />
-          <Field label="Email *" type="email" value={nu.email} onChange={(v) => setNu({ ...nu, email: v })} required />
+          <Field
+            label="Nombre *"
+            value={nu.name}
+            onChange={(v) => setNu({ ...nu, name: v })}
+            required
+          />
+          <Field
+            label="Correo *"
+            type="email"
+            value={nu.email}
+            onChange={(v) => setNu({ ...nu, email: v })}
+            required
+          />
           <Field
             label="Contraseña *"
             type="password"
@@ -153,7 +279,13 @@ export default function UsersPage() {
             onChange={(v) => setNu({ ...nu, password: v })}
             required
           />
-          <SelectField label="Rol" value={nu.role} onChange={(v) => setNu({ ...nu, role: v })} options={ROLES} required />
+          <SelectField
+            label="Rol"
+            value={nu.role}
+            onChange={(v) => setNu({ ...nu, role: v })}
+            options={ROLES}
+            required
+          />
           <div className="flex items-end md:col-span-2">
             <button type="submit" className="btn-success" disabled={busy}>
               {busy ? 'Creando…' : 'Crear usuario'}
@@ -163,137 +295,120 @@ export default function UsersPage() {
       )}
 
       {loading ? (
-        <Loading />
+        <LoadingRows />
       ) : users.length === 0 ? (
         <Empty label="No hay usuarios" />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-          <table className="table w-full">
-            <thead className="bg-slate-50">
-              <tr>
-                <th>Nombre</th>
-                <th>Email</th>
-                <th>Rol</th>
-                <th>Estado</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {users.map((u) => {
+        <>
+          <div className="hidden lg:block">
+            <DataTable columns={columns} rows={users} keyOf={(u) => u.id} />
+          </div>
+          <div className="lg:hidden space-y-2">
+            <MobileCardList
+              rows={users}
+              keyOf={(u) => u.id}
+              render={(u) => {
                 const isSelf = u.id === currentUser?.id;
                 return (
-                <tr key={u.id}>
-                  <td className="font-medium">
-                    {u.name}
-                    {isSelf && <span className="ml-2 badge bg-blue-100 text-blue-800">tú</span>}
-                  </td>
-                  <td className="text-sm text-slate-600">{u.email}</td>
-                  <td>
-                    <select
-                      value={u.role}
-                      onChange={(e) => changeRole(u, e.target.value)}
-                      disabled={isSelf}
-                      title={isSelf ? 'No puedes cambiar tu propio rol' : undefined}
-                      className="input max-w-[10rem] disabled:opacity-60"
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r.value} value={r.value}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    {u.is_active === false ? (
-                      <span className="badge bg-slate-200 text-slate-600">inactivo</span>
-                    ) : (
-                      <span className="badge bg-emerald-100 text-emerald-800">activo</span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => {
-                          setEditFor(u);
-                          setEditName(u.name);
-                          setEditEmail(u.email);
-                        }}
-                        className="btn-secondary whitespace-nowrap"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => {
-                          setResetFor(u);
-                          setNewPassword('');
-                        }}
-                        className="btn-secondary whitespace-nowrap"
-                      >
-                        Cambiar clave
-                      </button>
-                      <button
-                        onClick={() => toggleActive(u)}
-                        disabled={isSelf}
-                        title={isSelf ? 'No puedes desactivar tu propia cuenta' : undefined}
-                        className="btn-secondary whitespace-nowrap disabled:opacity-40"
-                      >
-                        {u.is_active === false ? 'Activar' : 'Desactivar'}
-                      </button>
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-900">{u.name}</span>
+                        {isSelf && (
+                          <span className="badge bg-brand-soft text-brand-darker">tú</span>
+                        )}
+                      </span>
+                      <StatusBadge status={u.is_active === false ? 'inactive' : 'active'} />
                     </div>
-                  </td>
-                </tr>
+                    <p className="mt-0.5 truncate text-sm text-slate-600">{u.email}</p>
+                    <div className="mt-2">
+                      <label className="label" htmlFor={`role-${u.id}`}>
+                        Rol
+                      </label>
+                      <select
+                        id={`role-${u.id}`}
+                        value={u.role}
+                        onChange={(e) => changeRole(u, e.target.value)}
+                        disabled={isSelf}
+                        className="input disabled:opacity-60"
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r.value} value={r.value}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="mt-2">
+                      <RowActions u={u} isSelf={isSelf} />
+                    </div>
+                  </div>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
+              }}
+            />
+          </div>
+        </>
       )}
 
-      <div className="mt-3 space-y-1 text-xs text-slate-500">
+      <div className="card mt-4 space-y-1 text-xs text-slate-500">
         <p>
-          <strong>Administrador / Supervisor:</strong> acceso completo y aprobaciones (ajustes,
-          picking parcial, diferencias de packing).
+          <strong className="text-slate-700">Administrador / Supervisor:</strong> acceso completo y
+          aprobaciones (ajustes, picking parcial, diferencias de packing).
         </p>
         <p>
-          <strong>Ventas:</strong> crea y ve pedidos. · <strong>Bodega:</strong> hace picking y
-          packing de sus tareas. · <strong>Despacho:</strong> confirma los envíos.
+          <strong className="text-slate-700">Ventas:</strong> crea y ve pedidos ·{' '}
+          <strong className="text-slate-700">Bodega:</strong> hace picking y packing de sus tareas ·{' '}
+          <strong className="text-slate-700">Despacho:</strong> confirma los envíos.
         </p>
       </div>
 
       {editFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-lg bg-white p-4">
-            <h3 className="text-lg font-bold">Editar usuario</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-graphite-950/50 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-user-title"
+        >
+          <div className="w-full max-w-sm rounded-card bg-white p-5 shadow-raised">
+            <h3 id="edit-user-title" className="text-lg font-bold text-slate-900">
+              Editar usuario
+            </h3>
             <p className="mb-3 text-sm text-slate-500">{editFor.email}</p>
-            <label className="label">Nombre</label>
+            <label className="label" htmlFor="edit-name">
+              Nombre
+            </label>
             <input
+              id="edit-name"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               className="input mb-3"
             />
-            <label className="label">Correo (con este inicia sesión)</label>
+            <label className="label" htmlFor="edit-email">
+              Correo (con este inicia sesión)
+            </label>
             <input
+              id="edit-email"
               type="email"
               value={editEmail}
               onChange={(e) => setEditEmail(e.target.value)}
               className="input mb-3"
             />
             {editFor.id === currentUser?.id && (
-              <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <p className="mb-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 Estás editando tu propia cuenta: si cambias el correo, la próxima vez deberás
                 iniciar sesión con el nuevo.
               </p>
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button onClick={() => setEditFor(null)} className="btn-secondary">
+                Cancelar
+              </button>
               <button
                 onClick={submitEdit}
-                className="btn-success flex-1"
+                className="btn-primary"
                 disabled={!editName.trim() || !editEmail.trim() || busy}
               >
-                Guardar
-              </button>
-              <button onClick={() => setEditFor(null)} className="btn-secondary flex-1">
-                Cancelar
+                {busy ? 'Guardando…' : 'Guardar'}
               </button>
             </div>
           </div>
@@ -301,27 +416,42 @@ export default function UsersPage() {
       )}
 
       {resetFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-lg bg-white p-4">
-            <h3 className="text-lg font-bold">Cambiar contraseña</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-graphite-950/50 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-pass-title"
+        >
+          <div className="w-full max-w-sm rounded-card bg-white p-5 shadow-raised">
+            <h3 id="reset-pass-title" className="text-lg font-bold text-slate-900">
+              Cambiar contraseña
+            </h3>
             <p className="mb-3 text-sm text-slate-500">{resetFor.email}</p>
-            <label className="label">Nueva contraseña (mín. 4)</label>
+            <label className="label" htmlFor="new-pass">
+              Nueva contraseña (mínimo 4 caracteres)
+            </label>
             <input
+              id="new-pass"
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="input mb-3"
+              className="input mb-1"
+              autoComplete="new-password"
             />
-            <div className="flex gap-2">
+            <p className="hint mb-3">
+              La persona la usará en su próximo inicio de sesión. Conviene que la cambie ella
+              después.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button onClick={() => setResetFor(null)} className="btn-secondary">
+                Cancelar
+              </button>
               <button
                 onClick={submitReset}
-                className="btn-success flex-1"
+                className="btn-primary"
                 disabled={newPassword.length < 4 || busy}
               >
-                Guardar
-              </button>
-              <button onClick={() => setResetFor(null)} className="btn-secondary flex-1">
-                Cancelar
+                {busy ? 'Guardando…' : 'Guardar'}
               </button>
             </div>
           </div>

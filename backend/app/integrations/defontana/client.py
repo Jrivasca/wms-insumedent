@@ -3,6 +3,17 @@
 When ``DEFONTANA_MOCK=true`` the connector returns simulated data and performs no
 network calls. Mock responses are explicitly flagged with ``"mock": true`` so a
 simulated success can never be mistaken for a real one (section 18).
+
+Formas reales de la API (verificadas contra replapi.defontana.com, 2026-09-15):
+- JSON en camelCase. Cada respuesta viene en un sobre ``{success, message,
+  exceptionMessage, ...}`` con la lista bajo una clave propia (``productDetail``,
+  ``productsDetail``, ``items``).
+- Los listados son paginados, con máximo 100 ítems por página, y la página inicial
+  cambia según el método (``GetBatchesInfo`` parte en 0; ``GetFutureStockInfo`` en 1).
+- ``success: false`` con HTTP 200 es un error: se levanta ``DefontanaApiError`` para que
+  una sincronización nunca termine "ok" con 0 registros por un fallo silencioso.
+
+Solo se usan módulos contratados por Insumedent: Pedidos, Inventario y Guías de Despacho.
 """
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +28,22 @@ from app.integrations.defontana import mock_data
 from app.integrations.defontana.token_manager import DefontanaTokenManager
 
 logger = get_logger(__name__)
+
+# Máximo que aceptan los listados de Defontana (más da error o se recorta en silencio).
+PAGE_SIZE = 100
+# Tope de seguridad por si la API no corta la paginación como se espera.
+MAX_PAGES = 500
+
+
+class DefontanaApiError(Exception):
+    """Defontana respondió HTTP 200 pero con ``success: false``."""
+
+
+def _check_envelope(data: Any, path: str) -> Any:
+    if isinstance(data, dict) and data.get("success") is False:
+        message = data.get("message") or data.get("exceptionMessage") or "success=false"
+        raise DefontanaApiError(f"{path}: {message}")
+    return data
 
 
 class DefontanaConnector(ERPConnector):
@@ -38,7 +65,7 @@ class DefontanaConnector(ERPConnector):
         path: str,
         *,
         params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        json: Optional[Any] = None,
     ) -> Any:
         """Perform an authenticated request, refreshing the token once on 401."""
         base_url = await self._base_url()
@@ -62,8 +89,35 @@ class DefontanaConnector(ERPConnector):
             resp = await _do(token)
         resp.raise_for_status()
         if resp.content:
-            return resp.json()
+            return _check_envelope(resp.json(), path)
         return None
+
+    async def _paged(
+        self,
+        path: str,
+        list_key: str,
+        params: Dict[str, Any],
+        *,
+        page_param: str,
+        size_param: str,
+        first_page: int,
+    ) -> List[Dict[str, Any]]:
+        """Recorre todas las páginas de un listado y junta ``list_key``."""
+        items: List[Dict[str, Any]] = []
+        page = first_page
+        for _ in range(MAX_PAGES):
+            data = await self._request(
+                "GET", path, params={**params, size_param: PAGE_SIZE, page_param: page}
+            )
+            batch = (data or {}).get(list_key) or []
+            items.extend(batch)
+            total = (data or {}).get("totalItems")
+            if len(batch) < PAGE_SIZE or (isinstance(total, int) and len(items) >= total):
+                break
+            page += 1
+        else:
+            logger.warning("Defontana %s: se alcanzó el tope de %s páginas", path, MAX_PAGES)
+        return items
 
     # ------------------------------------------------------------------
     async def authenticate(self) -> str:
@@ -73,45 +127,43 @@ class DefontanaConnector(ERPConnector):
         return await self.token_manager.check_token(self.tenant_id)
 
     async def get_products(self) -> List[Dict[str, Any]]:
+        """Artículos que manejan lotes, desde el módulo Inventario (``Inventory/GetBatchesInfo``):
+        código, nombre, unidad, activo, uso de lotes/series, y por bodega el stock y los lotes
+        con vencimiento. NO es el catálogo completo: en pruebas devolvió 536 artículos (todos
+        con lotes registrados) aunque ``totalItems`` informa 3.359. La página parte en 0."""
         if self.mock:
             return list(mock_data.MOCK_PRODUCTS)
-        data = await self._request("GET", "/sale/GetSimpleProducts")
-        return _as_list(data)
-
-    async def get_product_by_barcode(self, barcode: str) -> Optional[Dict[str, Any]]:
-        if self.mock:
-            for product in mock_data.MOCK_PRODUCTS:
-                if product.get("BarCode") == barcode:
-                    return product
-            return None
-        data = await self._request(
-            "GET", "/sale/GetProductsPOSByBarCode", params={"barCode": barcode}
+        return await self._paged(
+            "/Inventory/GetBatchesInfo", "productDetail", {},
+            page_param="pageNumber", size_param="itemsPerPage", first_page=0,
         )
-        items = _as_list(data)
-        return items[0] if items else None
 
-    async def get_warehouses(self) -> List[Dict[str, Any]]:
+    async def get_stock_levels(self) -> List[Dict[str, Any]]:
+        """Stock por producto y bodega (``Inventory/GetFutureStockInfo``): actual, reservado,
+        por recibir y futuro. La página parte en 1."""
         if self.mock:
-            return list(mock_data.MOCK_STORAGES)
-        data = await self._request("GET", "/sale/GetStorages")
-        return _as_list(data)
+            return list(mock_data.MOCK_STOCK)
+        return await self._paged(
+            "/Inventory/GetFutureStockInfo", "productsDetail", {},
+            page_param="Page", size_param="ItemsPerPage", first_page=1,
+        )
 
-    async def get_orders(
-        self, from_date: str, to_date: str, page: int = 1, items_per_page: int = 50
-    ) -> List[Dict[str, Any]]:
+    async def get_orders(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Encabezados de pedidos de la ventana: ``number``, ``creationDate``,
+        ``clientFileId`` y ``status``. Las líneas vienen en :meth:`get_order`."""
         if self.mock:
             return list(mock_data.MOCK_ORDERS)
-        data = await self._request(
-            "GET",
-            "/Order/List",
-            params={
-                "fromDate": from_date,
-                "toDate": to_date,
-                "page": page,
-                "itemsPerPage": items_per_page,
-            },
+        return await self._paged(
+            "/Order/List", "items", {"FromDate": from_date, "ToDate": to_date},
+            page_param="PageNumber", size_param="ItemsPerPage", first_page=0,
         )
-        return _as_list(data)
+
+    async def get_order(self, number: Any) -> Optional[Dict[str, Any]]:
+        """Pedido completo (``orderData``: cliente, ``details``, totales)."""
+        if self.mock:
+            return mock_data.MOCK_ORDER_DETAILS.get(int(number))
+        data = await self._request("GET", "/Order/Get", params={"number": number})
+        return (data or {}).get("orderData")
 
     async def dispatch_order(self, order_number: int, payload: Dict[str, Any]) -> Dict[str, Any]:
         if self.mock:
@@ -125,7 +177,9 @@ class DefontanaConnector(ERPConnector):
             return mock_data.mock_inventory_response(
                 payload.get("externalDocumentID", "unknown")
             )
-        return await self._request("PUT", "/Inventory/Insert", json=payload)
+        # POST (no PUT): la API REST de Defontana solo expone GET y POST; confirmado
+        # contra el Swagger de pruebas (docs/entregables/Analisis-APIs-Defontana-a-contratar.md).
+        return await self._request("POST", "/Inventory/Insert", json=payload)
 
     async def create_product(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Push a new product to Defontana.
@@ -166,21 +220,14 @@ class DefontanaConnector(ERPConnector):
                 "/Inventory/GetDocumentByExternalDocumentID",
                 params={"externalDocumentID": external_document_id},
             )
+        except DefontanaApiError as exc:
+            # Inexistente = HTTP 200 + success=false "No existe un documento con el ID
+            # externo …" (verificado en pruebas). Cualquier otro error sí se propaga, para
+            # no insertar a ciegas un posible duplicado.
+            if "no existe" in str(exc).lower():
+                return None
+            raise
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 return None
             raise
-
-
-def _as_list(data: Any) -> List[Dict[str, Any]]:
-    """Normalize Defontana responses that may wrap the list in a container key."""
-    if data is None:
-        return []
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("data", "Data", "items", "Items", "result", "Result", "products", "Products"):
-            value = data.get(key)
-            if isinstance(value, list):
-                return value
-    return []
