@@ -171,3 +171,44 @@ async def test_reconcile_task_is_registered_only_when_enabled(monkeypatch):
     task = next(t for t in defontana_scheduler.tasks() if t.name == "reconcile")
 
     assert task.daily_at == settings.defontana_reconcile_at == "04:30"
+
+
+async def test_it_never_takes_stock_from_an_order_being_prepared():
+    """Defontana descuenta al emitir el documento; el WMS todavía tiene esa mercadería en
+    STAGING, en la mano del operario. La conciliación NO se la quita al pedido: descuenta lo
+    que está libre y deja el resto explicado, para que un humano lo mire."""
+    tenant_id, db, warehouse, loc = await _setup()
+    staging = str((await db[Collections.LOCATIONS].insert_one(
+        {"warehouse_id": warehouse, "code": "STAGING", "type": "staging"})).inserted_id)
+    product = await _product(db, "EN-PREPARACION")
+    await _balance(db, tenant_id, product, warehouse, staging, 5)
+    await _balance(db, tenant_id, product, warehouse, loc["A-01"], 2)
+    await _erp(db, "EN-PREPARACION", 4)  # sobran 3 en el WMS
+
+    preview = await erp_reconcile_service.preview(tenant_id)
+    row = preview["items"][0]
+    assert [(a["type"], a["quantity"]) for a in row["actions"]] == [("remove", 2)]
+    assert "preparación" in row["review_reason"]
+    assert row["needs_review"] is True  # aunque la diferencia sea chica
+
+    await erp_reconcile_service.apply(tenant_id, "u1", include_review=True)
+
+    assert await _on_hand(db, product, staging) == 5  # el pedido conserva lo suyo
+    assert await _on_hand(db, product, loc["A-01"]) == 0
+
+
+async def test_a_row_only_in_staging_is_blocked_instead_of_applied():
+    tenant_id, db, warehouse, loc = await _setup()
+    staging = str((await db[Collections.LOCATIONS].insert_one(
+        {"warehouse_id": warehouse, "code": "STAGING", "type": "staging"})).inserted_id)
+    product = await _product(db, "SOLO-STAGING")
+    await _balance(db, tenant_id, product, warehouse, staging, 5)
+    await _erp(db, "SOLO-STAGING", 0)
+
+    preview = await erp_reconcile_service.preview(tenant_id)
+    assert preview["items"][0]["actions"] == []
+    assert "preparación" in preview["items"][0]["blocked"]
+
+    result = await erp_reconcile_service.apply(tenant_id, "u1", include_review=True)
+
+    assert result["applied"] == 0 and await _on_hand(db, product, staging) == 5

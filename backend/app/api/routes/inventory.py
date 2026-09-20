@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import CurrentUser, get_current_user, require_supervisor
 from app.core.utils import serialize
-from app.schemas.inventory import AdjustmentRequest, ReceptionRequest, TransferRequest
+from app.schemas.inventory import (
+    AdjustmentRequest,
+    PutawayRequest,
+    ReceptionRequest,
+    TransferRequest,
+)
 from app.services import inventory_service
 from app.services.audit_service import log_action
 
@@ -24,13 +29,44 @@ async def balances(
     product_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
     location_id: Optional[str] = None,
+    q: Optional[str] = None,
+    positive_only: bool = True,
     limit: int = 100,
     offset: int = 0,
     user: CurrentUser = Depends(get_current_user),
 ):
     return await inventory_service.list_balances(
-        user.tenant_id, product_id, warehouse_id, location_id, limit, offset, user=user
+        user.tenant_id, product_id, warehouse_id, location_id, limit, offset,
+        user=user, q=q, positive_only=positive_only,
     )
+
+
+@router.post("/putaway")
+async def putaway(payload: PutawayRequest, user: CurrentUser = Depends(get_current_user)):
+    """Ubicar stock: mover un saldo exacto a otra ubicación de la misma bodega."""
+    result = await inventory_service.putaway(
+        tenant_id=user.tenant_id,
+        balance_id=payload.balance_id,
+        to_location_id=payload.to_location_id,
+        quantity=payload.quantity,
+        user=user,
+    )
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="inventory_putaway",
+        entity_type="inventory_balance",
+        entity_id=payload.balance_id,
+        after={
+            "to_location_id": payload.to_location_id,
+            "to_location_code": result.get("to_location_code"),
+            "from_location_code": result.get("from_location_code"),
+            "quantity": payload.quantity,
+        },
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    return result
 
 
 @router.get("/movements")

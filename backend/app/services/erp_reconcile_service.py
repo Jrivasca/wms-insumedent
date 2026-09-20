@@ -26,7 +26,7 @@ from app.core.utils import page
 from app.integrations.defontana.schedule import local_now
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
-from app.models.location import LocationType
+from app.models.location import COMMITTED_LOCATION_TYPES, LocationType
 from app.services import inventory_service
 
 _EPSILON = 1e-9
@@ -112,6 +112,9 @@ async def _rows(db) -> Tuple[List[Dict[str, Any]], Optional[datetime]]:
     # que el ERP tenga 0, es que la bodega está mal configurada. Nunca proponer vaciarla.
     erp_codes = {s.get("storage_code") for s in snapshot}
     location_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    locations_by_id = {
+        str(loc["_id"]): loc async for loc in db[Collections.LOCATIONS].find({})
+    }
     rows: List[Dict[str, Any]] = []
 
     for key in set(erp_by_key) | set(balances_by_key):
@@ -193,7 +196,21 @@ async def _rows(db) -> Tuple[List[Dict[str, Any]], Optional[datetime]]:
                         })
         elif difference < 0:  # sobra en el WMS: descontar por FEFO
             pending = -difference
-            for balance in sorted(balances, key=_fefo_key):
+            # Nunca descontar de STAGING/PACKING/DISPATCH: esa mercadería ya está en la mano
+            # de un operario para un pedido. Si el ERP la descontó porque allá ya se emitió el
+            # documento, el WMS la suelta cuando el pedido termina, no quitándosela al pedido.
+            committed = sum(
+                b.get("quantity_on_hand") or 0
+                for b in balances
+                if (locations_by_id.get(b.get("location_id")) or {}).get("type")
+                in COMMITTED_LOCATION_TYPES
+            )
+            libres = [
+                b for b in balances
+                if (locations_by_id.get(b.get("location_id")) or {}).get("type")
+                not in COMMITTED_LOCATION_TYPES
+            ]
+            for balance in sorted(libres, key=_fefo_key):
                 if pending <= _EPSILON:
                     break
                 quantity = min(balance.get("quantity_on_hand") or 0, pending)
@@ -210,14 +227,21 @@ async def _rows(db) -> Tuple[List[Dict[str, Any]], Optional[datetime]]:
                 })
                 pending -= quantity
 
+            if pending > _EPSILON and committed > _EPSILON:
+                # Lo que no se pudo descontar está en preparación. Se explica en la fila y,
+                # si algo sí se puede aplicar, pasa por aprobación humana.
+                row["committed_pending"] = pending
+                mensaje = (f"{pending:g} u están en preparación (staging/packing) y no se "
+                           "descuentan: se resuelven cuando termine el pedido")
+                if row["actions"]:
+                    row["review_reason"] = mensaje
+                else:
+                    row["blocked"] = mensaje
+
         rows.append(row)
 
     # Nombre de ubicación para las líneas de descuento (las de suma ya lo traen).
-    location_ids = {a["location_id"] for r in rows for a in r["actions"] if a["location_id"]}
-    codes = {}
-    async for location in db[Collections.LOCATIONS].find({}):
-        if str(location["_id"]) in location_ids:
-            codes[str(location["_id"])] = location.get("code")
+    codes = {lid: loc.get("code") for lid, loc in locations_by_id.items()}
     threshold = settings.defontana_reconcile_review_units
     for row in rows:
         for action in row["actions"]:
@@ -227,7 +251,9 @@ async def _rows(db) -> Tuple[List[Dict[str, Any]], Optional[datetime]]:
             )
         # Solo se revisa lo que se podría aplicar: lo bloqueado no se aplica nunca.
         row["needs_review"] = (
-            bool(row["actions"]) and not row["blocked"] and abs(row["difference"]) > threshold
+            bool(row["actions"])
+            and not row["blocked"]
+            and (abs(row["difference"]) > threshold or bool(row.get("review_reason")))
         )
 
     return rows, snapshot_at

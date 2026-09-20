@@ -4,6 +4,7 @@ Golden rule (section 8.4): stock is never modified without recording a movement.
 All public mutators in this module both update ``inventory_balances`` and append a
 document to ``inventory_movements``.
 """
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +19,7 @@ from app.integrations.defontana.mapper import DefontanaMapper
 from app.integrations.defontana.schedule import local_now
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
+from app.models.location import COMMITTED_LOCATION_TYPES
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
 from app.services import notification_service, replenishment_alert_service, sync_job_service
@@ -366,6 +368,18 @@ async def create_transfer(
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Transfer quantity must be positive")
 
+    # El vencimiento viaja con la mercadería: sin esto el saldo destino nace sin fecha y ese
+    # stock deja de ordenarse por FEFO (y desaparece de la vista de vencimientos).
+    source = await tenant_db(tenant_id)[Collections.INVENTORY_BALANCES].find_one({
+        "tenant_id": tenant_id,
+        "product_id": product_id,
+        "warehouse_id": warehouse_id,
+        "location_id": from_location_id,
+        "lot_number": lot_number,
+        "serial_number": serial_number,
+    })
+    expiration_date = (source or {}).get("expiration_date")
+
     await change_location_stock(
         tenant_id=tenant_id,
         product_id=product_id,
@@ -384,6 +398,7 @@ async def create_transfer(
         lot_number=lot_number,
         serial_number=serial_number,
         allow_negative=True,
+        expiration_date=expiration_date,
     )
     movement = await record_movement(
         tenant_id=tenant_id,
@@ -399,6 +414,100 @@ async def create_transfer(
         created_by=created_by,
     )
     return movement
+
+
+async def putaway(
+    *,
+    tenant_id: str,
+    balance_id: str,
+    to_location_id: str,
+    quantity: float,
+    user: CurrentUser,
+) -> Dict[str, Any]:
+    """Mueve un saldo EXACTO a otra ubicación de la misma bodega ("Ubicar stock").
+
+    A diferencia de :func:`create_transfer`, que recibe producto + lote y tiene que adivinar
+    de qué saldo sale, acá el saldo llega identificado: lote, serie y vencimiento son los de
+    esa fila, así que no hay forma de mover el stock equivocado ni de perder la fecha.
+
+    Es un movimiento interno de la bodega: el ERP no se entera (Defontana manda las
+    cantidades, el WMS manda las ubicaciones), por lo que NO crea ningún job de sincronización.
+    """
+    db = tenant_db(tenant_id)
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="La cantidad debe ser mayor que cero")
+
+    balance = await db[Collections.INVENTORY_BALANCES].find_one(
+        {"_id": to_object_id(balance_id), "tenant_id": tenant_id}
+    )
+    if not balance:
+        raise HTTPException(status_code=404, detail="El saldo no existe")
+
+    warehouse_id = balance.get("warehouse_id")
+    user.assert_warehouse_allowed(warehouse_id)
+
+    from_location_id = balance.get("location_id")
+    if from_location_id == to_location_id:
+        raise HTTPException(status_code=400, detail="El origen y el destino son la misma ubicación")
+
+    origin = await db[Collections.LOCATIONS].find_one({"_id": to_object_id(from_location_id)})
+    if origin and origin.get("type") in COMMITTED_LOCATION_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Esa mercadería está en preparación ({origin.get('code')}): "
+                    "sale por el pedido o reabriendo su tarea, no reubicándola."),
+        )
+
+    destination = await db[Collections.LOCATIONS].find_one({"_id": to_object_id(to_location_id)})
+    if not destination:
+        raise HTTPException(status_code=404, detail="La ubicación de destino no existe")
+    if destination.get("warehouse_id") != warehouse_id:
+        raise HTTPException(
+            status_code=400, detail="La ubicación de destino es de otra bodega")
+    if destination.get("is_active") is False:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La ubicación {destination.get('code')} está inactiva")
+
+    available = _available(balance)
+    if quantity > available + 1e-9:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Solo hay {available:g} disponible(s) en ese saldo")
+
+    common = {
+        "tenant_id": tenant_id,
+        "product_id": balance.get("product_id"),
+        "warehouse_id": warehouse_id,
+        "lot_number": balance.get("lot_number"),
+        "serial_number": balance.get("serial_number"),
+    }
+    await change_location_stock(**common, location_id=from_location_id, delta=-quantity)
+    destination_balance = await change_location_stock(
+        **common,
+        location_id=to_location_id,
+        delta=quantity,
+        expiration_date=balance.get("expiration_date"),
+    )
+    movement = await record_movement(
+        tenant_id=tenant_id,
+        movement_type=MovementType.TRANSFER.value,
+        product_id=balance.get("product_id"),
+        warehouse_id=warehouse_id,
+        from_location_id=from_location_id,
+        to_location_id=to_location_id,
+        quantity=quantity,
+        lot_number=balance.get("lot_number"),
+        serial_number=balance.get("serial_number"),
+        reference_type=ReferenceType.MANUAL.value,
+        created_by=user.id,
+    )
+    return {
+        "movement": serialize(movement),
+        "balance": serialize(destination_balance),
+        "from_location_code": (origin or {}).get("code"),
+        "to_location_code": destination.get("code"),
+    }
 
 
 async def create_reception(
@@ -647,6 +756,24 @@ async def check_expiring_stock(tenant_id: str, days: Optional[int] = None) -> in
 # ---------------------------------------------------------------------------
 # Read helpers used by the API layer
 # ---------------------------------------------------------------------------
+async def _product_ids_matching(db, needle: str, cap: int = 2000) -> List[str]:
+    """Ids de productos cuyo SKU, nombre o código de barras contiene ``needle``.
+
+    Los saldos guardan solo ``product_id``, así que una búsqueda por texto se resuelve en dos
+    pasos. ``cap`` acota la lista para no armar un ``$in`` gigante con una búsqueda muy corta.
+    """
+    rx = {"$regex": re.escape(needle), "$options": "i"}
+    ids = {
+        str(p["_id"])
+        async for p in db[Collections.PRODUCTS].find(
+            {"$or": [{"sku": rx}, {"name": rx}]}, {"_id": 1}
+        ).limit(cap)
+    }
+    async for bc in db[Collections.BARCODES].find({"barcode": rx}, {"product_id": 1}).limit(cap):
+        ids.add(bc.get("product_id"))
+    return [i for i in ids if i]
+
+
 async def list_balances(
     tenant_id: str,
     product_id: Optional[str] = None,
@@ -656,7 +783,12 @@ async def list_balances(
     offset: int = 0,
     *,
     user: CurrentUser,
+    q: Optional[str] = None,
+    positive_only: bool = True,
 ) -> Dict[str, Any]:
+    """Saldos paginados. ``q`` busca en SKU, nombre, código de barras, lote y serie; la
+    búsqueda es del lado del servidor, sobre TODOS los saldos y no solo la página cargada.
+    ``positive_only`` (por defecto) esconde las filas en cero, que son historia, no stock."""
     db = tenant_db(tenant_id)
     query: Dict[str, Any] = {}
     if product_id:
@@ -665,13 +797,22 @@ async def list_balances(
         query["warehouse_id"] = warehouse_id
     if location_id:
         query["location_id"] = location_id
+    if positive_only:
+        query["quantity_on_hand"] = {"$gt": 0}
     if user.warehouse_scoped:
         allowed = set(user.allowed_warehouse_ids)
         if warehouse_id is not None:
             if warehouse_id not in allowed:
-                return []
+                return page([], 0, limit, offset)
         else:
             query["warehouse_id"] = {"$in": list(allowed)}
+    if q and q.strip():
+        needle = q.strip()
+        rx = {"$regex": re.escape(needle), "$options": "i"}
+        matches = await _product_ids_matching(db, needle)
+        query["$or"] = [{"lot_number": rx}, {"serial_number": rx}]
+        if matches:
+            query["$or"].append({"product_id": {"$in": matches}})
 
     limit = max(1, min(limit, 1000))
     offset = max(0, offset)
@@ -679,6 +820,8 @@ async def list_balances(
     balances = (
         await db[Collections.INVENTORY_BALANCES]
         .find(query)
+        # Orden fijo: sin él, saltar de página puede repetir u ocultar filas.
+        .sort([("product_id", 1), ("location_id", 1), ("_id", 1)])
         .skip(offset)
         .limit(limit)
         .to_list(length=limit)

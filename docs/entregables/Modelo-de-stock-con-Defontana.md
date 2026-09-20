@@ -69,10 +69,21 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
    (`DEFONTANA_INVENTORY_SYNC_ENABLED` + tipos de documento y motivo).
 3. **Lotes del ERP en la operación**: al recibir o ubicar, elegir de los lotes que Defontana ya
    conoce, con su vencimiento, en vez de escribirlos a mano.
-4. **Ubicación de lo recibido**: si la recepción se registra en Defontana (por compras), el WMS
-   debe permitir "ubicar" ese stock sin volver a sumarlo. **Cubierto por la conciliación:** esas
-   unidades aparecen solas en `SIN-UBICAR`, y moverlas a un estante es una transferencia entre
-   ubicaciones, que ya existe y no cambia el total de la bodega.
+4. ~~**Ubicación de lo recibido**~~ *(resuelto)*: si la recepción se registra en Defontana (por
+   compras), esas unidades aparecen solas en `SIN-UBICAR` con la conciliación, y **Ubicar stock**
+   (`POST /inventory/putaway`, pantalla `/inventory/ubicar`) las lleva a su estante. Mueve el
+   saldo **exacto**, así que conserva lote, serie y vencimiento, y como no cambia el total de la
+   bodega **no viaja nada al ERP**: una conciliación posterior no ve ninguna diferencia por haber
+   ubicado stock.
+
+### Lo que la conciliación nunca toca
+
+El descuento por FEFO **excluye STAGING, PACKING y DISPATCH**. Esa mercadería ya está en la mano
+de un operario para un pedido: si Defontana la descontó porque allá ya se emitió el documento, el
+WMS la suelta cuando el pedido termina, no quitándosela al pedido. Lo que no se puede descontar
+del resto queda explicado en la fila y pasa por aprobación humana (o se marca bloqueada, si todo
+lo sobrante está en preparación). Por la misma razón, Ubicar stock tampoco reubica lo que está en
+esas ubicaciones.
 
 ## 5. Preguntas abiertas
 

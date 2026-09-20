@@ -1,10 +1,14 @@
 import { http } from './http';
-import type { InventoryBalance, InventoryMovement, Page } from '../types';
+import type { InventoryBalance, InventoryMovement, Page, PutawayResult } from '../types';
 
 export async function listBalances(params?: {
   product_id?: string;
   warehouse_id?: string;
   location_id?: string;
+  /** Busca en SKU, nombre, código de barras, lote y serie. Lo resuelve el servidor. */
+  q?: string;
+  /** Por defecto el backend esconde las filas en cero. */
+  positive_only?: boolean;
   limit?: number;
   offset?: number;
 }): Promise<Page<InventoryBalance>> {
@@ -46,6 +50,17 @@ export async function createAdjustment(payload: {
   serial_number?: string;
 }): Promise<InventoryBalance> {
   const { data } = await http.post<InventoryBalance>('/inventory/adjustments', payload);
+  return data;
+}
+
+/** Ubicar stock: mueve un saldo exacto (con su lote, serie y vencimiento) a otra ubicación
+ *  de la misma bodega. Es interno del WMS: no viaja nada a Defontana. */
+export async function putawayBalance(payload: {
+  balance_id: string;
+  to_location_id: string;
+  quantity: number;
+}): Promise<PutawayResult> {
+  const { data } = await http.post<PutawayResult>('/inventory/putaway', payload);
   return data;
 }
 
