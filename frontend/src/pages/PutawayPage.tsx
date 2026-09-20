@@ -230,6 +230,9 @@ export default function PutawayPage() {
         <BarcodeScanner
           onScan={escanear}
           feedback={feedback}
+          // Con un producto ya elegido el foco es de la ubicación y la cantidad: si el
+          // escáner se lo queda, lo que se escribe en esos campos cae en la caja de escaneo.
+          autoFocus={!selected}
           hint="Escanea el producto o escribe SKU, nombre, lote o serie"
         />
         {query && (
