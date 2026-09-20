@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarClock, MoveRight, RotateCcw } from 'lucide-react';
 import { listExpiring } from '../api/inventory';
@@ -51,7 +51,11 @@ export default function ExpiringPage() {
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
 
+  // Ver la nota de InventoryPage: solo la última búsqueda pinta la pantalla.
+  const peticion = useRef(0);
+
   async function load(nextOffset = offset) {
+    const mia = ++peticion.current;
     setLoading(true);
     setError(null);
     try {
@@ -63,12 +67,13 @@ export default function ExpiringPage() {
         limit: PAGE,
         offset: nextOffset,
       });
+      if (mia !== peticion.current) return;
       setData(result);
       setOffset(nextOffset);
     } catch (err) {
-      setError(errorMessage(err));
+      if (mia === peticion.current) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      if (mia === peticion.current) setLoading(false);
     }
   }
 

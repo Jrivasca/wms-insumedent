@@ -203,3 +203,18 @@ async def test_balances_of_a_forbidden_warehouse_return_an_empty_page():
 
     resultado = await inventory_service.list_balances(tenant_id, warehouse_id=wh, user=limitado)
     assert resultado == {"items": [], "total": 0, "limit": 100, "offset": 0}
+
+
+async def test_putaway_refuses_a_work_location_as_destination():
+    """Dejar stock suelto en STAGING/PACKING lo volvería invisible para el picking (esas
+    ubicaciones no son pickeables) sin que ningún pedido lo reclame."""
+    tenant_id, db, wh, loc, user = await _tenant()
+    pid = await _product(db)
+    bid = await _balance(db, tenant_id, pid, wh, loc["SIN-UBICAR"], 5)
+
+    with pytest.raises(HTTPException) as exc:
+        await inventory_service.putaway(
+            tenant_id=tenant_id, balance_id=bid, to_location_id=loc["STAGING"],
+            quantity=2, user=user)
+    assert exc.value.status_code == 400
+    assert (await _row(db, pid, loc["SIN-UBICAR"]))["quantity_on_hand"] == 5

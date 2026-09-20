@@ -468,6 +468,14 @@ async def putaway(
         raise HTTPException(
             status_code=400,
             detail=f"La ubicación {destination.get('code')} está inactiva")
+    if destination.get("type") in COMMITTED_LOCATION_TYPES:
+        # Esas ubicaciones son de pedidos en preparación: dejar ahí stock suelto lo haría
+        # invisible para el picking (no es pickeable) sin que ningún pedido lo reclame.
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{destination.get('code')} es una ubicación de trabajo: "
+                    "ahí solo llega mercadería por un pedido."),
+        )
 
     available = _available(balance)
     if quantity > available + 1e-9:
@@ -809,13 +817,7 @@ async def expiring_stock(
                 return {**page([], 0, limit, offset), "summary": _empty_expiry_summary(days)}
         else:
             query["warehouse_id"] = {"$in": list(allowed)}
-    if q and q.strip():
-        needle = q.strip()
-        rx = {"$regex": re.escape(needle), "$options": "i"}
-        matches = await _product_ids_matching(db, needle)
-        query["$or"] = [{"lot_number": rx}, {"serial_number": rx}]
-        if matches:
-            query["$or"].append({"product_id": {"$in": matches}})
+    await _apply_text_search(db, query, q)
 
     limit = max(1, min(limit, 1000))
     offset = max(0, offset)
@@ -901,6 +903,20 @@ async def _product_ids_matching(db, needle: str, cap: int = 2000) -> List[str]:
     return [i for i in ids if i]
 
 
+async def _apply_text_search(db, query: Dict[str, Any], q: Optional[str]) -> None:
+    """Agrega a ``query`` la búsqueda por texto: lote y serie viven en el saldo; SKU, nombre y
+    código de barras se resuelven primero a ``product_id``. Compartido por la consulta de
+    saldos y la de vencimientos, para que busquen igual."""
+    if not q or not q.strip():
+        return
+    needle = q.strip()
+    rx = {"$regex": re.escape(needle), "$options": "i"}
+    query["$or"] = [{"lot_number": rx}, {"serial_number": rx}]
+    matches = await _product_ids_matching(db, needle)
+    if matches:
+        query["$or"].append({"product_id": {"$in": matches}})
+
+
 async def list_balances(
     tenant_id: str,
     product_id: Optional[str] = None,
@@ -933,13 +949,7 @@ async def list_balances(
                 return page([], 0, limit, offset)
         else:
             query["warehouse_id"] = {"$in": list(allowed)}
-    if q and q.strip():
-        needle = q.strip()
-        rx = {"$regex": re.escape(needle), "$options": "i"}
-        matches = await _product_ids_matching(db, needle)
-        query["$or"] = [{"lot_number": rx}, {"serial_number": rx}]
-        if matches:
-            query["$or"].append({"product_id": {"$in": matches}})
+    await _apply_text_search(db, query, q)
 
     limit = max(1, min(limit, 1000))
     offset = max(0, offset)

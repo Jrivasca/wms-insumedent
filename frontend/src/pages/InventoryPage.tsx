@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, GitCompare, MoveRight, RotateCcw } from 'lucide-react';
 import { listBalances, listMovements } from '../api/inventory';
@@ -29,7 +29,12 @@ export default function InventoryPage() {
   const [movOffset, setMovOffset] = useState(0);
   const [movTotal, setMovTotal] = useState(0);
 
+  // Cada búsqueda lleva número: si llega tarde la respuesta de una anterior, se descarta.
+  // Si no, al escribir rápido puede quedar en pantalla el resultado de una consulta vieja.
+  const peticion = useRef(0);
+
   async function loadBalances(offset: number) {
+    const mia = ++peticion.current;
     setLoading(true);
     setError(null);
     try {
@@ -40,13 +45,14 @@ export default function InventoryPage() {
         limit: PAGE,
         offset,
       });
+      if (mia !== peticion.current) return;
       setBalances(data.items);
       setBalTotal(data.total);
       setBalOffset(offset);
     } catch (err) {
-      setError(errorMessage(err));
+      if (mia === peticion.current) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      if (mia === peticion.current) setLoading(false);
     }
   }
 
@@ -130,7 +136,8 @@ export default function InventoryPage() {
       render: (b) =>
         b.quantity_available > 0 ? (
           <Link
-            to={`/inventory/ubicar?balance=${b.id}`}
+            to="/inventory/ubicar"
+            state={{ balance: b }}
             className="btn-ghost btn-sm whitespace-nowrap"
           >
             <MoveRight className="h-4 w-4" aria-hidden="true" />
