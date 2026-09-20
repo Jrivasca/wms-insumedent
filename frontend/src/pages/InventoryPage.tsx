@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, GitCompare, RotateCcw } from 'lucide-react';
+import { ChevronRight, GitCompare, MoveRight, RotateCcw } from 'lucide-react';
 import { listBalances, listMovements } from '../api/inventory';
 import { listWarehouses } from '../api/warehouses';
 import { errorMessage } from '../api/http';
@@ -36,6 +36,7 @@ export default function InventoryPage() {
       const data = await listBalances({
         warehouse_id: fWarehouse || undefined,
         location_id: fLocation || undefined,
+        q: query.trim() || undefined,
         limit: PAGE,
         offset,
       });
@@ -66,22 +67,13 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Bodega y ubicación sí las filtra el backend: al cambiarlas se recarga.
+  // Todo lo filtra el backend, sobre TODOS los saldos y no solo la página cargada. El texto
+  // espera a que el usuario deje de escribir para no disparar una consulta por tecla.
   useEffect(() => {
-    loadBalances(0);
+    const t = setTimeout(() => loadBalances(0), query ? 300 : 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fWarehouse, fLocation]);
-
-  // El endpoint de saldos no busca por texto: este filtro actúa sobre lo cargado.
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return balances;
-    return balances.filter((b) =>
-      [b.sku, b.product_name, b.location_code, b.lot_number, b.serial_number]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q))
-    );
-  }, [balances, query]);
+  }, [fWarehouse, fLocation, query]);
 
   const balanceColumns: Column<InventoryBalance>[] = [
     { key: 'sku', header: 'SKU', render: (b) => <span className="code-strong">{b.sku}</span> },
@@ -118,6 +110,33 @@ export default function InventoryPage() {
       header: 'Disponible',
       align: 'right',
       render: (b) => <span className="font-semibold text-slate-900">{b.quantity_available}</span>,
+    },
+    {
+      key: 'expiry',
+      header: 'Vence',
+      secondary: true,
+      render: (b) =>
+        b.expiration_date ? (
+          <span className="whitespace-nowrap text-xs text-slate-500">
+            {new Date(b.expiration_date).toLocaleDateString('es-CL')}
+          </span>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      key: 'putaway',
+      header: '',
+      render: (b) =>
+        b.quantity_available > 0 ? (
+          <Link
+            to={`/inventory/ubicar?balance=${b.id}`}
+            className="btn-ghost btn-sm whitespace-nowrap"
+          >
+            <MoveRight className="h-4 w-4" aria-hidden="true" />
+            Ubicar
+          </Link>
+        ) : null,
     },
     {
       key: 'blocked',
@@ -175,6 +194,10 @@ export default function InventoryPage() {
         subtitle="Saldos por ubicación y últimos movimientos"
         actions={
           <>
+            <Link to="/inventory/ubicar" className="btn-secondary">
+              <MoveRight className="h-4 w-4" aria-hidden="true" />
+              Ubicar stock
+            </Link>
             <Link to="/inventory/erp-stock" className="btn-secondary">
               <GitCompare className="h-4 w-4" aria-hidden="true" />
               Comparar con Defontana
@@ -223,30 +246,30 @@ export default function InventoryPage() {
           label="Buscar"
           value={query}
           onChange={setQuery}
-          placeholder="SKU, producto o lote…"
+          placeholder="SKU, producto, código de barras, lote o serie…"
         />
       </div>
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Saldos</h2>
       {loading ? (
         <LoadingRows />
-      ) : shown.length === 0 ? (
+      ) : balances.length === 0 ? (
         <Empty
-          label={balances.length === 0 ? 'Sin saldos' : 'Ningún resultado'}
+          label={query.trim() ? 'Ningún resultado' : 'Sin saldos'}
           hint={
-            balances.length === 0
-              ? 'No hay stock registrado con estos filtros.'
-              : 'La búsqueda se aplica a los saldos ya cargados en esta página.'
+            query.trim()
+              ? 'Ningún saldo coincide con la búsqueda.'
+              : 'No hay stock registrado con estos filtros.'
           }
         />
       ) : (
         <>
           <div className="hidden lg:block">
-            <DataTable columns={balanceColumns} rows={shown} keyOf={(b) => b.id} />
+            <DataTable columns={balanceColumns} rows={balances} keyOf={(b) => b.id} />
           </div>
           <div className="lg:hidden">
             <MobileCardList
-              rows={shown}
+              rows={balances}
               keyOf={(b) => b.id}
               render={(b) => (
                 <div>
@@ -280,12 +303,6 @@ export default function InventoryPage() {
             />
           </div>
         </>
-      )}
-
-      {query.trim() !== '' && shown.length > 0 && (
-        <p className="hint mt-2">
-          Se muestran {shown.length} de los {balances.length} saldos cargados en esta página.
-        </p>
       )}
 
       <div className="mt-3">

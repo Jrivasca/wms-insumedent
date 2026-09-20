@@ -25,6 +25,14 @@ class TransferRequest(BaseModel):
     serial_number: Optional[str] = None
 
 
+class PutawayRequest(BaseModel):
+    """Ubicar stock: mover un saldo exacto (con su lote, serie y vencimiento) a otra
+    ubicación de la misma bodega."""
+    balance_id: str
+    to_location_id: str
+    quantity: float = Field(gt=0)
+
+
 class ReceptionRequest(BaseModel):
     product_id: str
     warehouse_id: str

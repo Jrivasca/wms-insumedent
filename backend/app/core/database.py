@@ -112,6 +112,12 @@ async def ensure_indexes() -> None:
         [("tenant_id", 1), ("product_id", 1), ("warehouse_id", 1), ("lot_number", 1)], unique=True
     )
     await db.inventory_balances.create_index([("tenant_id", 1), ("expiration_date", 1)])
+    # Consulta por ubicación ("qué hay en SIN-UBICAR") y "Ubicar stock": filtran por bodega y
+    # ubicación escondiendo las filas en cero, y pagina con orden fijo por producto.
+    await db.inventory_balances.create_index(
+        [("tenant_id", 1), ("warehouse_id", 1), ("location_id", 1), ("quantity_on_hand", 1),
+         ("product_id", 1)]
+    )
     # Referencia de Defontana (solo lectura): lotes y foto de stock del ERP.
     await db.erp_batches.create_index([("tenant_id", 1), ("sku", 1), ("storage_code", 1)])
     await db.erp_stock.create_index([("tenant_id", 1), ("sku", 1), ("storage_code", 1)])

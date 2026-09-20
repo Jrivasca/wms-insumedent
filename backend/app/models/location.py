@@ -25,6 +25,15 @@ NON_PICKABLE_LOCATION_TYPES = (
     LocationType.RECEIVING.value,
 )
 
+# Ubicaciones de trabajo: su contenido ya está comprometido con un pedido en preparación.
+# De ahí NO se saca stock por una conciliación ni reubicándolo a mano; sale por el flujo del
+# pedido (picking → packing → despacho) o reabriendo la tarea.
+COMMITTED_LOCATION_TYPES = (
+    LocationType.STAGING.value,
+    LocationType.PACKING.value,
+    LocationType.DISPATCH.value,
+)
+
 # Default operational locations created for every new warehouse.
 DEFAULT_LOCATIONS = [
     {"code": "STAGING", "name": "Staging", "type": LocationType.STAGING.value},

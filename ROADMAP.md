@@ -205,11 +205,23 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
      ambiente local (`DEFONTANA_RECONCILE_ENABLED=true` en `.env`; en el código sigue apagada
      por defecto). Aprobar 282 filas una por una es trabajoso: si se vuelve un problema, falta
      una aprobación en bloque de las ya revisadas.
+  1bis. **Ubicar stock** *(hecho)*: la conciliación deja lo nuevo en `SIN-UBICAR`, que **no es
+     pickeable**, así que hace falta guardarlo en su estante. `POST /inventory/putaway` mueve un
+     saldo **exacto** (pantalla `/inventory/ubicar`, pensada para móvil y lector): como el saldo
+     llega identificado, conserva lote, serie y vencimiento y no puede mover el equivocado. Antes
+     esto se hacía con la transferencia, que no dejaba elegir lote y **perdía el vencimiento** en
+     el destino (ese stock se caía del FEFO); la transferencia ahora también lo conserva.
+     Además, la conciliación **ya no descuenta de STAGING/PACKING/DISPATCH**: esa mercadería está
+     en la mano de un operario para un pedido. Lo que no se puede descontar del resto queda
+     explicado en la fila y pasa por aprobación humana. Y la consulta de saldos busca **en el
+     servidor** (SKU, nombre, código de barras, lote o serie) sobre todos los saldos, con orden
+     fijo y escondiendo las filas en cero.
+
   2. ~~Push de ajustes y mermas~~ *(hecho)*: el ajuste viaja a `Inventory/Insert` como documento
      de entrada o salida (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). El WMS no tiene
      transferencia entre bodegas, y la de ubicaciones no cambia el total: no se envía.
   3. **Lotes del ERP en la operación** (elegir lote conocido con su vencimiento al recibir/ubicar).
-  4. **Ubicar stock recibido en Defontana** sin volver a sumarlo en el WMS.
+  4. ~~Ubicar stock recibido en Defontana~~ *(hecho)*: ver "Ubicar stock" más abajo.
 
   Las preguntas abiertas del documento quedaron respondidas (2026-09-19): se concilia a diario de
   madrugada y a demanda; las diferencias grandes van a revisión humana. Sigue abierta solo si

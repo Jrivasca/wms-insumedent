@@ -123,6 +123,15 @@ export interface InventoryBalance {
   quantity_reserved: number;
   quantity_available: number;
   quantity_blocked: number;
+  expiration_date?: string | null;
+}
+
+/** Resultado de "Ubicar stock". */
+export interface PutawayResult {
+  movement: InventoryMovement;
+  balance: InventoryBalance;
+  from_location_code?: string;
+  to_location_code?: string;
 }
 
 export interface InventoryMovement {
