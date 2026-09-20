@@ -17,6 +17,7 @@ import InventoryPage from './pages/InventoryPage';
 import ReceptionPage from './pages/ReceptionPage';
 import InventoryTransferPage from './pages/InventoryTransferPage';
 import PutawayPage from './pages/PutawayPage';
+import ExpiringPage from './pages/ExpiringPage';
 import InventoryAdjustmentPage from './pages/InventoryAdjustmentPage';
 import ErpStockPage from './pages/ErpStockPage';
 import OrdersPage from './pages/OrdersPage';
@@ -153,6 +154,14 @@ export default function App() {
         element={
           <Shell>
             <PutawayPage />
+          </Shell>
+        }
+      />
+      <Route
+        path="/inventory/vencimientos"
+        element={
+          <Shell>
+            <ExpiringPage />
           </Shell>
         }
       />
