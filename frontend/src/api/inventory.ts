@@ -1,5 +1,11 @@
 import { http } from './http';
-import type { InventoryBalance, InventoryMovement, Page, PutawayResult } from '../types';
+import type {
+  ExpiringPage,
+  InventoryBalance,
+  InventoryMovement,
+  Page,
+  PutawayResult,
+} from '../types';
 
 export async function listBalances(params?: {
   product_id?: string;
@@ -50,6 +56,19 @@ export async function createAdjustment(payload: {
   serial_number?: string;
 }): Promise<InventoryBalance> {
   const { data } = await http.post<InventoryBalance>('/inventory/adjustments', payload);
+  return data;
+}
+
+/** Vencido y por vencer, en orden FEFO, con el resumen por tramo. */
+export async function listExpiring(params?: {
+  days?: number;
+  q?: string;
+  warehouse_id?: string;
+  location_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ExpiringPage> {
+  const { data } = await http.get<ExpiringPage>('/inventory/expiring', { params });
   return data;
 }
 

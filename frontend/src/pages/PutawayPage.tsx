@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MoveRight, PackageSearch, RotateCcw, TriangleAlert } from 'lucide-react';
 import { listBalances, putawayBalance } from '../api/inventory';
@@ -77,7 +77,12 @@ export default function PutawayPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warehouseId]);
 
+  // Un escaneo y la búsqueda con retardo pueden pedir a la vez: solo la última pinta la
+  // lista, si no puede quedar en pantalla el resultado de una consulta anterior.
+  const peticion = useRef(0);
+
   async function load() {
+    const mia = ++peticion.current;
     if (!originId) {
       setBalances([]);
       setTotal(0);
@@ -93,12 +98,13 @@ export default function PutawayPage() {
         q: query.trim() || undefined,
         limit: PAGE,
       });
+      if (mia !== peticion.current) return;
       setBalances(data.items);
       setTotal(data.total);
     } catch (err) {
-      setError(errorMessage(err));
+      if (mia === peticion.current) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      if (mia === peticion.current) setLoading(false);
     }
   }
 
@@ -113,6 +119,13 @@ export default function PutawayPage() {
     [locations]
   );
   const origenCodigo = locations.find((l) => l.id === originId)?.code ?? '';
+  // Ubicaciones de trabajo: ahí solo llega mercadería por un pedido, así que no se ofrecen
+  // como destino (el backend también las rechaza).
+  const comprometidas = useMemo(
+    () => locations.filter((l) => ['staging', 'packing', 'dispatch'].includes(l.type ?? ''))
+      .map((l) => l.id),
+    [locations]
+  );
 
   function elegir(balance: InventoryBalance) {
     setSelected(balance);
@@ -124,6 +137,7 @@ export default function PutawayPage() {
 
   /** Un escaneo busca; si deja un solo saldo, lo elige solo para no obligar a tocar la pantalla. */
   function escanear(code: string) {
+    const mia = ++peticion.current;
     setQuery(code);
     listBalances({
       warehouse_id: warehouseId || undefined,
@@ -132,6 +146,7 @@ export default function PutawayPage() {
       limit: PAGE,
     })
       .then((data) => {
+        if (mia !== peticion.current) return;
         setBalances(data.items);
         setTotal(data.total);
         if (data.items.length === 1) {
@@ -142,6 +157,7 @@ export default function PutawayPage() {
         }
       })
       .catch((err) => {
+        if (mia !== peticion.current) return;
         setError(errorMessage(err));
         setFeedback('error');
       });
@@ -275,7 +291,7 @@ export default function PutawayPage() {
               onChange={setDestinationId}
               warehouseId={warehouseId}
               requireWarehouse
-              disabledIds={[selected.location_id]}
+              disabledIds={[selected.location_id, ...comprometidas]}
             />
             <div>
               <label className="label" htmlFor="pa-qty">

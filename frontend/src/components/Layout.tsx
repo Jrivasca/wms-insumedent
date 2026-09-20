@@ -4,6 +4,7 @@ import type { ComponentType, ReactNode } from 'react';
 import {
   ArrowLeftRight,
   Boxes,
+  CalendarClock,
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
@@ -82,6 +83,7 @@ const GROUPS: NavGroup[] = [
       { to: '/inventory', label: 'Inventario', icon: Boxes, exact: true },
       { to: '/inventory/recepcion', label: 'Recepción', icon: PackagePlus },
       { to: '/inventory/ubicar', label: 'Ubicar stock', icon: MoveRight },
+      { to: '/inventory/vencimientos', label: 'Vencimientos', icon: CalendarClock },
       { to: '/inventory/transferencia', label: 'Transferencia', icon: ArrowLeftRight },
       { to: '/inventory/ajuste', label: 'Ajuste', icon: SlidersHorizontal },
       { to: '/inventory/erp-stock', label: 'Stock ERP vs WMS', icon: GitCompare },

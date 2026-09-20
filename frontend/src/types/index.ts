@@ -126,6 +126,25 @@ export interface InventoryBalance {
   expiration_date?: string | null;
 }
 
+/** Tramos de vencimiento: vencido, ≤30 d, 31–90 d, 91–180 d. */
+export type ExpiryBucket = 'expired' | 'd30' | 'd90' | 'd180';
+
+export interface ExpiringBalance extends InventoryBalance {
+  location_type?: string;
+  expiration_date: string;
+  days_left: number;
+  bucket: ExpiryBucket;
+}
+
+export interface ExpiringPage extends Page<ExpiringBalance> {
+  summary: {
+    days: number;
+    rows: number;
+    units: number;
+    buckets: Record<ExpiryBucket, { rows: number; units: number }>;
+  };
+}
+
 /** Resultado de "Ubicar stock". */
 export interface PutawayResult {
   movement: InventoryMovement;
