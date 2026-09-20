@@ -41,6 +41,23 @@ async def balances(
     )
 
 
+@router.get("/expiring")
+async def expiring(
+    days: int = 180,
+    q: Optional[str] = None,
+    warehouse_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Vencido y por vencer, en orden FEFO, con el resumen por tramo."""
+    return await inventory_service.expiring_stock(
+        user.tenant_id, user=user, days=days, q=q, warehouse_id=warehouse_id,
+        location_id=location_id, limit=limit, offset=offset,
+    )
+
+
 @router.post("/putaway")
 async def putaway(payload: PutawayRequest, user: CurrentUser = Depends(get_current_user)):
     """Ubicar stock: mover un saldo exacto a otra ubicación de la misma bodega."""

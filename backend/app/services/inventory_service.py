@@ -468,6 +468,14 @@ async def putaway(
         raise HTTPException(
             status_code=400,
             detail=f"La ubicación {destination.get('code')} está inactiva")
+    if destination.get("type") in COMMITTED_LOCATION_TYPES:
+        # Esas ubicaciones son de pedidos en preparación: dejar ahí stock suelto lo haría
+        # invisible para el picking (no es pickeable) sin que ningún pedido lo reclame.
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{destination.get('code')} es una ubicación de trabajo: "
+                    "ahí solo llega mercadería por un pedido."),
+        )
 
     available = _available(balance)
     if quantity > available + 1e-9:
@@ -756,6 +764,127 @@ async def check_expiring_stock(tenant_id: str, days: Optional[int] = None) -> in
 # ---------------------------------------------------------------------------
 # Read helpers used by the API layer
 # ---------------------------------------------------------------------------
+EXPIRY_BUCKETS = ("expired", "d30", "d90", "d180")
+
+
+def _expiry_bucket(expiration: datetime, now: datetime) -> str:
+    """En qué tramo cae un vencimiento: vencido, ≤30 d, 31–90 d, 91–180 d (o más)."""
+    dias = (_aware(expiration) - now).days
+    if dias < 0:
+        return "expired"
+    if dias <= 30:
+        return "d30"
+    if dias <= 90:
+        return "d90"
+    return "d180"
+
+
+async def expiring_stock(
+    tenant_id: str,
+    *,
+    user: CurrentUser,
+    days: int = 180,
+    q: Optional[str] = None,
+    warehouse_id: Optional[str] = None,
+    location_id: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """Stock vencido y por vencer dentro de ``days``, en orden FEFO.
+
+    Solo saldos con stock y con fecha: sin unidades no hay nada que hacer, y sin fecha no se
+    puede clasificar. El resumen cuenta TODO lo filtrado, no solo la página que se muestra.
+
+    Es independiente de las notificaciones: el worker avisa a 30 días
+    (``expiry_alert_days``) y una sola vez por lote; esta vista mira más lejos y se puede
+    consultar cuando se quiera.
+    """
+    db = tenant_db(tenant_id)
+    now = now_utc()
+    days = max(0, min(days, 3650))
+    query: Dict[str, Any] = {
+        "quantity_on_hand": {"$gt": 0},
+        "expiration_date": {"$ne": None, "$lte": now + timedelta(days=days)},
+    }
+    if warehouse_id:
+        query["warehouse_id"] = warehouse_id
+    if location_id:
+        query["location_id"] = location_id
+    if user.warehouse_scoped:
+        allowed = set(user.allowed_warehouse_ids)
+        if warehouse_id is not None:
+            if warehouse_id not in allowed:
+                return {**page([], 0, limit, offset), "summary": _empty_expiry_summary(days)}
+        else:
+            query["warehouse_id"] = {"$in": list(allowed)}
+    await _apply_text_search(db, query, q)
+
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+    total = await db[Collections.INVENTORY_BALANCES].count_documents(query)
+    rows = (
+        await db[Collections.INVENTORY_BALANCES]
+        .find(query)
+        # FEFO: primero lo que vence antes. El ``_id`` desempata para que paginar sea estable.
+        .sort([("expiration_date", 1), ("_id", 1)])
+        .skip(offset)
+        .limit(limit)
+        .to_list(length=limit)
+    )
+
+    products = {
+        str(p["_id"]): p
+        async for p in db[Collections.PRODUCTS].find(
+            {"_id": {"$in": [to_object_id(r["product_id"]) for r in rows if r.get("product_id")]}}
+        )
+    }
+    locations = {
+        str(loc["_id"]): loc
+        async for loc in db[Collections.LOCATIONS].find(
+            {"_id": {"$in": [to_object_id(r["location_id"]) for r in rows if r.get("location_id")]}}
+        )
+    }
+
+    items = []
+    for row in rows:
+        data = serialize(row)
+        product = products.get(row.get("product_id"))
+        location = locations.get(row.get("location_id"))
+        expiration = _aware(row.get("expiration_date"))
+        data["sku"] = (product or {}).get("sku")
+        data["product_name"] = (product or {}).get("name")
+        data["location_code"] = (location or {}).get("code")
+        data["location_type"] = (location or {}).get("type")
+        data["days_left"] = (expiration - now).days if expiration else None
+        data["bucket"] = _expiry_bucket(row["expiration_date"], now)
+        items.append(data)
+
+    # Resumen sobre todo lo filtrado, no solo sobre la página. Se clasifica en Python con la
+    # misma ``_expiry_bucket`` que las filas, para que resumen y detalle no puedan discrepar;
+    # hacerlo en la base exigiría repetir los cortes en un ``$switch`` que además compara
+    # fechas con y sin zona horaria según de dónde vengan. Solo recorre lo que ya está
+    # acotado por el horizonte, con dos campos por documento.
+    summary = _empty_expiry_summary(days)
+    async for row in db[Collections.INVENTORY_BALANCES].find(
+        query, {"expiration_date": 1, "quantity_on_hand": 1}
+    ):
+        bucket = summary["buckets"][_expiry_bucket(row["expiration_date"], now)]
+        bucket["rows"] += 1
+        bucket["units"] += row.get("quantity_on_hand") or 0
+    summary["rows"] = total
+    summary["units"] = sum(b["units"] for b in summary["buckets"].values())
+    return {**page(items, total, limit, offset), "summary": summary}
+
+
+def _empty_expiry_summary(days: int) -> Dict[str, Any]:
+    return {
+        "days": days,
+        "rows": 0,
+        "units": 0,
+        "buckets": {b: {"rows": 0, "units": 0} for b in EXPIRY_BUCKETS},
+    }
+
+
 async def _product_ids_matching(db, needle: str, cap: int = 2000) -> List[str]:
     """Ids de productos cuyo SKU, nombre o código de barras contiene ``needle``.
 
@@ -772,6 +901,20 @@ async def _product_ids_matching(db, needle: str, cap: int = 2000) -> List[str]:
     async for bc in db[Collections.BARCODES].find({"barcode": rx}, {"product_id": 1}).limit(cap):
         ids.add(bc.get("product_id"))
     return [i for i in ids if i]
+
+
+async def _apply_text_search(db, query: Dict[str, Any], q: Optional[str]) -> None:
+    """Agrega a ``query`` la búsqueda por texto: lote y serie viven en el saldo; SKU, nombre y
+    código de barras se resuelven primero a ``product_id``. Compartido por la consulta de
+    saldos y la de vencimientos, para que busquen igual."""
+    if not q or not q.strip():
+        return
+    needle = q.strip()
+    rx = {"$regex": re.escape(needle), "$options": "i"}
+    query["$or"] = [{"lot_number": rx}, {"serial_number": rx}]
+    matches = await _product_ids_matching(db, needle)
+    if matches:
+        query["$or"].append({"product_id": {"$in": matches}})
 
 
 async def list_balances(
@@ -806,13 +949,7 @@ async def list_balances(
                 return page([], 0, limit, offset)
         else:
             query["warehouse_id"] = {"$in": list(allowed)}
-    if q and q.strip():
-        needle = q.strip()
-        rx = {"$regex": re.escape(needle), "$options": "i"}
-        matches = await _product_ids_matching(db, needle)
-        query["$or"] = [{"lot_number": rx}, {"serial_number": rx}]
-        if matches:
-            query["$or"].append({"product_id": {"$in": matches}})
+    await _apply_text_search(db, query, q)
 
     limit = max(1, min(limit, 1000))
     offset = max(0, offset)

@@ -217,6 +217,13 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
      servidor** (SKU, nombre, código de barras, lote o serie) sobre todos los saldos, con orden
      fijo y escondiendo las filas en cero.
 
+  1ter. **Vencimientos y puesta en marcha** *(hecho)*: `GET /inventory/expiring` y la pantalla
+     **Vencimientos** (`/inventory/vencimientos`) muestran lo vencido y lo que vence dentro de
+     180 días, en orden FEFO, con resumen por tramo (vencidos, ≤30 d, 31–90 d, 91–180 d) y
+     filtros de bodega, ubicación y texto. Es independiente del aviso automático, que sigue
+     avisando a 30 días y una sola vez por lote. El procedimiento del corte a producción está
+     en `docs/entregables/Puesta-en-marcha-primera-vez.md`.
+
   2. ~~Push de ajustes y mermas~~ *(hecho)*: el ajuste viaja a `Inventory/Insert` como documento
      de entrada o salida (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). El WMS no tiene
      transferencia entre bodegas, y la de ubicaciones no cambia el total: no se envía.
