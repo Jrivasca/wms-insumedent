@@ -12,6 +12,7 @@ import {
 import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
+import ConfirmDialog from '../components/ConfirmDialog';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
 import BackorderBadge from '../components/BackorderBadge';
@@ -41,6 +42,8 @@ export default function PickingTaskPage() {
   // missing modal
   const [missingFor, setMissingFor] = useState<PickingLine | null>(null);
   const [missingReason, setMissingReason] = useState('');
+  // Confirmación de cierre con faltantes: cerrar deja el pedido parcial, hay que avisarlo.
+  const [confirmClose, setConfirmClose] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -211,6 +214,7 @@ export default function PickingTaskPage() {
     try {
       const t = await completePicking(id, allowPartial);
       setTask(t);
+      setConfirmClose(false);
       showMessage('Picking completado. Continúa en Packing.', 'success');
       setTimeout(() => navigate('/my/packing'), 900);
     } catch (err) {
@@ -230,6 +234,16 @@ export default function PickingTaskPage() {
   if (!task) return null;
 
   const notStarted = task.status === 'pending' || task.status === 'assigned';
+  // Incompleto = alguna línea se pickeó por debajo de lo pedido (marcada faltante o todavía
+  // pendiente). Cerrar así deja el PEDIDO parcial, así que hay que avisarlo aunque no queden
+  // líneas "pendientes" (una faltante ya no es pendiente, pero igual falta stock).
+  const shortLines = task.lines.filter((l) => l.quantity_picked < l.quantity_required);
+  const missingUnits = shortLines.reduce(
+    (a, l) => a + (l.quantity_required - l.quantity_picked),
+    0
+  );
+  const isIncomplete = missingUnits > 0;
+  // Quedan líneas por pickear (no marcadas faltantes): controla el hint "Toca una línea".
   const hasPending = task.lines.some(
     (l) => l.quantity_picked < l.quantity_required && l.status !== 'missing'
   );
@@ -442,27 +456,47 @@ export default function PickingTaskPage() {
         </div>
       </div>
 
-      {/* Cierre de la tarea */}
+      {/* Cierre de la tarea. Si falta stock, cerrar deja el pedido parcial: un solo botón,
+          que abre una confirmación con la consecuencia en vez de cerrar en silencio. */}
       {!notStarted && (
         <div className="space-y-2">
           <button
-            onClick={() => handleComplete(false)}
-            className="btn-xl w-full bg-emerald-600 text-white hover:bg-emerald-700"
+            onClick={() => (isIncomplete ? setConfirmClose(true) : handleComplete(false))}
+            className={`btn-xl w-full text-white ${
+              isIncomplete
+                ? 'bg-amber-500 hover:bg-amber-600'
+                : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
             disabled={busy}
           >
-            Completar picking
+            {isIncomplete ? 'Completar picking (parcial)' : 'Completar picking'}
           </button>
-          {hasPending && (
-            <button
-              onClick={() => handleComplete(true)}
-              className="btn w-full bg-amber-500 text-white hover:bg-amber-600"
-              disabled={busy}
-            >
-              Completar parcial (quedan líneas pendientes)
-            </button>
+          {isIncomplete && (
+            <p className="text-center text-sm text-amber-800">
+              Faltan {missingUnits} unidad{missingUnits === 1 ? '' : 'es'} en{' '}
+              {shortLines.length} línea{shortLines.length === 1 ? '' : 's'}: el pedido quedará
+              parcial.
+            </p>
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmClose}
+        tone="primary"
+        title="¿Cerrar el picking incompleto?"
+        message={
+          `Faltan ${missingUnits} unidad${missingUnits === 1 ? '' : 'es'} en ` +
+          `${shortLines.length} línea${shortLines.length === 1 ? '' : 's'}. El pedido quedará ` +
+          'parcial: sale con lo que hay y lo que falta vuelve como pendiente cuando llegue ' +
+          'stock. La acción queda registrada a tu nombre.'
+        }
+        confirmLabel="Cerrar parcial"
+        cancelLabel="Seguir pickeando"
+        busy={busy}
+        onConfirm={() => handleComplete(true)}
+        onCancel={() => setConfirmClose(false)}
+      />
 
       {/* Marcar faltante: necesita un motivo escrito, por eso no usa ConfirmDialog */}
       {missingFor && (

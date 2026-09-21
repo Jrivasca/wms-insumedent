@@ -345,3 +345,13 @@ contratos de datos, pero no se ha mirado en pantalla.
   FastAPI (arreglo `{loc, msg}`) se arman como «campo: mensaje».
 - **Confirmaciones explicadas** al anular una guía, retroceder una etapa, cancelar un envío al
   ERP o descartar un pedido importado (antes eran `window.confirm` o un clic directo).
+- **Estados de picking/packing más entendibles** (2026-09-21): cerrar un picking con faltantes
+  ya no pasa en silencio por el botón verde —se vuelve ámbar «Completar picking (parcial)», dice
+  «Faltan N unidades…» y abre una confirmación con la consecuencia—; el packing avisa antes de
+  finalizar la diferencia contra lo pickeado, con el texto según rol (supervisor aprueba a su
+  nombre; operario deja la tarea «Con observaciones»), y el 409 «observed» se explica en vez del
+  genérico «líneas pendientes»; el listado de Pedidos muestra «Parcial · faltan N u» en vez de
+  «Parcial» pelado. Los tres «incompletos» (pedido parcial, picking con diferencias, packing
+  observado) están mapeados en la referencia visual del ciclo de vida del pedido.
+  **Decisión abierta:** el cierre parcial de picking hoy lo confirma cualquiera (no hay candado
+  por rol); definir si debe exigir un supervisor —sería un cambio chico de backend.

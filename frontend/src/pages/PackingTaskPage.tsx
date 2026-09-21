@@ -15,11 +15,14 @@ import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
 import Toast, { ToastTone } from '../components/Toast';
+import { isSupervisor, useAuth } from '../store/auth';
 import type { PackingLine, PackingTask } from '../types';
 
 export default function PackingTaskPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const supervisor = isSupervisor(currentUser?.role);
 
   const [task, setTask] = useState<PackingTask | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,7 +199,23 @@ export default function PackingTaskPage() {
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 409) {
-        setError('Hay líneas pendientes por empacar.');
+        // El backend devuelve 409 cuando lo empacado no coincide con lo pickeado: si el
+        // operario no es supervisor, la tarea ya quedó "Con observaciones". Recargamos para
+        // confirmar y explicamos qué pasó, en vez del genérico "líneas pendientes".
+        try {
+          const t = await getPackingTask(id);
+          setTask(t);
+          if (t.status === 'observed') {
+            setError(
+              'El empaque no coincide con lo pickeado. La tarea quedó «Con observaciones»: ' +
+                'un supervisor debe revisarla y aprobarla antes de que siga a Despacho.'
+            );
+          } else {
+            setError('Falta empacar líneas para poder finalizar.');
+          }
+        } catch {
+          setError('El empaque no coincide con lo pickeado.');
+        }
       } else {
         setError(errorMessage(err));
       }
@@ -210,6 +229,14 @@ export default function PackingTaskPage() {
   if (!task) return null;
 
   const notStarted = task.status === 'pending' || task.status === 'assigned';
+  // Diferencia = lo empacado no coincide con lo pickeado. Finalizar así deja la tarea "Con
+  // observaciones" (la aprueba un supervisor); un supervisor la cierra en el acto. Lo avisamos
+  // antes, para que el rol y la consecuencia sean visibles.
+  const packDiffUnits = task.lines.reduce(
+    (a, l) => a + Math.max(l.quantity_required - l.quantity_packed, 0),
+    0
+  );
+  const hasPackDiff = packDiffUnits > 0;
   const activeLabel =
     task.packages.find((p) => p.package_id === activePackage)?.label ?? activePackage;
   const remainingCurrent = currentLine
@@ -430,13 +457,34 @@ export default function PackingTaskPage() {
       </div>
 
       {!notStarted && (
-        <button
-          onClick={handleComplete}
-          className="btn-xl w-full bg-emerald-600 text-white hover:bg-emerald-700"
-          disabled={busy}
-        >
-          Finalizar packing
-        </button>
+        <div className="space-y-2">
+          {hasPackDiff && (
+            <p
+              className={`flex items-start gap-2 rounded-card border px-3 py-2 text-sm ${
+                supervisor
+                  ? 'border-amber-200 bg-amber-50 text-amber-900'
+                  : 'border-slate-200 bg-slate-50 text-slate-600'
+              }`}
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {supervisor
+                ? `Faltan ${packDiffUnits} unidad${packDiffUnits === 1 ? '' : 'es'} respecto a lo ` +
+                  'pickeado. Al finalizar, la diferencia queda aprobada a tu nombre.'
+                : `Faltan ${packDiffUnits} unidad${packDiffUnits === 1 ? '' : 'es'} respecto a lo ` +
+                  'pickeado. Al finalizar, la tarea quedará «Con observaciones» para que un ' +
+                  'supervisor la apruebe.'}
+            </p>
+          )}
+          <button
+            onClick={handleComplete}
+            className={`btn-xl w-full text-white ${
+              hasPackDiff ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
+            disabled={busy}
+          >
+            Finalizar packing
+          </button>
+        </div>
       )}
     </div>
   );
