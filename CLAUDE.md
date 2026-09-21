@@ -10,82 +10,75 @@ bitácora viva del proyecto (decisiones A.1–A.8, qué está hecho y qué falta
 `README.md` cubre el stack y el arranque; `DEPLOY.md`, el droplet; `docs/entregables/`,
 los análisis entregados al cliente.
 
-## Entornos (importante)
+Lo que lleva fecha caduca: verificarlo antes de confiar. Y hay una sección al final que
+aplica **solo al equipo Windows**; si estás en Linux, saltala.
 
-El desarrollo real se hace en un **equipo Windows** (`C:/Users/jrivasca/.../wms-insumedent`),
-que es el que tiene Docker y la base con datos. La carpeta en Linux
-(`/home/jrivasca/Proyectos/CLAUDE/wms`) es una **copia del repo**: sirve para leer,
-planificar y escribir código, pero **no tiene docker ni mongod**, así que ahí no se
-levanta el stack ni corren los tests sin preparar antes un venv.
+## Entornos
 
-Corolario: **lo que deba sobrevivir entre máquinas tiene que estar versionado**
-(este archivo, `ROADMAP.md`, `docs/`). El historial de conversaciones no viaja.
+Hay **dos máquinas de desarrollo y un solo servidor**, y conviene no confundirlos.
 
-### Trampas del equipo Windows (la carpeta está dentro de OneDrive)
+| Dónde | Qué es | Estado al 2026-09-21 |
+|---|---|---|
+| **Linux** (`/home/jrivasca/Proyectos/CLAUDE/wms`) | La que **va a pasar a ser la principal** | Ya tiene git y acceso SSH al droplet. Le falta Docker y una base con datos. |
+| **Windows** (`C:\Users\jrivasca\OneDrive\CLAUDE\wms\wms-insumedent`) | Hoy la única con Docker y la base con datos | Queda como respaldo. Tiene rarezas propias: ver el apéndice. |
+| **Droplet** `root@137.184.137.130` | **Ambiente dev**, el único servidor | Es donde se despliega siempre. No hay producción todavía. |
 
-La ruta real es `C:\Users\jrivasca\OneDrive\CLAUDE\wms\wms-insumedent` — **dentro de
-OneDrive**, y de ahí vienen casi todas las rarezas de esta máquina.
+El traslado a Linux conviene: ahí el Docker es nativo y **desaparecen todas las trampas
+del apéndice**, que existen solo porque en Windows el repo vive dentro de OneDrive.
 
-**1. `git status` miente: ~48 archivos salen como ` M` sin tener ningún cambio.**
-`git diff` sale vacío, el hash del archivo en disco es idéntico al blob del índice
-(`git hash-object <f>` == `git ls-files -s <f>`), y `git ls-files --eol` da `i/lf w/lf`
-en todos, así que **no es un problema de fin de línea**. Es la caché de `stat` del índice
-envejecida porque OneDrive reescribe los mtime al sincronizar; `git update-index
---refresh` los marca "needs update" pero no persiste.
+Corolario que no cambia: **lo que deba sobrevivir entre máquinas tiene que estar
+versionado** (este archivo, `ROADMAP.md`, `docs/`). Ni el historial de conversaciones ni
+la memoria de Claude viajan: se guardan por ruta absoluta, en la máquina.
 
-> Por eso: para saber si hay cambios reales usar **`git diff --stat`**, no `git status`,
-> y **commitear con rutas explícitas** (`git add CLAUDE.md`). No perseguir esos archivos.
+### Mover el desarrollo al Linux
 
-**2. OneDrive puede dejar un archivo rastreado ILEGIBLE.** Pasó el 2026-09-21 con
-`ROADMAP.md`: OneDrive lo deshidrató a placeholder "solo en la nube" justo después de
-editarlo y después **no pudo rehidratarlo** ("el proveedor de sincronización en la nube no
-pudo validar los datos descargados"). Los cambios recién escritos se perdieron.
-
-Se ve así, y ninguno de los síntomas menciona OneDrive:
-
-- `git diff` / `git add` fallan con `fatal: mmap failed: Invalid argument` o
-  `error: read error while indexing <archivo>: Invalid argument`.
-- `head`, `cat`, `wc -l` dan **`Permission denied`**, pero `wc -c` sí reporta tamaño
-  (el tamaño es metadato; el contenido no está en disco).
-
-Diagnóstico y recuperación:
+Lo único que no está en git es **la base de datos**: vive en el volumen Docker
+`mongo_data`. Conviene poblar el Linux desde **el droplet**, que es el dev real conectado
+al Defontana de pruebas, y no desde la base local de Windows, que es un estado armado a
+mano.
 
 ```bash
-attrib ROADMAP.md                          # "A  O  P" -> la O es Offline = placeholder
-rm -f ROADMAP.md && git checkout HEAD -- ROADMAP.md
+# en el Linux
+ssh root@137.184.137.130 'docker exec wms_mongo mongodump --db wms --archive' > wms-dev.dump
+docker compose up -d mongo
+docker exec -i wms_mongo mongorestore --archive --drop < wms-dev.dump
 ```
 
-Y después **reaplicar los cambios y commitear de inmediato**: mientras el cambio solo vive
-en el archivo del disco, OneDrive lo puede volver a evacuar. Si un comando de git falla con
-`mmap failed` o `Invalid argument`, **mirar `attrib` antes de sospechar del repo**.
-Pinnear no sirve: el archivo ya estaba pinneado (`P`) y lo evacuó igual.
+**Aviso: las credenciales de Defontana del dump no van a descifrar.** La clave Fernet sale
+de `ENCRYPTION_KEY`, y si está vacía se deriva del `JWT_SECRET` (`app/core/security.py`,
+`_fernet()`); `deploy/deploy.sh` **le genera al droplet secretos propios**, distintos de
+los locales, así que `decrypt_secret` se come un `InvalidToken`. La salida correcta **no**
+es copiar la clave del droplet, sino **recargar las credenciales desde la UI**
+(Configuración Defontana) en el ambiente local.
 
-**3. Git Bash reescribe rutas.** `docker exec ... /tmp/x` se convierte en una ruta de
-Windows. Usar `export MSYS_NO_PATHCONV=1`, y destinos relativos en `docker cp`.
+Si el estado local de Windows importara (por ejemplo las filas de conciliación pendientes
+de aprobación), sacar el respaldo **antes** de dejar esa máquina:
 
-**4. Los montajes de Windows/OneDrive no emiten eventos de archivo**, por eso el compose
-fuerza `WATCHFILES_FORCE_POLLING`; sin eso `uvicorn --reload` no ve los cambios (su
-watcher incluso muere con "os error 5"). No quitarlo.
+```bash
+docker exec wms_mongo mongodump --db wms --archive=/tmp/wms.dump
+docker cp wms_mongo:/tmp/wms.dump ./wms-local-respaldo.dump   # destino relativo a propósito
+```
 
 ## Levantar y probar
+
+El stack corre siempre en Docker, en cualquiera de las dos máquinas:
 
 ```bash
 docker compose up --build                     # mongo + backend + worker + frontend
 curl -X POST localhost:8000/api/v1/seed -H "X-Seed-Token: seed-me"
 
-# Suite completa. En el equipo Windows va SIEMPRE por el contenedor:
-docker compose exec -T backend python -m pytest -q -p no:cacheprovider
+docker compose exec -T backend python -m pytest -q -p no:cacheprovider   # suite completa
 ```
 
-**En el equipo Windows, `cd backend && pytest` no funciona**: no hay entorno Python
-fuera del contenedor. Tampoco `cd frontend && npx tsc --noEmit`: `frontend/node_modules`
-**existe pero está vacío**, porque el compose monta un volumen anónimo en
-`/app/node_modules` y las dependencias viven dentro del contenedor. Falla con
-"tsc no se reconoce". Comprobar que la carpeta existe no basta — hay que mirar si tiene
-contenido. Para compilar (tsc + vite) hay que usar una copia con dependencias fuera del
-repo y copiarle `frontend/src` encima.
-
 `-p no:cacheprovider` evita que pytest intente escribir su caché en el montaje.
+
+**Las dependencias viven dentro de los contenedores, no en el host.** El compose monta un
+volumen anónimo en `/app/node_modules`, así que `frontend/node_modules` **existe pero está
+vacío** — comprobar que la carpeta existe no basta, hay que mirar si tiene contenido. Por
+eso, desde el host, `npx tsc --noEmit` y `npm run build` fallan con "tsc no se reconoce".
+En el equipo Windows, además, `cd backend && pytest` tampoco corre: no hay entorno Python
+fuera del contenedor. Para compilar (tsc + vite) hay que usar una copia con dependencias
+fuera del repo y copiarle `frontend/src` encima.
 
 `pytest` no necesita Mongo: `conftest.py` inyecta `mongomock_motor` y fuerza la
 configuración por defecto, **ignorando el `.env` de quien ejecute**. Si agregas una
@@ -111,12 +104,14 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
 - **Rama por trabajo** (`feat/...`, `fix/...`) y PR a `main`. No commitear en `main`.
 - **Cuidado: la rama por defecto en GitHub no es `main`.** `origin/HEAD` apunta a
   `claude/crea-development-definitions-8cu566`, que está **9 commits atrás de
-  `origin/main`** (al 2026-09-21). El tronco real es `main`, así que `gh pr create` y la UI
-  de GitHub proponen la base equivocada. Siempre salir de `origin/main` y apuntar explícito:
+  `origin/main`** (al 2026-09-21). El tronco real es `main`, así que `gh pr create`, la UI
+  de GitHub y un `git clone` sin `-b main` te dejan en la base equivocada. Siempre salir de
+  `origin/main` y apuntar explícito:
   ```bash
   git fetch origin && git switch -c <rama> origin/main
   gh pr create --base main
   ```
+  (Vale arreglarlo de raíz en *Settings → General → Default branch*.)
 - **Nunca apilar un PR sobre otro en revisión**, aunque el trabajo continúe algo que aún no
   está en `main`. El 2026-09-20 el PR #22 se basó en la rama del #21; al mergearse el #21
   primero, el #22 quedó mergeado **dentro de una rama de trabajo y no en `main`**, que quedó
@@ -195,6 +190,10 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
 `DEPLOY.md` describe una instalación limpia y genérica. Lo que se hace realmente es esto,
 y en dos puntos **contradice** a `DEPLOY.md`.
 
+Se puede desplegar **desde cualquiera de las dos máquinas**: el procedimiento sale de
+`origin/main` y el respaldo y el `deploy.sh` corren dentro del droplet. Lo único que hace
+falta es tener la llave SSH autorizada allá.
+
 - El WMS vive en **https://wms-dev.selarix.cl**, droplet **`root@137.184.137.130`**, código
   en **`/opt/wms-insumedent`**. Es **ambiente dev, no producción**, aunque esté en línea.
 - El droplet está **compartido con otros proyectos**: hay un **Caddy propio del droplet**
@@ -271,15 +270,65 @@ falta depende de terceros, no de código:
 - **`*.svg` como `binary` en `.gitattributes`.** Dejaba el archivo eternamente "modificado"
   en checkouts de Windows por el CRLF. Se volvió a `text eol=lf`.
 - **`npm run build` / `npx tsc` en `frontend/` del host.** `node_modules` está vacío.
-- **`git update-index --refresh` para limpiar los archivos fantasma.** No persiste.
-- **Pinnear un archivo en OneDrive para que no se deshidrate.** `ROADMAP.md` ya estaba
-  pinneado y lo evacuó igual, y encima no pudo devolverlo.
 - **Comparar fechas dentro de una agregación de Mongo.** Pasa en el droplet, revienta en tests.
 - **Crear productos en Defontana vía API.** `Sale/SaveProduct` es del módulo Ventas, no
   contratado. De ahí el importador de Excel (A.8).
 - **Encender la conciliación diaria "para probar".** Corre al instante y ajusta stock.
+- **Copiar la clave de cifrado del droplet** para poder leer sus credenciales en local. Se
+  recargan desde la UI y listo (ver "Mover el desarrollo al Linux").
+- En el equipo Windows: **`git update-index --refresh`** para limpiar los archivos fantasma
+  (no persiste) y **pinnear un archivo en OneDrive** para que no se deshidrate (`ROADMAP.md`
+  ya estaba pinneado y lo evacuó igual). Ver el apéndice.
 
 ## Al terminar
 
 Di qué verificaste y qué no. «Compila» no es «funciona»: si no corriste los tests o no
 viste la pantalla, dilo. Es preferible un pendiente explícito a un supuesto silencioso.
+
+---
+
+## Apéndice — rarezas del equipo Windows (OneDrive)
+
+**Esto aplica solo en Windows**, porque ahí el repo vive dentro de OneDrive
+(`C:\Users\jrivasca\OneDrive\CLAUDE\wms\wms-insumedent`). En Linux no pasa nada de esto.
+
+**1. `git status` miente: decenas de archivos salen como ` M` sin tener ningún cambio.**
+`git diff` sale vacío, el hash del archivo en disco es idéntico al blob del índice
+(`git hash-object <f>` == `git ls-files -s <f>`), y `git ls-files --eol` da `i/lf w/lf`
+en todos, así que **no es un problema de fin de línea**. Es la caché de `stat` del índice
+envejecida porque OneDrive reescribe los mtime al sincronizar; `git update-index
+--refresh` los marca "needs update" pero no persiste.
+
+> Por eso: para saber si hay cambios reales usar **`git diff --stat`**, no `git status`,
+> y **commitear con rutas explícitas** (`git add CLAUDE.md`). No perseguir esos archivos.
+
+**2. OneDrive puede dejar un archivo rastreado ILEGIBLE.** Pasó el 2026-09-21 con
+`ROADMAP.md`: OneDrive lo deshidrató a placeholder "solo en la nube" justo después de
+editarlo y después **no pudo rehidratarlo** ("el proveedor de sincronización en la nube no
+pudo validar los datos descargados"). Los cambios recién escritos se perdieron.
+
+Se ve así, y ninguno de los síntomas menciona OneDrive:
+
+- `git diff` / `git add` fallan con `fatal: mmap failed: Invalid argument` o
+  `error: read error while indexing <archivo>: Invalid argument`.
+- `head`, `cat`, `wc -l` dan **`Permission denied`**, pero `wc -c` sí reporta tamaño
+  (el tamaño es metadato; el contenido no está en disco).
+
+Diagnóstico y recuperación:
+
+```bash
+attrib ROADMAP.md                          # "A  O  P" -> la O es Offline = placeholder
+rm -f ROADMAP.md && git checkout HEAD -- ROADMAP.md
+```
+
+Y después **reaplicar los cambios y commitear de inmediato**: mientras el cambio solo vive
+en el archivo del disco, OneDrive lo puede volver a evacuar. Si un comando de git falla con
+`mmap failed` o `Invalid argument`, **mirar `attrib` antes de sospechar del repo**.
+Pinnear no sirve: el archivo ya estaba pinneado (`P`) y lo evacuó igual.
+
+**3. Git Bash reescribe rutas.** `docker exec ... /tmp/x` se convierte en una ruta de
+Windows. Usar `export MSYS_NO_PATHCONV=1`, y destinos relativos en `docker cp`.
+
+**4. Los montajes de Windows/OneDrive no emiten eventos de archivo**, por eso el compose
+fuerza `WATCHFILES_FORCE_POLLING`; sin eso `uvicorn --reload` no ve los cambios (su
+watcher incluso muere con "os error 5"). No quitarlo — el flag es inocuo en Linux.
