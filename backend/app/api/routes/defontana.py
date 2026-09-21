@@ -94,6 +94,9 @@ class ReconcileApplyRequest(BaseModel):
     rows: Optional[List[ReconcileRowKey]] = None
     # Aprobación de un supervisor: aplica aunque la diferencia supere el umbral de revisión.
     include_review: bool = False
+    # Aprobación en bloque de TODAS las que esperan revisión (sin tocar las chicas). Con `rows`,
+    # solo el subconjunto elegido. Implica include_review.
+    only_review: bool = False
 
 
 @router.post("/reconciliation-apply")
@@ -103,7 +106,11 @@ async def reconciliation_apply(
     """Deja el stock del WMS igual al de Defontana. No envía nada al ERP."""
     keys = [(r.sku, r.storage_code) for r in payload.rows] if payload.rows is not None else None
     result = await erp_reconcile_service.apply(
-        user.tenant_id, user.id, keys=keys, include_review=payload.include_review
+        user.tenant_id,
+        user.id,
+        keys=keys,
+        include_review=payload.include_review,
+        only_review=payload.only_review,
     )
     await log_action(
         tenant_id=user.tenant_id,
@@ -114,6 +121,7 @@ async def reconciliation_apply(
         after={
             "rows": len(keys) if keys is not None else "diferencias chicas",
             "include_review": payload.include_review,
+            "only_review": payload.only_review,
             "applied": result["applied"],
             "errors": len(result["errors"]),
         },
