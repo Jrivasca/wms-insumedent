@@ -22,8 +22,14 @@ modelo de datos es **multi-tenant** (`tenant_id` en todo, JWT que lo lleva), est
    (M0 gratis para dev / M10 para prod), `mongodump` del droplet → `mongorestore`
    al clúster, cambiar `MONGODB_URI` en `.env`, redeploy, y permitir la IP del
    droplet (`137.184.137.130`) en el firewall del clúster. Activar backups automáticos.
-2. **Guardia central de aislamiento por tenant**: una capa de acceso a datos que
-   SIEMPRE inyecte `tenant_id`, para que ninguna query pueda fugar datos entre empresas.
+2. ~~**Guardia central de aislamiento por tenant**~~ *(hecha, 2026-08-11)*:
+   `backend/app/core/tenant_db.py`. Los servicios piden `tenant_db(tenant_id)` en vez de
+   `get_database()` y trabajan con la misma API `db[Collections.X]`, pero cada filtro y cada
+   documento insertado quedan acotados al tenant solos: olvidar el filtro ya no fuga datos, e
+   intentar alcanzar otro tenant (en un filtro, un documento o un `$set` que reescriba el
+   `tenant_id`) lanza `CrossTenantAccessError` en vez de cruzar el límite en silencio. Lo usan
+   45 archivos. Quedan fuera a propósito y documentados en el módulo: el poll global de jobs del
+   worker, `auth_service.login` / `deps.get_current_user` (antes de saber el tenant) y `seed.py`.
 3. **Backups + restore probado** y export de datos por tenant.
 
 ### Prioridad 2 — Empaquetar como producto
@@ -284,10 +290,13 @@ contratos de datos, pero no se ha mirado en pantalla.
   integración hoy sólo **lee** productos y pedidos desde Defontana; su API no
   expone (o no se ha confirmado) endpoints para **crear** un producto o un pedido.
   Por eso los jobs `create_product` y `create_order` responden OK en mock y lanzan
-  `NotImplementedError` en modo real, y las acciones "Nuevo producto / pedido" están
-  ocultas en la UI (flag `ERP_CREATE_ENABLED` en `frontend/src/config.ts`). Cuando
-  se confirmen los endpoints reales, conectarlos en `DefontanaConnector.create_product`
-  / `create_order` (`backend/app/integrations/defontana/client.py`) y poner el flag en true.
+  `NotImplementedError` en modo real. Cuando se confirmen los endpoints reales, conectarlos en
+  `DefontanaConnector.create_product` / `create_order`
+  (`backend/app/integrations/defontana/client.py`).
+  *(Corrección 2026-09-20: `ERP_CREATE_ENABLED` en `frontend/src/config.ts` **ya está en `true`**
+  y las acciones "Nuevo producto / pedido" **no están ocultas**. Es la operación stand-alone: sin
+  ERP del cual importar, el alta se hace a mano en el WMS. No encola nada hacia Defontana porque
+  el push lo corta el backend con `ERP_SYNC_ENABLED=false`, que es el interruptor real.)*
   *(Actualización 2026-09: Pedidos sí expone `Order/SaveOrder` / `UpdateOrder`; crear productos
   es `Sale/SaveProduct`, del módulo Ventas, no contratado. La recepción → `Inventory/Insert`
   está probada en pruebas pero el payload del WMS aún no tiene el formato real: ver
