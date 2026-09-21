@@ -81,10 +81,24 @@ docker exec -i wms_mongo mongorestore --archive --drop < wms-dev.dump
 
 **Aviso: las credenciales de Defontana del dump no van a descifrar.** La clave Fernet sale
 de `ENCRYPTION_KEY`, y si está vacía se deriva del `JWT_SECRET` (`app/core/security.py`,
-`_fernet()`); `deploy/deploy.sh` **le genera al droplet secretos propios**, distintos de
-los locales, así que `decrypt_secret` se come un `InvalidToken`. La salida correcta **no**
-es copiar la clave del droplet, sino **recargar las credenciales desde la UI**
-(Configuración Defontana) en el ambiente local.
+`_fernet()`); `deploy/deploy.sh` **le genera al droplet secretos propios**, distintos de los
+locales. La salida correcta **no** es copiar la clave del droplet, sino **recargar las
+credenciales desde la UI** (Configuración Defontana) en el ambiente local.
+
+**Y falla en silencio, que es lo que cuesta reconocer** (verificado el 2026-09-21):
+`decrypt_secret` atrapa el `InvalidToken` y **devuelve cadena vacía**
+(`app/core/security.py:70`), así que no salta ninguna excepción. Lo que se ve es
+`status` diciendo `"configured": true, "status": "connected"` —porque son los valores que
+venían en el dump— y un `check` que responde `"Health check returned a non-OK response"`.
+El único lugar donde aparece la causa es el log del backend, con la contraseña vacía a la
+vista:
+
+```
+GET https://replapi.defontana.com/api/auth?client=...&user=INTEGRACION&password= "HTTP/1.1 400 BadRequest"
+```
+
+Parece un problema de credenciales o de red, y es de la clave local. De paso: **ese request
+sale de verdad al ERP de pruebas**, porque el `.env` local trae `DEFONTANA_MOCK=false`.
 
 Si el estado local de Windows importara (por ejemplo las filas de conciliación pendientes
 de aprobación), sacar el respaldo **antes** de dejar esa máquina:
@@ -196,6 +210,14 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
   sin revisión previa**. Se enciende recién cuando la bodega esté ubicada. No prenderla
   "para ver qué hace". En el `.env` **local** está en `true`; son entornos distintos, y el
   que puede romper datos es el del droplet.
+- **La conciliación no consulta al ERP: lee la colección `erp_stock` de la propia base**
+  (`erp_reconcile_service._rows`). O sea que **no la frenan las credenciales**: en un local
+  restaurado desde el droplet tiene datos suficientes para ajustar stock sola. Lo único que
+  la detiene es que la foto tenga más de 12 h (`MAX_SNAPSHOT_AGE` en
+  `defontana_scheduler.py`). Al restaurar un dump viejo eso alcanza; pero apenas se recargan
+  las credenciales, la sincronización de stock de las 03:30 deja foto fresca y la
+  conciliación de las 04:30 **se ejecuta**. Si el local no se va a usar para eso, dejarla en
+  `false`.
 - **Escribir al ERP de pruebas** (`replapi.defontana.com`) está autorizado **solo si cada
   documento creado se borra después y se verifica**. Dos detalles que cuestan encontrar: al
   borrar, el **folio va como entero** (`Folio=884`, no `884.0`), y un `GetDocument` de un
