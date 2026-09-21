@@ -19,7 +19,7 @@ Hay **dos máquinas de desarrollo y un solo servidor**, y conviene no confundirl
 
 | Dónde | Qué es | Estado al 2026-09-21 |
 |---|---|---|
-| **Linux** (`/home/jrivasca/Proyectos/CLAUDE/wms`) | La que **va a pasar a ser la principal** | Ya tiene git y acceso SSH al droplet. Le falta Docker y una base con datos. |
+| **Linux** (`/home/jrivasca/Proyectos/CLAUDE/wms`) | La que **va a pasar a ser la principal** | Ya tiene git y Docker, y el stack corre entero (suite verde, `tsc` limpio). Le falta la base con datos del droplet. |
 | **Windows** (`C:\Users\jrivasca\OneDrive\CLAUDE\wms\wms-insumedent`) | Hoy la única con Docker y la base con datos | Queda como respaldo. Tiene rarezas propias: ver el apéndice. |
 | **Droplet** `root@137.184.137.130` | **Ambiente dev**, el único servidor | Es donde se despliega siempre. No hay producción todavía. |
 
@@ -32,9 +32,9 @@ la memoria de Claude viajan: se guardan por ruta absoluta, en la máquina.
 
 ### Mover el desarrollo al Linux
 
-**Paso 0: instalar Docker**, que en el Linux todavía no está (`docker: orden no encontrada`,
-verificado el 2026-09-21; tampoco hay `mongod`). Todo lo que sigue —y la sección «Levantar y
-probar»— lo da por hecho.
+**Paso 0: instalar Docker. Hecho el 2026-09-21** — Docker 29.8.1 con `compose` v2, el usuario
+ya en el grupo `docker`. Queda escrito el porqué de las decisiones, que es lo que sirve para
+rehacerlo o para la próxima máquina.
 
 Es **Ubuntu 26.04 "resolute"**; que sea Xubuntu no cambia nada, porque el sabor solo cambia el
 escritorio y `/etc/os-release` sigue diciendo `ID=ubuntu` (importa porque el instalador de
@@ -47,10 +47,25 @@ Ubuntu no sirva — 26.04 trae `docker.io` 29.1.3 y `docker-compose-v2` 2.40.3, 
 
 Después, `sudo usermod -aG docker $USER` y volver a entrar, para no depender de `sudo`.
 
-**Ojo con la contraseña:** `sudo` necesita un terminal, y una sesión de Claude por Remote
+**Ojo con las contraseñas:** `sudo` necesita un terminal, y una sesión de Claude por Remote
 Control no lo tiene (`sudo: A terminal is required to authenticate`, ni siquiera con el
 prefijo `!`). Esta máquina no tiene SSH levantado ni un helper `askpass`, así que la
 instalación hay que correrla desde un terminal de verdad en el equipo.
+
+**Lo mismo vale para la llave SSH del droplet**, y es fácil confundirlo con un problema de
+permisos: `~/.ssh/id_ed25519` tiene passphrase, así que si el agente está vacío
+(`ssh-add -l` → "The agent has no identities") cualquier `ssh root@137.184.137.130` muere con
+**`Permission denied (publickey)`** — que suena a llave no autorizada, pero es solo que no hay
+dónde escribir la passphrase. Se arregla desde un terminal de verdad:
+
+```bash
+ssh-add ~/.ssh/id_ed25519
+```
+
+El agente vive en un socket fijo de la sesión (`/run/user/1000/ssh-agent.socket`), así que la
+sesión de Claude usa **el mismo** y hereda la llave sin más. Corre con `-t 8h`: la llave
+**caduca a las 8 horas** y hay que repetir el `ssh-add`, que es por qué esto reaparece de un
+día para otro.
 
 Lo único que no está en git es **la base de datos**: vive en el volumen Docker
 `mongo_data`. Conviene poblar el Linux desde **el droplet**, que es el dev real conectado
