@@ -34,10 +34,23 @@ la memoria de Claude viajan: se guardan por ruta absoluta, en la máquina.
 
 **Paso 0: instalar Docker**, que en el Linux todavía no está (`docker: orden no encontrada`,
 verificado el 2026-09-21; tampoco hay `mongod`). Todo lo que sigue —y la sección «Levantar y
-probar»— lo da por hecho. Es Ubuntu 26.04, así que va el repositorio oficial de Docker
-(`docs.docker.com/engine/install/ubuntu/`), no el `docker.io` de Ubuntu: hace falta el plugin
-`docker compose` v2, no el viejo `docker-compose`. Después, `sudo usermod -aG docker $USER` y
-volver a entrar, para no depender de `sudo` en cada comando.
+probar»— lo da por hecho.
+
+Es **Ubuntu 26.04 "resolute"**; que sea Xubuntu no cambia nada, porque el sabor solo cambia el
+escritorio y `/etc/os-release` sigue diciendo `ID=ubuntu` (importa porque el instalador de
+Docker arma la línea del repositorio con `$VERSION_CODENAME`; en derivadas que reescriben ese
+archivo, como Mint, eso falla). Se usa el **repositorio oficial de Docker**
+(`docs.docker.com/engine/install/ubuntu/`), que al 2026-09-21 ya publica paquetes para
+`resolute`. El motivo es tener las versiones al día y las mismas que el droplet: **no** que
+Ubuntu no sirva — 26.04 trae `docker.io` 29.1.3 y `docker-compose-v2` 2.40.3, así que su
+`docker compose` también es v2 y alcanzaría.
+
+Después, `sudo usermod -aG docker $USER` y volver a entrar, para no depender de `sudo`.
+
+**Ojo con la contraseña:** `sudo` necesita un terminal, y una sesión de Claude por Remote
+Control no lo tiene (`sudo: A terminal is required to authenticate`, ni siquiera con el
+prefijo `!`). Esta máquina no tiene SSH levantado ni un helper `askpass`, así que la
+instalación hay que correrla desde un terminal de verdad en el equipo.
 
 Lo único que no está en git es **la base de datos**: vive en el volumen Docker
 `mongo_data`. Conviene poblar el Linux desde **el droplet**, que es el dev real conectado
