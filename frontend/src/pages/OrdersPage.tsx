@@ -97,12 +97,17 @@ function PartialPill({ order }: { order: Order }) {
       </span>
     );
   }
+  // Todavía en preparación: cuánto falta = lo pedido menos lo ya pickeado.
+  const pending = order.lines.reduce(
+    (a, l) => a + Math.max(0, l.ordered_quantity - (l.picked_quantity ?? 0)),
+    0,
+  );
   return (
     <span
       className="badge bg-amber-100 text-amber-900"
       title="Pedido incompleto: se cumplió menos de lo pedido por falta de stock"
     >
-      Parcial
+      {pending > 0 ? `Parcial · faltan ${pending} u` : 'Parcial'}
     </span>
   );
 }
