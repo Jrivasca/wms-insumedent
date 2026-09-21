@@ -132,6 +132,9 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
 
 ## Invariantes de negocio (no romper)
 
+- **Quién manda sobre el stock** (la decisión que gana ante cualquier duda de diseño):
+  **Defontana es la fuente de verdad de las cantidades; el WMS, de las ubicaciones.**
+  Nada de lo que el WMS hace con ubicaciones viaja al ERP.
 - **Stock**: ninguna modificación de saldo sin su movimiento en `inventory_movements`.
   Sin stock negativo salvo `ALLOW_NEGATIVE_STOCK`. Los ajustes los aprueba un supervisor.
 - **Multi-tenant**: los servicios acceden a datos con `tenant_db(tenant_id)`
