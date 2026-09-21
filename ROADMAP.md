@@ -110,10 +110,10 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   se puede editar en estado P**; el ambiente de pruebas se atrasó por un problema interno y
   se actualiza el fin de semana. Pendiente sin respuesta: qué proceso usa hoy el usuario
   `INTEGRACION`.
-- **Flujo 2 — Recepción y ajustes → `Inventory/Insert`** *(tipos y motivos definidos y
-  probados; solo falta el centro de negocio)*. Defontana respondió (2026-09-17) que **el tipo
-  de documento, el motivo y el centro de negocio los define Insumedent**. Decisión A.1
-  (2026-09-19), probada contra la API de pruebas creando y borrando un documento de cada caso:
+- **Flujo 2 — Recepción y ajustes → `Inventory/Insert`** *(tipos, motivos y centro de negocio
+  definidos y probados)*. Defontana respondió (2026-09-17) que **el tipo de documento, el motivo
+  y el centro de negocio los define Insumedent**. Decisión A.1 (2026-09-19), probada contra la
+  API de pruebas creando y borrando un documento de cada caso:
 
   | Flujo | Documento | Motivo |
   |---|---|---|
@@ -122,11 +122,20 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   | Ajuste negativo y merma | `XAJ_SAL_UNID` | `SALIDA` |
 
   El motivo de ajuste era un solo parámetro que, vacío, caía en `COMPRA`: una merma habría
-  viajado como compra. Ahora hay uno por sentido. El envío sigue **apagado**
-  (`DEFONTANA_INVENTORY_SYNC_ENABLED`) porque el **centro de negocio** va dentro de cada
-  documento y está pendiente de confirmar por Insumedent (A.2); hoy se usa `EMPNEGVTAVTA000`,
-  copiado de una guía real. No se puede consultar por API (Contabilidad no está contratada): hay
-  que verlo en el ERP web, Configuración → Contabilidad → Centros de negocio.
+  viajado como compra. Ahora hay uno por sentido.
+- **A.2 — Centro de negocio *(confirmado, 2026-09-21)*.** El valor es **`EMPNEGVTAVTA000`**
+  (`DEFONTANA_BUSINESS_CENTER`). Se verificó en el ERP web de Insumedent en **Configuración →
+  General → Centro de Negocios** (no en Contabilidad, como decía antes esta bitácora): el árbol
+  es `EMP` → `EMPNEG` → `EMPNEGVTA` → **`EMPNEGVTAVTA`** (descripción VENTAS, imputable). La UI
+  muestra el código recortado (`EMPNEGVTAVTA`), pero **la forma de cable lleva el nivel de hoja
+  con relleno `000`**: un `Inventory/GetDocument` sobre una guía real devuelve
+  `EMPNEGVTAVTA000`, y un `Inventory/Insert` de prueba con ese valor lo aceptó y lo guardó como
+  `businessCenterId: EMPNEGVTAVTA000` / `businessName: VENTAS` (Parte de Entrada folio 884,
+  creada y **borrada** el 2026-09-21; el folio va como entero al borrar). No se puede listar por
+  API (`Accounting/*` responde "no tiene habilitada la funcionalidad": Contabilidad no
+  contratada), pero sí se ve en el ERP web y se probó por escritura. **No hay que cambiar el
+  valor.** El envío sigue **apagado** (`DEFONTANA_INVENTORY_SYNC_ENABLED`) hasta el corte, no por
+  A.2 sino porque la bodega todavía no opera con el WMS.
 - **Sincronizaciones automáticas** *(listas, apagadas por defecto)*. Un solo programador en el
   worker (`defontana_scheduler`), con la última corrida guardada por empresa en
   `scheduler_runs` (sobrevive reinicios):
