@@ -32,6 +32,13 @@ la memoria de Claude viajan: se guardan por ruta absoluta, en la máquina.
 
 ### Mover el desarrollo al Linux
 
+**Paso 0: instalar Docker**, que en el Linux todavía no está (`docker: orden no encontrada`,
+verificado el 2026-09-21; tampoco hay `mongod`). Todo lo que sigue —y la sección «Levantar y
+probar»— lo da por hecho. Es Ubuntu 26.04, así que va el repositorio oficial de Docker
+(`docs.docker.com/engine/install/ubuntu/`), no el `docker.io` de Ubuntu: hace falta el plugin
+`docker compose` v2, no el viejo `docker-compose`. Después, `sudo usermod -aG docker $USER` y
+volver a entrar, para no depender de `sudo` en cada comando.
+
 Lo único que no está en git es **la base de datos**: vive en el volumen Docker
 `mongo_data`. Conviene poblar el Linux desde **el droplet**, que es el dev real conectado
 al Defontana de pruebas, y no desde la base local de Windows, que es un estado armado a
