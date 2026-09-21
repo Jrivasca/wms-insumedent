@@ -301,6 +301,7 @@ async def apply(
     *,
     keys: Optional[Iterable[Tuple[str, str]]] = None,
     include_review: bool = False,
+    only_review: bool = False,
 ) -> Dict[str, Any]:
     """Aplica al WMS los ajustes de la conciliación, sin enviar nada a Defontana.
 
@@ -309,10 +310,17 @@ async def apply(
     ``(sku, código de bodega)``; con ``include_review`` también si son grandes: es la aprobación
     de un supervisor, fila por fila.
 
+    Con ``only_review`` aprueba en bloque **todas** las que esperan revisión y no toca las chicas:
+    es el botón «Aprobar todas las de revisión», que evita revisarlas una por una cuando son
+    cientos. Implica ``include_review`` y no necesita ``keys`` (no hay que enumerarlas), pero
+    puede acotarse con ``keys`` para aprobar en bloque solo un subconjunto elegido.
+
     Una fila que falla (por ejemplo, porque el stock cambió desde que se calculó) queda en
     ``errors`` y no frena al resto; lo que alcanzó a aplicarse deja su movimiento, y la próxima
     corrida resuelve la diferencia que quede.
     """
+    if only_review:
+        include_review = True
     db = tenant_db(tenant_id)
     rows, snapshot_at = await _rows(db)
     wanted = {tuple(k) for k in keys} if keys is not None else None
@@ -326,6 +334,9 @@ async def apply(
     for row in rows:
         key = (row["sku"], row["storage_code"])
         if wanted is not None and key not in wanted:
+            continue
+        # «Solo revisión»: las diferencias chicas se aplican por su propio camino, no acá.
+        if only_review and not row["needs_review"]:
             continue
         if row["blocked"] or not row["actions"]:
             result["skipped_blocked"] += 1

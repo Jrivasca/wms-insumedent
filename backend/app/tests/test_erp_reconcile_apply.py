@@ -110,6 +110,47 @@ async def test_large_differences_wait_for_a_supervisor(monkeypatch):
     assert await _on_hand(db, grande, loc["SIN-UBICAR"]) == 100
 
 
+async def test_only_review_approves_every_review_row_at_once_without_touching_the_small_ones(
+    monkeypatch,
+):
+    # Aprobar 282 filas una por una es inviable: `only_review` las aprueba en bloque. No toca las
+    # chicas (esas van por su propio botón) y deja pending_review en cero.
+    monkeypatch.setattr(settings, "defontana_reconcile_review_units", 20)
+    tenant_id, db, warehouse, loc = await _setup()
+    chica = await _product(db, "CHICA")  # diferencia 5: se aplica sola, no es de revisión
+    g1 = await _product(db, "GRANDE-1")  # diferencia 100: revisión
+    g2 = await _product(db, "GRANDE-2")  # diferencia 80: revisión
+    await _erp(db, "CHICA", 5)
+    await _erp(db, "GRANDE-1", 100)
+    await _erp(db, "GRANDE-2", 80)
+
+    result = await erp_reconcile_service.apply(tenant_id, "u-supervisor", only_review=True)
+
+    assert result["applied"] == 2 and result["pending_review"] == 0 and result["errors"] == []
+    assert await _on_hand(db, g1, loc["SIN-UBICAR"]) == 100
+    assert await _on_hand(db, g2, loc["SIN-UBICAR"]) == 80
+    # La chica queda intacta: `only_review` no la aplica; sigue contándose como «se aplica sola».
+    assert await _on_hand(db, chica, loc["SIN-UBICAR"]) == 0
+    assert (await erp_reconcile_service.preview(tenant_id))["summary"]["auto"] == 1
+
+
+async def test_only_review_can_be_narrowed_to_a_chosen_subset(monkeypatch):
+    # El supervisor revisa unas cuantas y aprueba en bloque solo esas: `only_review` + `keys`.
+    monkeypatch.setattr(settings, "defontana_reconcile_review_units", 20)
+    tenant_id, db, warehouse, loc = await _setup()
+    g1 = await _product(db, "GRANDE-1")  # 100: se aprueba
+    g2 = await _product(db, "GRANDE-2")  # 80: se deja para después
+    await _erp(db, "GRANDE-1", 100)
+    await _erp(db, "GRANDE-2", 80)
+
+    result = await erp_reconcile_service.apply(
+        tenant_id, "u-supervisor", keys=[("GRANDE-1", "BODEGACENTRAL")], only_review=True)
+
+    assert result["applied"] == 1 and result["pending_review"] == 1
+    assert await _on_hand(db, g1, loc["SIN-UBICAR"]) == 100
+    assert await _on_hand(db, g2, loc["SIN-UBICAR"]) == 0
+
+
 async def test_blocked_rows_are_never_applied():
     tenant_id, db, warehouse, loc = await _setup()
     await _erp(db, "NO-ESTA-EN-EL-WMS", 5)

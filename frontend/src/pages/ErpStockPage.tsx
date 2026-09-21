@@ -97,6 +97,10 @@ export default function ErpStockPage() {
   const [applying, setApplying] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
   const [toApprove, setToApprove] = useState<PreviewRow | null>(null);
+  // Aprobación en bloque de las diferencias que esperan revisión: 'all' = todas; 'selected' = las
+  // marcadas. `selected` guarda las llaves (`sku|storage_code`) de las filas tildadas.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmReview, setConfirmReview] = useState<'all' | 'selected' | null>(null);
 
   async function load(off = 0, only = onlyDiff, q = query) {
     setLoading(true);
@@ -144,6 +148,7 @@ export default function ErpStockPage() {
     setError(null);
     try {
       setPreview(await getReconciliationPreview({ q: query.trim() || undefined, limit: 50 }));
+      setSelected(new Set());
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -151,17 +156,23 @@ export default function ErpStockPage() {
     }
   }
 
-  /** Sin filas: las diferencias chicas. Con una fila: la aprobación de un supervisor. */
-  async function runApply(row?: PreviewRow) {
+  /**
+   * Único camino para aplicar la conciliación, en cualquiera de sus formas:
+   * - `{}`: las diferencias chicas (botón general).
+   * - `{ rows, include_review }`: una fila puntual (aprobación individual).
+   * - `{ only_review }`: en bloque, todas las que esperan revisión.
+   * - `{ rows, only_review }`: en bloque, solo las filas marcadas.
+   */
+  async function runApply(body: {
+    rows?: { sku: string; storage_code: string }[];
+    include_review?: boolean;
+    only_review?: boolean;
+  }) {
     setApplying(true);
     setError(null);
     setNotice(null);
     try {
-      const res = await applyReconciliation(
-        row
-          ? { rows: [{ sku: row.sku, storage_code: row.storage_code }], include_review: true }
-          : {}
-      );
+      const res = await applyReconciliation(body);
       const parts = [
         `${res.applied} ajuste(s) aplicado(s) (+${fmt(res.units_added)} / −${fmt(res.units_removed)} unidades)`,
       ];
@@ -172,6 +183,7 @@ export default function ErpStockPage() {
       setNotice(`Conciliación aplicada: ${parts.join(' · ')}. No se envió nada a Defontana.`);
       setConfirmAll(false);
       setToApprove(null);
+      setConfirmReview(null);
       await Promise.all([loadPreview(), load(offset)]);
     } catch (err) {
       setError(errorMessage(err));
@@ -183,6 +195,28 @@ export default function ErpStockPage() {
   const summary = data?.summary;
   const rows = data?.items ?? [];
   const reviewUnits = preview?.summary.review_units;
+
+  const rowKey = (r: PreviewRow) => `${r.sku}|${r.storage_code}`;
+  const reviewRows = preview?.items.filter((r) => r.needs_review) ?? [];
+  const selectedRows = (preview?.items ?? []).filter((r) => selected.has(rowKey(r)));
+  const allReviewSelected = reviewRows.length > 0 && reviewRows.every((r) => selected.has(rowKey(r)));
+
+  function toggleRow(r: PreviewRow) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const key = rowKey(r);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllReview() {
+    setSelected((prev) => {
+      if (reviewRows.every((r) => prev.has(rowKey(r)))) return new Set();
+      return new Set(reviewRows.map(rowKey));
+    });
+  }
 
   const columns: Column<ErpStockRow>[] = [
     { key: 'sku', header: 'SKU', render: (r) => <span className="code-strong">{r.sku}</span> },
@@ -237,6 +271,29 @@ export default function ErpStockPage() {
   ];
 
   const previewColumns: Column<PreviewRow>[] = [
+    {
+      key: 'select',
+      header: reviewRows.length > 0 ? (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+          checked={allReviewSelected}
+          onChange={toggleAllReview}
+          aria-label="Seleccionar todas las filas para revisar de esta vista"
+          title="Seleccionar todas las de revisión visibles"
+        />
+      ) : '',
+      render: (r) =>
+        r.needs_review ? (
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+            checked={selected.has(rowKey(r))}
+            onChange={() => toggleRow(r)}
+            aria-label={`Seleccionar ${r.sku} para aprobar en bloque`}
+          />
+        ) : null,
+    },
     { key: 'sku', header: 'SKU', render: (r) => <span className="code-strong">{r.sku}</span> },
     {
       key: 'name',
@@ -458,11 +515,21 @@ export default function ErpStockPage() {
             {preview && preview.summary.auto > 0 && (
               <button
                 onClick={() => setConfirmAll(true)}
-                className="btn-primary"
+                className="btn-secondary"
                 disabled={applying}
               >
                 <CheckCheck className="h-4 w-4" aria-hidden="true" />
                 Aplicar {preview.summary.auto} diferencias chicas
+              </button>
+            )}
+            {preview && preview.summary.to_review > 0 && (
+              <button
+                onClick={() => setConfirmReview('all')}
+                className="btn-primary"
+                disabled={applying}
+              >
+                <CheckCheck className="h-4 w-4" aria-hidden="true" />
+                Aprobar {preview.summary.to_review} para revisión
               </button>
             )}
           </div>
@@ -475,8 +542,8 @@ export default function ErpStockPage() {
           {reviewUnits != null && (
             <>
               {' '}
-              Las diferencias de más de {fmt(reviewUnits)} unidades no se aplican solas: quedan
-              para que un supervisor las apruebe una por una.
+              Las diferencias de más de {fmt(reviewUnits)} unidades no se aplican solas: un
+              supervisor las aprueba, en bloque o marcando filas puntuales.
             </>
           )}
         </p>
@@ -516,6 +583,28 @@ export default function ErpStockPage() {
               />
             ) : (
               <>
+                {selectedRows.length > 0 && (
+                  <div className="mb-2 flex flex-wrap items-center gap-3 rounded-card border border-brand/30 bg-brand/5 px-3 py-2 text-sm">
+                    <span className="font-medium text-slate-700">
+                      {selectedRows.length} fila(s) marcada(s)
+                    </span>
+                    <button
+                      onClick={() => setConfirmReview('selected')}
+                      className="btn-primary btn-sm"
+                      disabled={applying}
+                    >
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      Aprobar seleccionadas
+                    </button>
+                    <button
+                      onClick={() => setSelected(new Set())}
+                      className="btn-ghost btn-sm"
+                      disabled={applying}
+                    >
+                      Limpiar selección
+                    </button>
+                  </div>
+                )}
                 <div className="hidden lg:block">
                   <DataTable
                     columns={previewColumns}
@@ -543,6 +632,15 @@ export default function ErpStockPage() {
                         </div>
                         {r.needs_review && (
                           <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                                checked={selected.has(rowKey(r))}
+                                onChange={() => toggleRow(r)}
+                              />
+                              Marcar
+                            </label>
                             <span className="badge bg-amber-100 text-amber-900">
                               Para revisar
                             </span>
@@ -582,7 +680,7 @@ export default function ErpStockPage() {
         confirmLabel="Aplicar"
         cancelLabel="Volver"
         busy={applying}
-        onConfirm={() => runApply()}
+        onConfirm={() => runApply({})}
         onCancel={() => setConfirmAll(false)}
       />
 
@@ -602,8 +700,48 @@ export default function ErpStockPage() {
         confirmLabel="Aprobar"
         cancelLabel="Volver"
         busy={applying}
-        onConfirm={() => toApprove && runApply(toApprove)}
+        onConfirm={() =>
+          toApprove &&
+          runApply({
+            rows: [{ sku: toApprove.sku, storage_code: toApprove.storage_code }],
+            include_review: true,
+          })
+        }
         onCancel={() => setToApprove(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmReview !== null}
+        tone="primary"
+        title={
+          confirmReview === 'selected'
+            ? '¿Aprobar las diferencias marcadas?'
+            : '¿Aprobar todas las diferencias para revisión?'
+        }
+        message={
+          confirmReview === 'selected'
+            ? `Se ajustarán ${selectedRows.length} producto(s) marcado(s) para dejar el WMS igual a ` +
+              'Defontana, aunque superen el umbral de revisión. No se envía nada al ERP. Esta ' +
+              'aprobación queda registrada en la auditoría.'
+            : `Se aprobarán en bloque las ${preview?.summary.to_review ?? 0} diferencias que esperan ` +
+              'revisión, ajustando el WMS a Defontana aunque superen el umbral. Las diferencias ' +
+              'chicas no se tocan (tienen su propio botón). No se envía nada al ERP, y la ' +
+              'aprobación queda registrada en la auditoría.'
+        }
+        confirmLabel={confirmReview === 'selected' ? 'Aprobar marcadas' : 'Aprobar todas'}
+        cancelLabel="Volver"
+        busy={applying}
+        onConfirm={() =>
+          runApply(
+            confirmReview === 'selected'
+              ? {
+                  rows: selectedRows.map((r) => ({ sku: r.sku, storage_code: r.storage_code })),
+                  only_review: true,
+                }
+              : { only_review: true }
+          )
+        }
+        onCancel={() => setConfirmReview(null)}
       />
     </div>
   );

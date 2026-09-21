@@ -2,7 +2,9 @@ import type { ReactNode } from 'react';
 
 export interface Column<T> {
   key: string;
-  header: string;
+  // Casi siempre un texto; admite nodo para encabezados con control (p. ej. un checkbox
+  // «seleccionar todo»).
+  header: ReactNode;
   render: (row: T) => ReactNode;
   align?: 'left' | 'right';
   /** Se oculta en tablet para no comprimir la tabla. */

@@ -66,11 +66,13 @@ export async function getReconciliationPreview(params: {
 /**
  * Deja el stock del WMS igual al de Defontana. No envía nada al ERP.
  * Sin ``rows`` aplica las diferencias chicas; con ``rows`` e ``include_review``, un supervisor
- * aprueba esas filas aunque superen el umbral de revisión.
+ * aprueba esas filas aunque superen el umbral de revisión. Con ``only_review`` aprueba en bloque
+ * todas las que esperan revisión (o solo las de ``rows``, si se pasan), sin tocar las chicas.
  */
 export async function applyReconciliation(body: {
   rows?: { sku: string; storage_code: string }[];
   include_review?: boolean;
+  only_review?: boolean;
 }): Promise<ReconcileApplyResult> {
   const { data } = await http.post<ReconcileApplyResult>(
     '/integrations/defontana/reconciliation-apply',

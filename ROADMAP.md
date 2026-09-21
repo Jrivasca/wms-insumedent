@@ -206,14 +206,19 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
      recepción, no pickeable) hasta que bodega lo ubique; lo que sobra se descuenta por FEFO.
      Cada ajuste deja un movimiento auditable "Conciliación con ERP" y **no viaja a Defontana**.
      Las diferencias de más de 20 unidades (`DEFONTANA_RECONCILE_REVIEW_UNITS`) quedan para
-     **revisión humana**: un supervisor las aprueba una por una y la corrida diaria avisa si
-     quedaron. **Primera corrida hecha a mano el 2026-09-19** (con respaldo validado antes):
-     de 1.003 diferencias se aplicaron las 721 chicas (+2.374 / −1.915 unidades, 749
-     movimientos, 0 errores, 0 envíos al ERP). Quedan **282 para revisión**, que concentran más
-     del 95 % del volumen (+80.884 / −58.579 unidades). La corrida diaria quedó encendida en el
-     ambiente local (`DEFONTANA_RECONCILE_ENABLED=true` en `.env`; en el código sigue apagada
-     por defecto). Aprobar 282 filas una por una es trabajoso: si se vuelve un problema, falta
-     una aprobación en bloque de las ya revisadas.
+     **revisión humana**: un supervisor las aprueba —en bloque o marcando filas— y la corrida
+     diaria avisa si quedaron. **Primera corrida hecha a mano el 2026-09-19** (con respaldo
+     validado antes): de 1.003 diferencias se aplicaron las 721 chicas (+2.374 / −1.915 unidades,
+     749 movimientos, 0 errores, 0 envíos al ERP). Quedan **282 para revisión**, que concentran
+     más del 95 % del volumen (+80.884 / −58.579 unidades). La corrida diaria quedó encendida en
+     el ambiente local (`DEFONTANA_RECONCILE_ENABLED=true` en `.env`; en el código sigue apagada
+     por defecto).
+     **Aprobación en bloque** *(hecha, 2026-09-21)*: en Stock ERP vs WMS, «Aprobar N para
+     revisión» aplica en bloque todas las que esperan revisión (sin tocar las chicas), y los
+     checkboxes por fila permiten aprobar solo un subconjunto elegido («Aprobar seleccionadas»).
+     El servicio lo hace con `apply(only_review=True[, keys=…])` y cada ajuste queda igual de
+     auditado; la aprobación individual fila por fila sigue disponible. Esto destraba el corte:
+     ya no hace falta aprobar las 282 una por una.
   1bis. **Ubicar stock** *(hecho)*: la conciliación deja lo nuevo en `SIN-UBICAR`, que **no es
      pickeable**, así que hace falta guardarlo en su estante. `POST /inventory/putaway` mueve un
      saldo **exacto** (pantalla `/inventory/ubicar`, pensada para móvil y lector): como el saldo
