@@ -71,7 +71,18 @@ Los valores salieron de leer una guía real ya emitida (`GDVELECT` folio 3355, v
 motivo `COMPRA`, bodega de origen `BODEGACENTRAL`, centro de negocio `EMPNEGVTAVTA000`, cuenta
 `4110101001`, cliente = RUT del cliente, proveedor vacío. Los centros de negocio **no se pueden
 listar por API**: `Accounting/*` responde "la empresa INSUMEDENT SPA no tiene habilitada la
-funcionalidad" (Contabilidad no contratada).
+funcionalidad" (Contabilidad no contratada). **Sí se ven en el ERP web, en Configuración →
+General → Centro de Negocios** (no en Contabilidad): el árbol es `EMP` → `EMPNEG` → `EMPNEGVTA` →
+`EMPNEGVTAVTA` (VENTAS, imputable). Ahí la UI muestra el código recortado `EMPNEGVTAVTA`, pero la
+forma de cable —la que hay que enviar— lleva el nivel de hoja con relleno: `EMPNEGVTAVTA000`.
+
+**Re-confirmado por escritura el 2026-09-21.** Un `Inventory/Insert` de prueba con
+`businessCenter=EMPNEGVTAVTA000` (tipo `PE`, motivo `COMPRA`, 1 unidad del artículo `0004357` en
+`BODEGACENTRAL`) fue aceptado: folio `884`, y `GetDocument` lo devolvió con
+`businessCenterId: EMPNEGVTAVTA000` / `businessName: VENTAS`, estado Aprobado. Se **borró** con
+`Inventory/Delete` (folio `884` como entero) y se verificó el borrado (`stockLoadOutputData: null`
+y el listado del ERP en 0). El valor del WMS (`DEFONTANA_BUSINESS_CENTER=EMPNEGVTAVTA000`) queda
+así confirmado; **no se cambia.**
 
 **Tipos de documento definidos, probados el 2026-09-19.** Con el mismo `build_inventory_entry`
 que usa el WMS se creó en pruebas un documento de cada combinación, los tres sin error, y se
@@ -123,8 +134,9 @@ candidatos para las recepciones del WMS:
 - **Centro de negocio:** también lo define el cliente por flujo. Soporte indicó consultarlo con
   `api/Accounting/BusinessCenterPlan`, pero **no sirve para Insumedent**: la ruta real es
   `api/Accounting/GetBusinessCenterPlan` (la otra da 404) y responde "la empresa INSUMEDENT SPA
-  no tiene habilitada la funcionalidad" porque **Contabilidad no está contratado**. Hay que
-  verlo en el ERP web (Configuración → Contabilidad → Centros de negocio).
+  no tiene habilitada la funcionalidad" porque **Contabilidad no está contratado**. Se ve en el
+  ERP web en **Configuración → General → Centro de Negocios** (no en Contabilidad). **Confirmado
+  (2026-09-21): `EMPNEGVTAVTA000` (VENTAS)**; ver el detalle en «Escrituras» arriba.
 - **`providerId`:** depende de cómo esté configurado el tipo de movimiento de inventario usado.
 - **Usuarios de API:** en el **ambiente de pruebas** se puede usar cualquiera de los tres
   (`APPTOMATOR`, `REPLICACION`, `INTEGRACION`).
@@ -133,9 +145,9 @@ candidatos para las recepciones del WMS:
 
 ### Pendientes
 
-1. **Decisiones del cliente (Insumedent), no de Defontana:** tipo de documento para recepción y
-   para ajuste/merma, motivo a usar en cada flujo y centro de negocio de los movimientos de
-   inventario.
+1. ~~**Decisiones del cliente (Insumedent):** tipo de documento, motivo y centro de negocio de
+   los movimientos de inventario.~~ *(resueltas: A.1 el 2026-09-19, A.2 el 2026-09-21 —
+   `EMPNEGVTAVTA000`.)*
 2. **Guía con `Order/DispatchOrder`:** mapeo de tipo de bien `1` / tipo de despacho `1` a
    `dispatchInfo.assetsType` / `dispatchType` / `transactionType`, valor de
    `originStorageInfo.motive` y campos realmente obligatorios; idealmente un JSON de ejemplo.
