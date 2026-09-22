@@ -150,9 +150,27 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
   (notificación `sync_job_failed`, lleva a la Cola de Sincronización): antes quedaba
   descuadrado en silencio.
-- **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(pendiente de valores)*. Falta el
-  mapeo de `dispatchInfo` (tipo de bien `1` "Constituye una venta", tipo de despacho `1` "Por
-  cuenta del cliente") y `originStorageInfo.motive`.
+- **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(B.1: mapeo construido, dos valores por
+  confirmar)*. El payload se arma en `DefontanaMapper.build_dispatch_order` con la estructura del
+  swagger de pruebas (`Api.Defontana.Models.Order.DispatchOrderInput`) y los valores leídos de
+  guías **GDVELECT reales** el 2026-09-22:
+  - `dispatchInfo.assetsType` = **`1`** (tipo de bien "Constituye una venta") y `dispatchType` =
+    **`1`** ("Por cuenta del cliente"), `isTransferDispatch` = **false** — confirmados en
+    `dispatchTypeData` de guías reales.
+  - Centro de negocio **`EMPNEGVTAVTA000`** en el análisis contable de cliente, bodega de origen y
+    cada línea (así aparece en las guías, cada línea con análisis "VENTAS"); bodega de origen
+    `BODEGACENTRAL`.
+  - **Sin confirmar (config, `DEFONTANA_DISPATCH_*`):** `transactionType` no aparece en las guías
+    (opcional en el swagger, sin enum) y `originStorageInfo.motive` se observó como **`COMPRA`** en
+    el movimiento de inventario de una guía real (raro para un egreso de venta). Faltan de nombrar
+    con certeza; se confirman con **una emisión de prueba** (consume folio y **no se puede borrar**,
+    a diferencia de los documentos de inventario) o preguntándole a Defontana.
+
+  **El envío ya está detrás de `erp_sync_enabled` (apagado).** Antes no lo estaba: confirmar un
+  despacho encolaba `Order/DispatchOrder` sin candado (no emitía guía solo porque el payload
+  incompleto fallaba). Ahora, con el flag apagado, el despacho queda **completo solo en el WMS** y
+  no toca el ERP; con el flag encendido arma el payload completo y emite. Cubierto por tests
+  (`test_flow` los dos caminos, `test_defontana_automation` la estructura del payload).
 - **Reemplazo de productos en picking** *(decidido y construido del lado WMS: despachar sin la
   línea y guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se
   despacha lo que hay y lo que falta sale después en otra guía. Un pedido **despachado** con

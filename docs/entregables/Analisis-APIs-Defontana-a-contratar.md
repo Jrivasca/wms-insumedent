@@ -101,10 +101,30 @@ Comportamientos de la API verificados en esa prueba:
   el campo, no el código ni `success`. Es la misma idea que `GetDocumentByExternalDocumentID`,
   que avisa con HTTP 200 y `success: false`: la API no es uniforme en cómo dice "no existe".
 
-**`Order/DispatchOrder` — pendiente de valores.** La guía real trae `dispatchTypeData` con tipo de
-bien `1` = "Constituye una venta" y tipo de despacho `1` = "Por cuenta del cliente", pero falta
-confirmar cómo se mapean a `dispatchInfo.assetsType` / `dispatchType` / `transactionType` y qué va
-en `originStorageInfo.motive`. No se emitió guía de prueba (consume folio).
+**`Order/DispatchOrder` — mapeo construido, dos valores por confirmar (B.1, 2026-09-22).** El
+esquema del request (`Api.Defontana.Models.Order.DispatchOrderInput`, OpenAPI 3) se sacó del
+swagger de pruebas (`/swagger/v1/swagger.json`, que **solo carga desde una IP en whitelist** —la
+del droplet—, no desde cualquier lado). Sus objetos: `dispatchInfo` {`assetsType`, `dispatchType`,
+`transactionType`, `isTransferDispatch`}, `originStorageInfo` {`code`, `motive`, `storageAnalysis`},
+`clientAnalysis`/`storageAnalysis`/`detailAnalysis` = `GeneralAnalysis` {`accountNumber`,
+`businessCenter`, `classifier01/02`}, `orderDetailAnalysis` (una por línea), `emissionDate`
+{`day,month,year`}, `gloss`. Todos opcionales en el swagger. Leyendo **guías GDVELECT reales** del
+ambiente (`Sale/GetSalebyDate`):
+
+- `dispatchTypeData` = {`assetsCode: "1"` "Constituye una venta", `dispatchCode: "1"` "Por cuenta
+  del cliente"}, `isTransferDocument: "N"` → `assetsType="1"`, `dispatchType="1"`,
+  `isTransferDispatch=false`. **Confirmado.**
+- El análisis de cada línea es `"VENTAS"` = centro de negocio `EMPNEGVTAVTA000`; bodega de origen
+  `BODEGACENTRAL`.
+- **`transactionType`**: no aparece en las guías; opcional, sin enum en el swagger. Queda en config
+  vacío hasta confirmarlo.
+- **`originStorageInfo.motive`**: el movimiento de inventario que genera una guía
+  (`Inventory/GetDocument GDVELECT`) trae `reasonId = COMPRA` (moveType `Egreso`), **raro para un
+  egreso de venta**. Queda en config como `COMPRA` (observado) pero hay que confirmarlo.
+
+Construido en `DefontanaMapper.build_dispatch_order`; el envío va detrás de `erp_sync_enabled`
+(apagado). **Confirmar `transactionType` y `motive` exige emitir una guía de prueba, que consume
+folio y NO se puede borrar** (a diferencia de los documentos de inventario) — decisión pendiente.
 
 **Usuario `INTEGRACION`:** la guía real de junio fue emitida por el usuario de API
 `INTEGRACION`, que es el mismo IDUsuario entregado para esta integración (Defontana crea usuarios
@@ -148,9 +168,10 @@ candidatos para las recepciones del WMS:
 1. ~~**Decisiones del cliente (Insumedent):** tipo de documento, motivo y centro de negocio de
    los movimientos de inventario.~~ *(resueltas: A.1 el 2026-09-19, A.2 el 2026-09-21 —
    `EMPNEGVTAVTA000`.)*
-2. **Guía con `Order/DispatchOrder`:** mapeo de tipo de bien `1` / tipo de despacho `1` a
-   `dispatchInfo.assetsType` / `dispatchType` / `transactionType`, valor de
-   `originStorageInfo.motive` y campos realmente obligatorios; idealmente un JSON de ejemplo.
+2. **Guía con `Order/DispatchOrder`** *(mapeo construido; ver «Escrituras»)*: quedan por
+   confirmar solo dos valores — `dispatchInfo.transactionType` (no aparece en las guías) y
+   `originStorageInfo.motive` (observado `COMPRA`, sospechoso). Se confirman con una emisión de
+   prueba —que consume folio y no se borra— o preguntando a Defontana.
 3. **Usuario de API en producción:** qué proceso emite hoy guías con `INTEGRACION` allá (en
    pruebas ya está aclarado), para que el WMS use uno propio y no le invalide el token.
 4. **Reemplazo de productos** en un pedido ya aprobado (ver `Modelo-de-stock-con-Defontana.md`):
