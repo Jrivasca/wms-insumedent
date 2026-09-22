@@ -199,8 +199,10 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
 - **Hoy el WMS lee del ERP pero no le escribe**: `ERP_SYNC_ENABLED=false` y
   `DEFONTANA_INVENTORY_SYNC_ENABLED` apagado. El **centro de negocio** (A.2) ya está confirmado
   —`EMPNEGVTAVTA000`, probado por escritura contra `Inventory/Insert` el 2026-09-21— así que lo
-  que traba el envío de inventario es el corte de bodega, no A.2. Para las **guías** todavía
-  falta el mapeo de `dispatchInfo` (B.1, pendiente de Defontana). No los enciendas sin eso.
+  que traba el envío de inventario es el corte de bodega, no A.2. Para las **guías** el mapeo de
+  `Order/DispatchOrder` **ya está construido** (`build_dispatch_order`, detrás de
+  `erp_sync_enabled`); faltan confirmar dos valores del `dispatchInfo` (`transactionType` y
+  `originStorageInfo.motive`, ver B.1 en `ROADMAP.md`). No lo enciendas sin confirmarlos.
 - Las sincronizaciones automáticas están en un solo programador,
   **`app/workers/defontana_scheduler.py`** (corre en el worker), con la última corrida por
   empresa en `scheduler_runs`. Cada nivel tiene su flag; ver la tabla del `ROADMAP.md`.
@@ -319,8 +321,10 @@ falta depende de terceros, no de código:
 - **A.2, centro de negocio**: **confirmado (2026-09-21)** — `EMPNEGVTAVTA000` (VENTAS), verificado
   en el ERP web (Configuración → General → Centro de Negocios) y probado por escritura contra
   `Inventory/Insert`. Ya no bloquea; el envío de inventario sigue apagado por el corte, no por A.2.
-- **B.1, mapeo de `Order/DispatchOrder`**: pendiente de Defontana. Sin eso **ninguna guía viaja
-  al ERP**, ni la primera ni la del pendiente.
+- **B.1, mapeo de `Order/DispatchOrder`**: **mapeo construido** (2026-09-22); faltan confirmar
+  `transactionType` y `originStorageInfo.motive`, que exigen emitir una guía de prueba (consume
+  folio, no se borra) o preguntar a Defontana. El envío queda apagado (`erp_sync_enabled`) hasta
+  eso, así que por ahora **ninguna guía viaja al ERP**.
 
 ## Intentado y descartado (no repetir)
 

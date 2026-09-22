@@ -269,3 +269,27 @@ async def test_adjustment_also_travels_to_defontana_in_both_directions(monkeypat
     # una merma viajaba a Defontana como COMPRA.
     assert salida["reasonId"] == settings.defontana_adjustment_out_reason_id
     assert entrada["reasonId"] != salida["reasonId"]
+
+
+async def test_build_dispatch_order_has_the_verified_structure():
+    # B.1: payload de Order/DispatchOrder. Estructura del swagger de pruebas y valores de guías
+    # GDVELECT reales (tipo de bien 1, tipo de despacho 1, centro de negocio en el análisis).
+    payload = DefontanaMapper.build_dispatch_order(
+        order_number=2801, line_count=2, business_center="EMPNEGVTAVTA000",
+        assets_type="1", dispatch_type="1", transaction_type="", motive="COMPRA",
+        storage_code="BODEGACENTRAL", emission_date=date(2026, 9, 22), gloss="CLINICA X",
+    )
+    assert payload["orderNumber"] == 2801
+    assert payload["dispatchInfo"] == {
+        "assetsType": "1", "dispatchType": "1", "transactionType": "", "isTransferDispatch": False,
+    }
+    assert payload["originStorageInfo"]["code"] == "BODEGACENTRAL"
+    assert payload["originStorageInfo"]["motive"] == "COMPRA"
+    # El centro de negocio va en el análisis de cliente, bodega de origen y cada línea.
+    assert payload["clientAnalysis"]["businessCenter"] == "EMPNEGVTAVTA000"
+    assert payload["originStorageInfo"]["storageAnalysis"]["businessCenter"] == "EMPNEGVTAVTA000"
+    assert len(payload["orderDetailAnalysis"]) == 2
+    assert [d["line"] for d in payload["orderDetailAnalysis"]] == [1, 2]
+    assert payload["orderDetailAnalysis"][0]["detailAnalysis"]["businessCenter"] == "EMPNEGVTAVTA000"
+    assert payload["emissionDate"] == {"day": 22, "month": 9, "year": 2026}
+    assert payload["isTransferDocument"] is False

@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 
 from app.api.deps import CurrentUser
+from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
@@ -232,21 +233,29 @@ async def confirm_dispatch(
         {"$set": {"lines": order_lines, "status": new_status, "updated_at": now}},
     )
 
-    # Encolar el job de sync al ERP (el push por-guía a Defontana con cantidades/folio es
-    # un refinamiento futuro; hoy Defontana está diferido y el sync es mock/por nº de orden).
-    job = await sync_job_service.enqueue(
-        tenant_id=tenant_id,
-        job_type=SyncJobType.DISPATCH_ORDER.value,
-        payload={
-            "dispatch_id": dispatch_id,
-            "order_id": order_id,
-            "erp_order_number": order.get("erp_order_number"),
-        },
-        created_by=user.id,
-    )
-    await db[Collections.DISPATCHES].update_one(
-        {"_id": dispatch["_id"]}, {"$set": {"sync_job_id": job["id"]}}
-    )
+    # Enviar la guía al ERP solo si el envío está encendido (`erp_sync_enabled`, B.1). Con el
+    # flag apagado el despacho queda COMPLETO solo en el WMS: no se emite guía en Defontana (la
+    # guía se hace a mano allá, o se encola cuando se encienda el flag). Sin este candado,
+    # confirmar un despacho dispararía un `Order/DispatchOrder` real, que emite una guía (DTE)
+    # que consume folio y no se puede borrar.
+    if settings.erp_sync_enabled:
+        job = await sync_job_service.enqueue(
+            tenant_id=tenant_id,
+            job_type=SyncJobType.DISPATCH_ORDER.value,
+            payload={
+                "dispatch_id": dispatch_id,
+                "order_id": order_id,
+                "erp_order_number": order.get("erp_order_number"),
+            },
+            created_by=user.id,
+        )
+        await db[Collections.DISPATCHES].update_one(
+            {"_id": dispatch["_id"]}, {"$set": {"sync_job_id": job["id"]}}
+        )
+    else:
+        await db[Collections.DISPATCHES].update_one(
+            {"_id": dispatch["_id"]}, {"$set": {"status": DispatchStatus.COMPLETED.value}}
+        )
 
     parcial = new_status == OrderStatus.PARTIALLY_DISPATCHED.value
     await notification_service.emit(

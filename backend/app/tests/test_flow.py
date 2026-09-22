@@ -87,7 +87,10 @@ async def test_login_and_products():
     assert found["sku"] == first["sku"]
 
 
-async def test_full_picking_packing_dispatch_flow():
+async def test_full_picking_packing_dispatch_flow(monkeypatch):
+    # Con el envío al ERP encendido, confirmar un despacho encola el job Order/DispatchOrder
+    # (la parte que este test verifica hasta que el worker lo marca completado).
+    monkeypatch.setattr(settings, "erp_sync_enabled", True)
     seed = await run_seed()
     tenant_id = seed["tenant_id"]
     admin_doc = await _admin_user()
@@ -571,7 +574,10 @@ async def test_revert_flow_dispatch_packing_picking():
     await dispatch_service.cancel_dispatch(tenant_id, order_id, admin)
     assert (await order_service.get_order(tenant_id, order_id))["status"] == "ready_to_dispatch"
     d2 = await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
-    assert d2["status"] == "pending"
+    # Sin envío al ERP (erp_sync_enabled apagado por defecto), el despacho queda completo solo
+    # en el WMS: no se emite guía en Defontana ni se encola el job Order/DispatchOrder.
+    assert d2["status"] == "completed"
+    assert await get_database()[Collections.SYNC_JOBS].find_one({"job_type": "dispatch_order"}) is None
     await dispatch_service.cancel_dispatch(tenant_id, order_id, admin)
 
     # Reabrir packing -> packing.

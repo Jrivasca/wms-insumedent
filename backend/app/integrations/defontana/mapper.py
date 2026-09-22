@@ -230,6 +230,66 @@ class DefontanaMapper:
         }
 
     @staticmethod
+    def build_dispatch_order(
+        *,
+        order_number: int,
+        line_count: int,
+        business_center: str,
+        assets_type: str,
+        dispatch_type: str,
+        transaction_type: str,
+        motive: str,
+        storage_code: str,
+        emission_date: date,
+        gloss: str = "",
+    ) -> Dict[str, Any]:
+        """Payload de ``Order/DispatchOrder``: confirma el despacho de un pedido y emite la guía.
+
+        Estructura tomada del swagger de pruebas (``Api.Defontana.Models.Order.DispatchOrderInput``,
+        OpenAPI 3) y los valores de guías GDVELECT reales leídas el 2026-09-22:
+        ``dispatchInfo`` con tipo de bien (``assetsType``) y tipo de despacho (``dispatchType``),
+        y el centro de negocio en el análisis contable de cliente, bodega de origen y cada línea.
+
+        ``line_count`` es la cantidad de líneas del pedido: ``orderDetailAnalysis`` lleva una
+        entrada por línea (1..N) con el mismo centro de negocio, que es como aparece en las guías
+        reales (cada línea con análisis "VENTAS").
+
+        ``transaction_type`` y ``motive`` no salen de las guías (el primero es opcional y no
+        aparece; el segundo se observó como ``COMPRA`` en el movimiento de inventario de una guía
+        real, raro para un egreso): son configurables y hay que confirmarlos contra una emisión de
+        prueba antes de encender el envío.
+        """
+
+        def analysis() -> Dict[str, Any]:
+            return {
+                "accountNumber": "", "businessCenter": business_center,
+                "classifier01": "", "classifier02": "",
+            }
+
+        return {
+            "orderNumber": order_number,
+            "clientAnalysis": analysis(),
+            "emissionDate": {
+                "day": emission_date.day, "month": emission_date.month, "year": emission_date.year,
+            },
+            "dispatchInfo": {
+                "assetsType": assets_type,
+                "dispatchType": dispatch_type,
+                "transactionType": transaction_type,
+                "isTransferDispatch": False,
+            },
+            "originStorageInfo": {
+                "code": storage_code, "motive": motive, "storageAnalysis": analysis(),
+            },
+            "orderDetailAnalysis": [
+                {"line": i + 1, "isExempt": False, "discount": None, "detailAnalysis": analysis()}
+                for i in range(max(line_count, 0))
+            ],
+            "gloss": gloss,
+            "isTransferDocument": False,
+        }
+
+    @staticmethod
     def map_product_by_barcode(raw: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not raw:
             return None

@@ -18,6 +18,7 @@ from app.models.dispatch import DispatchStatus
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobStatus, SyncJobType
 from app.services import notification_service
+from app.core.config import settings
 from app.integrations.defontana import (
     dispatch_sync,
     inventory_sync,
@@ -25,6 +26,7 @@ from app.integrations.defontana import (
     product_sync,
 )
 from app.integrations.defontana.client import DefontanaConnector
+from app.integrations.defontana.mapper import DefontanaMapper
 
 logger = get_logger("app.workers.sync_worker")
 
@@ -52,13 +54,37 @@ async def _handle_dispatch_order(job: Dict[str, Any]) -> Dict[str, Any]:
     db = tenant_db(tenant_id)
     payload = job.get("payload", {})
     dispatch_id = payload.get("dispatch_id")
-
+    order_id = payload.get("order_id")
     order_number = int(payload.get("erp_order_number") or 0)
-    response = await dispatch_sync.dispatch_order(
-        tenant_id,
-        order_number,
-        {"tracking_number": payload.get("tracking_number")},
+
+    # Order/DispatchOrder despacha el pedido por su número; el centro de negocio y el tipo de
+    # documento van en el análisis contable (B.1). La bodega de origen es el `erp_storage_code`
+    # de la bodega del despacho.
+    order = (
+        await db[Collections.ORDERS].find_one({"_id": to_object_id(order_id)}) if order_id else None
     )
+    dispatch = (
+        await db[Collections.DISPATCHES].find_one({"_id": to_object_id(dispatch_id)})
+        if dispatch_id else None
+    )
+    warehouse_id = (dispatch or {}).get("warehouse_id") or (order or {}).get("warehouse_id")
+    warehouse = (
+        await db[Collections.WAREHOUSES].find_one({"_id": to_object_id(warehouse_id)})
+        if warehouse_id else None
+    )
+    dispatch_payload = DefontanaMapper.build_dispatch_order(
+        order_number=order_number,
+        line_count=len((order or {}).get("lines", [])),
+        business_center=settings.defontana_business_center,
+        assets_type=settings.defontana_dispatch_assets_type,
+        dispatch_type=settings.defontana_dispatch_type,
+        transaction_type=settings.defontana_dispatch_transaction_type,
+        motive=settings.defontana_dispatch_motive,
+        storage_code=(warehouse or {}).get("erp_storage_code") or "",
+        emission_date=now_utc().date(),
+        gloss=(order or {}).get("customer") or "",
+    )
+    response = await dispatch_sync.dispatch_order(tenant_id, order_number, dispatch_payload)
 
     if dispatch_id:
         await db[Collections.DISPATCHES].update_one(

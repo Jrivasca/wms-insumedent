@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     # encola trabajos de sincronización que no tienen a dónde ir.
     erp_sync_enabled: bool = False
 
+    # Guía de despacho → Order/DispatchOrder (B.1). El envío va detrás de ``erp_sync_enabled``
+    # (apagado): confirmar un despacho con el flag apagado deja la guía SOLO en el WMS, no la
+    # emite en el ERP. Valores del ``dispatchInfo`` confirmados leyendo guías GDVELECT reales
+    # (``dispatchTypeData``) el 2026-09-22: tipo de bien 1 = "Constituye una venta", tipo de
+    # despacho 1 = "Por cuenta del cliente". ``transactionType`` no aparece en las guías (campo
+    # opcional en el swagger, sin enum) y el ``motive`` que trae el movimiento de inventario de
+    # una guía real es ``COMPRA`` (raro para un egreso de venta: confirmar antes de encender).
+    defontana_dispatch_assets_type: str = "1"
+    defontana_dispatch_type: str = "1"
+    defontana_dispatch_transaction_type: str = ""
+    defontana_dispatch_motive: str = "COMPRA"
+
     # Inventory
     allow_negative_stock: bool = False
 
