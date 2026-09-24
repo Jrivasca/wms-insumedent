@@ -89,7 +89,7 @@ El repositorio es privado; elige una forma de traerlo:
 ```bash
 git clone https://USUARIO:TU_TOKEN@github.com/Jrivasca/wms-insumedent.git
 cd wms-insumedent
-git checkout claude/crea-development-definitions-8cu566
+git switch main
 ```
 
 **b) Deploy key (recomendado para permanencia):** crea una llave en el droplet
@@ -98,6 +98,11 @@ GitHub, y clona con la URL `git@github.com:Jrivasca/wms-insumedent.git`.
 
 **c) Sin Git:** copia el proyecto desde tu máquina con
 `rsync -av --exclude node_modules --exclude .git ./wms-insumedent root@TU_IP:/opt/`.
+
+Este es un procedimiento para una instalación nueva. En el servidor dev existente se despliega
+desde `origin/main` con respaldo previo y por SSH, según
+[CLAUDE.md](CLAUDE.md#despliegue-cómo-se-hace-de-verdad). El workflow de GitHub Actions
+está escrito, pero no se ha configurado ni ejecutado para ese servidor.
 
 ## 3. Instalar
 
@@ -172,10 +177,12 @@ docker cp wms_mongo:/tmp/wms.dump ./wms-$(date +%F).dump
    80 y 443 abiertos y el DNS ya propagado). **No hace falta reconstruir el
    frontend**: sigue sirviéndose en el mismo origen, ahora bajo HTTPS.
 
-## 6. Deploy automático con GitHub Actions (recomendado)
+## 6. Deploy automático con GitHub Actions (alternativa sin configurar)
 
 En vez de entrar tú por SSH, un runner de GitHub puede entrar al droplet y correr
 `deploy.sh`. El workflow ya está en `.github/workflows/deploy.yml`.
+Según el estado documentado del servidor dev, este workflow nunca se ha ejecutado y no
+tiene los secrets cargados; el despliegue real se hace por SSH desde `origin/main`.
 
 **Requisitos en el droplet:** que exista, con Ubuntu y los puertos 22/80/443
 abiertos (deploy.sh instala Docker la primera vez).

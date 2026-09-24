@@ -186,8 +186,9 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
   `get_database()` directo salvo en los casos ya exceptuados y documentados ahí
   (login, `get_current_user`, poll global del worker, `seed.py`).
 - **Picking/packing**: se escanea antes de confirmar; un código que no corresponde se
-  rechaza; no se cierra con líneas pendientes sin autorización de supervisor; una
-  diferencia en packing deja la tarea `observed` hasta que un supervisor la apruebe.
+  rechaza. El cierre con líneas pendientes requiere `allow_partial`; el backend todavía no
+  exige rol supervisor para ese cierre (decisión abierta en `ROADMAP.md`). Una diferencia
+  en packing deja la tarea `observed` hasta que un supervisor la apruebe.
 - **Despacho**: solo desde `ready_to_dispatch`, y nunca dos veces sobre lo mismo.
 - **Secretos**: las credenciales de Defontana van cifradas (Fernet) y **nunca** se
   exponen al frontend ni se escriben en logs o auditoría.
@@ -199,10 +200,13 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
 - **Hoy el WMS lee del ERP pero no le escribe**: `ERP_SYNC_ENABLED=false` y
   `DEFONTANA_INVENTORY_SYNC_ENABLED` apagado. El **centro de negocio** (A.2) ya está confirmado
   —`EMPNEGVTAVTA000`, probado por escritura contra `Inventory/Insert` el 2026-09-21— así que lo
-  que traba el envío de inventario es el corte de bodega, no A.2. Para las **guías** el mapeo de
-  `Order/DispatchOrder` **ya está construido** (`build_dispatch_order`, detrás de
-  `erp_sync_enabled`); faltan confirmar dos valores del `dispatchInfo` (`transactionType` y
-  `originStorageInfo.motive`, ver B.1 en `ROADMAP.md`). No lo enciendas sin confirmarlos.
+  que traba el envío de inventario es el corte de bodega, no A.2. Para las **guías** (B.1)
+  Defontana indicó (2026-09-23) usar **`Dispatch/Save`, no `Order/DispatchOrder`**, porque soporta
+  **lote y serie** (que sí manejamos). El `build_dispatch_order` actual (para `Order/DispatchOrder`)
+  **queda superado**: hay que rehacer el mapper para `Dispatch/Save` (spec en
+  `docs/entregables/Dispatch-Save-campos.md`). Sirve lo del **candado** (`erp_sync_enabled`) y que
+  `transactionType="1"`. No enciendas el envío hasta rehacerlo y confirmar el `Motive` con el
+  negocio. Ver B.1 en `ROADMAP.md`.
 - Las sincronizaciones automáticas están en un solo programador,
   **`app/workers/defontana_scheduler.py`** (corre en el worker), con la última corrida por
   empresa en `scheduler_runs`. Cada nivel tiene su flag; ver la tabla del `ROADMAP.md`.
@@ -305,26 +309,28 @@ del comando.
 **Encendido al 2026-09-20:** sincronización de pedidos (lun–vie 08:00–19:00) y de stock
 (03:30). Conciliación diaria **apagada** (ver Integración Defontana).
 
-## Estado real de la puesta en marcha (2026-09-20)
+## Estado documentado de la puesta en marcha (última actualización: 2026-09-22)
 
 El flujo está construido y desplegado en dev, pero **la bodega todavía no opera con el WMS**.
-El procedimiento del corte está en `docs/entregables/Puesta-en-marcha-primera-vez.md`. Lo que
-falta depende de terceros, no de código:
+El procedimiento del corte está en `docs/entregables/Puesta-en-marcha-primera-vez.md`. Estos son
+los pendientes documentados para el corte; verificar su estado actual en el ambiente antes de actuar:
 
-- **181 productos que Defontana tiene y el WMS no**
+- **181 productos que Defontana tenía y el WMS no en la comparación del 2026-09-19**
   (`docs/entregables/Productos-Defontana-no-en-WMS-2026-09-19.csv`). Quedan **bloqueados en la
   conciliación**: su stock no entra, así que no se puede ubicar ni pickear. **Es el primer
   paso.** Tres tienen stock en camino (102152 CARISTOP 720, DNITTRESM y DNITTRESS, 500 c/u).
-- **282 filas de conciliación esperando aprobación humana** (más del 95 % del volumen).
-  Aprobarlas una por una es inviable: probablemente haga falta una **aprobación en bloque**
-  antes del corte.
+- **282 filas de conciliación quedaron para revisión en la corrida del 2026-09-19** (más del
+  95 % del volumen de esa corrida). La **aprobación en bloque o por selección ya está
+  implementada** (2026-09-21); antes del corte hay que consultar de nuevo la vista previa y
+  decidir cuáles aprobar. Las cifras anteriores no son un conteo en vivo.
 - **A.2, centro de negocio**: **confirmado (2026-09-21)** — `EMPNEGVTAVTA000` (VENTAS), verificado
   en el ERP web (Configuración → General → Centro de Negocios) y probado por escritura contra
   `Inventory/Insert`. Ya no bloquea; el envío de inventario sigue apagado por el corte, no por A.2.
-- **B.1, mapeo de `Order/DispatchOrder`**: **mapeo construido** (2026-09-22); faltan confirmar
-  `transactionType` y `originStorageInfo.motive`, que exigen emitir una guía de prueba (consume
-  folio, no se borra) o preguntar a Defontana. El envío queda apagado (`erp_sync_enabled`) hasta
-  eso, así que por ahora **ninguna guía viaja al ERP**.
+- **B.1, guía de despacho**: Defontana indicó (2026-09-23) usar **`Dispatch/Save`, no
+  `Order/DispatchOrder`** (soporta lote/serie). El mapper hay que **rehacerlo** para ese método;
+  spec en `docs/entregables/Dispatch-Save-campos.md`. Confirmado `transactionType="1"`; falta el
+  ejemplo de JSON de Luis (para un nº de pedido que hay que pasarle) y el `Motive` del negocio. El
+  envío sigue apagado (`erp_sync_enabled`), así que **ninguna guía viaja al ERP**.
 
 ## Intentado y descartado (no repetir)
 
