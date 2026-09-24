@@ -150,27 +150,31 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
   (notificación `sync_job_failed`, lleva a la Cola de Sincronización): antes quedaba
   descuadrado en silencio.
-- **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(B.1: mapeo construido, dos valores por
-  confirmar)*. El payload se arma en `DefontanaMapper.build_dispatch_order` con la estructura del
-  swagger de pruebas (`Api.Defontana.Models.Order.DispatchOrderInput`) y los valores leídos de
-  guías **GDVELECT reales** el 2026-09-22:
-  - `dispatchInfo.assetsType` = **`1`** (tipo de bien "Constituye una venta") y `dispatchType` =
-    **`1`** ("Por cuenta del cliente"), `isTransferDispatch` = **false** — confirmados en
-    `dispatchTypeData` de guías reales.
-  - Centro de negocio **`EMPNEGVTAVTA000`** en el análisis contable de cliente, bodega de origen y
-    cada línea (así aparece en las guías, cada línea con análisis "VENTAS"); bodega de origen
-    `BODEGACENTRAL`.
-  - **Sin confirmar (config, `DEFONTANA_DISPATCH_*`):** `transactionType` no aparece en las guías
-    (opcional en el swagger, sin enum) y `originStorageInfo.motive` se observó como **`COMPRA`** en
-    el movimiento de inventario de una guía real (raro para un egreso de venta). Faltan de nombrar
-    con certeza; se confirman con **una emisión de prueba** (consume folio y **no se puede borrar**,
-    a diferencia de los documentos de inventario) o preguntándole a Defontana.
+- **Flujo 3 — Guía de despacho** *(B.1: cambia de método a `Dispatch/Save`, 2026-09-23)*.
+  **Defontana (Luis López) indicó usar `api/Dispatch/Save`, no `Order/DispatchOrder`**, porque
+  `Dispatch/Save` **permite enviar lote y serie por línea** (y mueve el estado del pedido) y
+  nosotros manejamos lotes y vencimientos. `Order/DispatchOrder` no soporta lotes. La descripción
+  oficial de campos de Luis está en `docs/entregables/Dispatch-Save-campos.md`.
+  - **Lo que sirve de lo ya hecho:** el **candado por flag** (`erp_sync_enabled`) sigue válido para
+    el nuevo método, y quedó confirmado **`transactionType="1"` = "Venta del Giro"** (además de
+    `assetsType="1"`, `dispatchType="1"`, `isTransferDispatch=false`, centro de negocio
+    `EMPNEGVTAVTA000`, bodega `BODEGACENTRAL`).
+  - **Lo que queda superado:** `DefontanaMapper.build_dispatch_order` (armaba el payload de
+    `Order/DispatchOrder`) hay que **rehacerlo para `Dispatch/Save`**, que es un payload mucho más
+    grande: arma la guía completa (cliente, condición de pago, vendedor, giro, comuna, moneda,
+    local, lista de precios, cada línea con precio/unidad/cuenta contable/análisis + **lotes/series**,
+    impuestos, cuentas contables). Casi todo está en el pedido importado (`Order/Get`), pero hay que
+    mapearlo, y las cuentas contables las define el negocio.
+  - **Pendiente para armar el payload real:** (a) el **ejemplo de JSON** que Luis ofreció armar para
+    un pedido puntual —falta pasarle el número de pedido—; (b) el `Motive` de la bodega de origen
+    (decisión de Insumedent: para un egreso de venta, `VENTA` o `SALIDA`, no `COMPRA`); (c) las
+    cuentas contables de los asientos.
+  - **Dato para probar seguro:** `IsTransferDocument=true` registra y contabiliza el documento pero
+    **no lo envía al SII** (igual consume folio y no se borra).
 
-  **El envío ya está detrás de `erp_sync_enabled` (apagado).** Antes no lo estaba: confirmar un
-  despacho encolaba `Order/DispatchOrder` sin candado (no emitía guía solo porque el payload
-  incompleto fallaba). Ahora, con el flag apagado, el despacho queda **completo solo en el WMS** y
-  no toca el ERP; con el flag encendido arma el payload completo y emite. Cubierto por tests
-  (`test_flow` los dos caminos, `test_defontana_automation` la estructura del payload).
+  **El envío sigue detrás de `erp_sync_enabled` (apagado).** Con el flag apagado, confirmar un
+  despacho lo deja **completo solo en el WMS**; no toca el ERP (candado agregado en el PR #32,
+  cubierto por `test_flow`). Al rehacer el mapper para `Dispatch/Save` se mantiene ese candado.
 - **Reemplazo de productos en picking** *(decidido y construido del lado WMS: despachar sin la
   línea y guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se
   despacha lo que hay y lo que falta sale después en otra guía. Un pedido **despachado** con
@@ -226,7 +230,7 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   `erp_stock`; Inventario → Stock ERP vs WMS la cruza con los saldos del WMS por SKU y bodega
   (vía `erp_storage_code`).
 - **Modelo de stock decidido (2026-09-15): manda Defontana; el WMS ubica.** Ver
-  `docs/entregables/Modelo-de-stock-con-Defontana.md`. Pendiente de construir:
+  `docs/entregables/Modelo-de-stock-con-Defontana.md`. Estado de implementación:
   1. **Conciliación WMS ← Defontana** *(hecha y en marcha)*. Decisiones A.3–A.5:
      diaria de madrugada (04:30, después de la foto de stock) y también manual desde Stock ERP
      vs WMS; lo que falta en el WMS se suma con los lotes del ERP en **`SIN-UBICAR`** (tipo
@@ -245,7 +249,8 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
      checkboxes por fila permiten aprobar solo un subconjunto elegido («Aprobar seleccionadas»).
      El servicio lo hace con `apply(only_review=True[, keys=…])` y cada ajuste queda igual de
      auditado; la aprobación individual fila por fila sigue disponible. Esto destraba el corte:
-     ya no hace falta aprobar las 282 una por una.
+     ya no hace falta aprobar una por una las 282 filas registradas el 2026-09-19; el
+     pendiente real debe comprobarse con una vista previa nueva antes del corte.
   1bis. **Ubicar stock** *(hecho)*: la conciliación deja lo nuevo en `SIN-UBICAR`, que **no es
      pickeable**, así que hace falta guardarlo en su estante. `POST /inventory/putaway` mueve un
      saldo **exacto** (pantalla `/inventory/ubicar`, pensada para móvil y lector): como el saldo
@@ -306,10 +311,9 @@ contratos de datos, pero no se ha mirado en pantalla.
   de edición ancha que usa un supervisor en escritorio.
 
 **Pendiente, y por qué:**
-- **Búsqueda por texto en el servidor** para `/orders`, `/packing/tasks` e
-  `/inventory/balances`: hoy solo aceptan `status`/`limit`/`offset`, así que el buscador de
-  esas pantallas filtra las filas ya cargadas y lo dice explícitamente. `/erp-stock` sí
-  busca en el servidor (acepta `q`), y ahí el buscador es real.
+- **Búsqueda por texto en el servidor** para `/orders` y `/packing/tasks`: sus buscadores
+  filtran las filas ya cargadas. `/inventory/balances` ya acepta `q` y busca en el servidor
+  sobre todos los saldos, igual que `/erp-stock`.
 - **Buscador global y selector de bodega activa** en el header: necesitan endpoints que no
   existen.
 - **Panel de rendimiento / tiempos del operario**: el backend no registra esos datos.
@@ -321,24 +325,21 @@ contratos de datos, pero no se ha mirado en pantalla.
 
 ## Pendiente (funcional)
 
-- **Endpoints reales de Defontana para crear producto / crear pedido.** La
-  integración hoy sólo **lee** productos y pedidos desde Defontana; su API no
-  expone (o no se ha confirmado) endpoints para **crear** un producto o un pedido.
-  Por eso los jobs `create_product` y `create_order` responden OK en mock y lanzan
-  `NotImplementedError` en modo real. Cuando se confirmen los endpoints reales, conectarlos en
-  `DefontanaConnector.create_product` / `create_order`
-  (`backend/app/integrations/defontana/client.py`).
-  *Corrección 2026-09-20:* el flag `ERP_CREATE_ENABLED` (`frontend/src/config.ts`) **ya está en
-  `true`**, así que las acciones "Nuevo producto / pedido" **sí se ven** en la UI. No es porque
-  los endpoints estén resueltos, sino por la **operación stand-alone**: sin ERP del cual
-  importar, el alta se hace a mano en el WMS. Lo que evita que eso toque a Defontana es
-  `ERP_SYNC_ENABLED=false` en el backend, que hace que crear no encole ningún job. Al conectar
-  Defontana de verdad hay que prender esa variable, y recién ahí el alta manual empieza a
-  empujar al ERP.
-  *(Actualización 2026-09: Pedidos sí expone `Order/SaveOrder` / `UpdateOrder`; crear productos
-  es `Sale/SaveProduct`, del módulo Ventas, no contratado. La recepción → `Inventory/Insert`
-  está probada en pruebas pero el payload del WMS aún no tiene el formato real: ver
-  "Integración Defontana".)*
+- **Match probabilístico de productos:** el aviso de reposición por producto exacto ya funciona,
+  pero siguen pendientes las sugerencias de sustitutos con porcentaje y la memoria de alias
+  confirmados que pide `docs/levantamiento-alertas-recepcion-y-match.md`.
+- **Cierre parcial de picking por rol:** hoy `allow_partial` confirma el cierre con faltantes
+  sin comprobar rol supervisor; decidir si se restringe y ajustar backend y UI si corresponde.
+
+- **Altas manuales y escritura al ERP.** `ERP_CREATE_ENABLED=true` muestra «Nuevo producto» y
+  «Nuevo pedido» para la operación local. Con `ERP_SYNC_ENABLED=false` se guardan en el WMS sin
+  encolar un envío. `DefontanaConnector.create_product` y `create_order` siguen lanzando
+  `NotImplementedError` en modo real; encender `ERP_SYNC_ENABLED` también habilitaría esos jobs.
+  Crear producto en Defontana requiere `Sale/SaveProduct` (Ventas no contratado). Para pedidos
+  existen `Order/SaveOrder` / `UpdateOrder`, pero aún no están conectados al flujo de alta y un
+  pedido aprobado solo se puede editar en estado P. Resolver estos caminos antes de habilitar
+  la escritura general al ERP. La recepción y los ajustes usan `Inventory/Insert` por `POST`,
+  con tipos, motivos y centro de negocio confirmados (ver «Integración Defontana»).
 
 - **Nombre y logo del producto.** Pendiente de definir (lo verá el dueño). Hoy hay una
   marca provisional (cuadrado cian con la letra «S») en tres lugares: el bloque de marca
@@ -357,8 +358,9 @@ contratos de datos, pero no se ha mirado en pantalla.
 - **Retomar** tareas en curso: filas clickeables en Picking/Packing y "Continuar picking" en Pedidos.
 - **Impresión de etiquetas** de productos con código de barras EAN-13 (A4 o impresora térmica).
 - **Etiqueta por bulto (1/N)** en packing: cliente, productos y cantidad por bulto.
-- **Recepción de mercadería** (con ubicación → etiqueta → sync ERP real vía `Inventory/Insert`).
-- **Alta de producto / pedido** (backend listo, con job de sync; UI oculta hasta endpoints reales).
+- **Recepción de mercadería** (con ubicación y etiqueta; envío a `Inventory/Insert` implementado,
+  pero apagado hasta el corte de bodega).
+- **Alta local de producto / pedido** (UI visible; envío real de esas altas al ERP pendiente).
 - **Paginación** de listados (productos, saldos, movimientos).
 - **Submenú Inventario** (Saldos / Recepción / Transferencia / Ajuste) con selector de producto.
 - **Transportista** como lista desplegable (Bluexpress / NewTrans / Otro).

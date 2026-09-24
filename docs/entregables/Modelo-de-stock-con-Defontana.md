@@ -35,12 +35,12 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
 
 | Funcionalidad | Qué pasa | Por qué |
 |---|---|---|
-| **Recepción de mercadería** | **Se mantiene**, pero obligatoriamente empuja a Defontana (`Inventory/Insert`, ya implementado y apagado hasta confirmar tipo de documento y motivo). Si el push falla, la recepción queda "pendiente de ERP". | Cambia la cantidad total |
-| **Ajuste de inventario** (supervisor) | **Se mantiene.** Ya viaja a Defontana como documento de ajuste de entrada o de salida según el signo (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables). | Cambia la cantidad total |
+| **Recepción de mercadería** | **Se mantiene**. El envío a `Inventory/Insert` está implementado; tipo, motivo y centro de negocio están confirmados. Permanece apagado hasta el corte de bodega. Al encenderlo, un fallo de envío queda visible en la cola. | Cambia la cantidad total |
+| **Ajuste de inventario** (supervisor) | **Se mantiene.** El envío usa documentos de entrada o salida según el signo (`XAJ_ENT_UN` / `XAJ_SAL_UNID`, configurables), cuando se habilite la escritura al ERP. | Cambia la cantidad total |
 | **Merma** | Es un ajuste negativo: viaja como ajuste de salida (o `MM`, cambiando la configuración). | Cambia la cantidad total |
 | **Transferencia entre ubicaciones** (misma bodega) | **Se mantiene tal cual**, solo en el WMS. El WMS no tiene transferencia entre bodegas. | El ERP no tiene ubicaciones y el total no cambia |
 | **Picking / packing** | **Sin cambios.** Los movimientos a staging y packing son internos. | El total de la bodega no cambia |
-| **Despacho** | **Sin cambios de modelo**: la guía en Defontana es la que baja el stock. Falta conectar `Order/DispatchOrder` (pendiente de valores). | — |
+| **Despacho** | **Sin cambios de modelo**: la guía en Defontana es la que baja el stock. Defontana indicó (2026-09-23) emitirla con **`Dispatch/Save`** (soporta lote/serie), no `Order/DispatchOrder`; el mapper hay que rehacerlo para ese método (ver B.1 en `ROADMAP.md` y `Dispatch-Save-campos.md`). El envío sigue apagado. | — |
 | **Lotes y vencimientos** | **Cambian de origen**: se traen del ERP en vez de capturarse solo en la recepción. El WMS sigue asignando en qué ubicación está cada lote. | Decisión tomada |
 | **FEFO y alerta "por vencer"** | **Se mantienen**, alimentados por los vencimientos del ERP. | — |
 | **Alerta de stock cero y aviso de reposición** | **Se mantienen**, pero pasan a dispararse también cuando la conciliación detecta que llegó stock en el ERP. | El stock ahora entra por el ERP |
@@ -48,7 +48,7 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
 | **Bodegas** | **Solo en el WMS**, pero su `erp_storage_code` debe coincidir con el código de Defontana: es la llave del cruce. | — |
 | **Informe "Stock ERP vs WMS"** | **Se mantiene** y pasa a ser la antesala de la conciliación. | — |
 
-## 4. Lo que hay que construir
+## 4. Estado de implementación y trabajo pendiente
 
 1. **Conciliación WMS ← Defontana** *(núcleo del modelo)*. A partir de la foto de
    `GetFutureStockInfo` y de los lotes de `GetBatchesInfo`:
@@ -58,12 +58,14 @@ Consecuencia práctica: el stock del WMS deja de ser un registro independiente y
      deja en una ubicación de entrada (p. ej. `RECEPCION` o `SIN UBICAR`) para que bodega lo
      ubique; lo que falta se descuenta respetando FEFO.
    - Manual primero (botón, con vista previa) y automática después.
-   - **Hecho (2026-09-19):** manual desde Inventario → Stock ERP vs WMS y diaria a las 04:30,
+   - **Hecho (2026-09-19):** manual desde Inventario → Stock ERP vs WMS y programada a las 04:30,
      después de la foto de stock. Lo que falta queda en `SIN-UBICAR` (tipo recepción, no
      pickeable); lo que sobra se descuenta por FEFO; cada ajuste deja un movimiento
      "Conciliación con ERP" y no viaja a Defontana. Las diferencias de más de 20 unidades
      esperan la aprobación de un supervisor. Primera corrida hecha a mano el 2026-09-19: 721
-     ajustes aplicados, 282 diferencias grandes esperando revisión.
+     ajustes aplicados, 282 diferencias grandes para revisión en esa fecha. Desde el
+     2026-09-21 hay aprobación individual, por selección y en bloque. La corrida diaria
+     permanece apagada en el servidor dev hasta el corte de bodega.
 2. ~~Push a Defontana de ajustes y mermas~~ **(hecho)**: el ajuste viaja como documento de
    entrada o de salida, con los mismos valores configurables que la recepción
    (`DEFONTANA_INVENTORY_SYNC_ENABLED` + tipos de documento y motivo).
@@ -92,13 +94,13 @@ esas ubicaciones.
 >
 > **Resueltas (2026-09-19), decisiones de Insumedent:** tipos de documento y motivos definidos y
 > probados (recepción `PE`/`COMPRA`, ajustes `XAJ_ENT_UN`/`ENTRADA` y `XAJ_SAL_UNID`/`SALIDA`).
-> Queda solo el **centro de negocio**, que va dentro de cada documento; por eso el envío sigue
-> apagado.
+> **Actualización 2026-09-21:** el centro de negocio `EMPNEGVTAVTA000` se confirmó y probó
+> por escritura. El envío sigue apagado por el corte operativo de bodega.
 
 1. **¿Cada cuánto se concilia?** *Respondida:* **a diario de madrugada**, y también a demanda
    desde el WMS.
 2. **¿Qué hacer con una diferencia grande?** *Respondida:* **revisión humana**. Sobre 20
-   unidades no se aplica sola: la aprueba un supervisor.
+   unidades no se aplica sola: la aprueba un supervisor individualmente, por selección o en bloque.
 3. **¿Y si una recepción se registró en Defontana** (por compras) **y no en el WMS?** Sigue
    abierta, pero ya no bloquea: si ocurre, la conciliación trae esas unidades a `SIN-UBICAR` y
    bodega las ubica con una transferencia. Solo falta saber si pasa, para anticipar cuánto se
