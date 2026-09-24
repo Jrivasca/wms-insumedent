@@ -599,6 +599,75 @@ async def create_reception(
     }
 
 
+async def correct_balance_lot(
+    *,
+    tenant_id: str,
+    product_id: str,
+    warehouse_id: str,
+    location_id: str,
+    from_lot_number: Optional[str],
+    to_lot_number: str,
+    to_expiration_date: Optional[datetime] = None,
+    serial_number: Optional[str] = None,
+    created_by: str,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Corrige la IDENTIDAD del lote de un saldo (lote mal ingresado → el correcto que informa
+    Defontana) **sin cambiar la cantidad**. No es un ajuste de stock: la cantidad total del
+    producto no se toca, por eso no viaja al ERP (Defontana ya manda cantidades y lotes) y por eso
+    el operario puede hacerlo al pickear para poder liberar el despacho, en vez de un ajuste de
+    supervisor.
+
+    Se modela como dos movimientos net-zero en la misma ubicación (sale del lote viejo, entra al
+    nuevo con su vencimiento) para que quede auditado. Rechaza si el saldo tiene reservas o
+    bloqueos: no se re-etiqueta stock comprometido a otra tarea."""
+    if not to_lot_number:
+        raise HTTPException(status_code=400, detail="Falta el lote correcto.")
+    if to_lot_number == from_lot_number:
+        raise HTTPException(status_code=400, detail="El lote nuevo es igual al actual.")
+    db = tenant_db(tenant_id)
+    src = await db[Collections.INVENTORY_BALANCES].find_one({
+        "tenant_id": tenant_id, "product_id": product_id, "warehouse_id": warehouse_id,
+        "location_id": location_id, "lot_number": from_lot_number, "serial_number": serial_number,
+    })
+    qty = (src or {}).get("quantity_on_hand", 0) or 0
+    if not src or qty <= 0:
+        raise HTTPException(status_code=404, detail="No hay saldo de ese lote en la ubicación.")
+    if (src.get("quantity_reserved", 0) or 0) > 0 or (src.get("quantity_blocked", 0) or 0) > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ese saldo tiene stock comprometido; no se puede corregir el lote.",
+        )
+    # Sale del lote mal ingresado y entra al correcto, misma ubicación y cantidad.
+    await change_location_stock(
+        tenant_id=tenant_id, product_id=product_id, warehouse_id=warehouse_id,
+        location_id=location_id, delta=-qty, lot_number=from_lot_number,
+        serial_number=serial_number, notify=False,
+    )
+    balance = await change_location_stock(
+        tenant_id=tenant_id, product_id=product_id, warehouse_id=warehouse_id,
+        location_id=location_id, delta=qty, lot_number=to_lot_number,
+        serial_number=serial_number, expiration_date=to_expiration_date,
+    )
+    note = reason or f"Corrección de lote {from_lot_number or '(sin lote)'} → {to_lot_number}"
+    for lot, direction in ((from_lot_number, "from"), (to_lot_number, "to")):
+        await record_movement(
+            tenant_id=tenant_id,
+            movement_type=MovementType.LOT_CORRECTION.value,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            from_location_id=location_id if direction == "from" else None,
+            to_location_id=location_id if direction == "to" else None,
+            quantity=qty,
+            lot_number=lot,
+            serial_number=serial_number,
+            reference_type=ReferenceType.MANUAL.value,
+            reason=note,
+            created_by=created_by,
+        )
+    return balance
+
+
 async def register_operational_move(
     *,
     tenant_id: str,

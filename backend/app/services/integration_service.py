@@ -174,6 +174,11 @@ async def run_sync_products(tenant_id: str, actor: str) -> Dict[str, Any]:
     return {"status": "ok", "type": "sync_products", "summary": summary}
 
 
+async def run_sync_batches(tenant_id: str, actor: str) -> Dict[str, Any]:
+    summary = await product_sync.sync_batches(tenant_id, actor)
+    return {"status": "ok", "type": "sync_batches", "summary": summary}
+
+
 async def run_sync_stock(tenant_id: str, actor: str) -> Dict[str, Any]:
     summary = await stock_sync.sync_erp_stock(tenant_id, actor)
     return {"status": "ok", "type": "sync_stock", "summary": summary}

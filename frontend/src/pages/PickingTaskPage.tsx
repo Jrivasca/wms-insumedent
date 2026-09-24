@@ -3,12 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, PackageX, RotateCcw } from 'lucide-react';
 import {
   completePicking,
+  correctLot,
+  getLineErpLots,
   getLineLots,
   getPickingTask,
   markMissing,
   resetPickingLine,
   scanPicking,
   startPicking,
+  syncLots,
+  type ErpLot,
   type LineLots,
   type PickLot,
 } from '../api/picking';
@@ -45,6 +49,12 @@ export default function PickingTaskPage() {
   // elige. Para productos que manejan lote es obligatorio (no se confirma sin lote).
   const [lineLots, setLineLots] = useState<LineLots | null>(null);
   const [selectedLot, setSelectedLot] = useState<PickLot | null>(null);
+  // Corregir lote (Parte 3, opción A): cuando el lote del saldo está mal ingresado, el operario
+  // actualiza desde Defontana y re-etiqueta el saldo por el lote correcto para liberar el despacho.
+  const [correcting, setCorrecting] = useState(false);
+  const [erpLots, setErpLots] = useState<ErpLot[] | null>(null);
+  const [correctFrom, setCorrectFrom] = useState<PickLot | null>(null);
+  const [correctTo, setCorrectTo] = useState<ErpLot | null>(null);
 
   // missing modal
   const [missingFor, setMissingFor] = useState<PickingLine | null>(null);
@@ -89,6 +99,10 @@ export default function PickingTaskPage() {
   useEffect(() => {
     let alive = true;
     setSelectedLot(null);
+    setCorrecting(false);
+    setErpLots(null);
+    setCorrectFrom(null);
+    setCorrectTo(null);
     if (!currentLineId) {
       setLineLots(null);
       return;
@@ -117,6 +131,62 @@ export default function PickingTaskPage() {
       );
     } catch {
       /* mantenemos la lista actual si el refresco falla */
+    }
+  }
+
+  // Abrir el panel de corrección de lote: carga los candidatos correctos desde Defontana.
+  async function openCorrect() {
+    if (!currentLineId) return;
+    setCorrecting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const r = await getLineErpLots(id, currentLineId);
+      setErpLots(r.lots);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  // Actualizar los lotes desde Defontana (refresca la foto de referencia; no mueve stock).
+  async function handleSyncLots() {
+    if (!currentLineId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await syncLots();
+      showMessage(`Lotes actualizados desde Defontana (${res.summary.batches}).`, 'success');
+      const r = await getLineErpLots(id, currentLineId);
+      setErpLots(r.lots);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Aplicar la corrección: re-etiqueta el saldo del lote mal ingresado por el correcto.
+  async function handleCorrectLot() {
+    if (!currentLineId || !correctFrom || !correctTo) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await correctLot(id, currentLineId, {
+        location_id: correctFrom.location_id,
+        from_lot_number: correctFrom.lot_number,
+        to_lot_number: correctTo.lot_number,
+        to_expiration_date: correctTo.expiration_date,
+      });
+      setCorrecting(false);
+      setCorrectFrom(null);
+      setCorrectTo(null);
+      setSelectedLot(null);
+      await refreshLots();
+      showMessage(`Lote corregido a ${correctTo.lot_number}.`, 'success');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -433,6 +503,108 @@ export default function PickingTaskPage() {
                       </button>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Corregir lote (Parte 3, opción A): el lote del saldo puede estar mal ingresado.
+                  El operario actualiza desde Defontana y re-etiqueta el saldo por el correcto. */}
+              {!correcting ? (
+                <button
+                  type="button"
+                  onClick={openCorrect}
+                  className="mt-2 text-xs font-semibold text-brand underline-offset-2 hover:underline"
+                >
+                  ¿El lote está mal? Corregir lote
+                </button>
+              ) : (
+                <div className="mt-3 rounded-card border border-graphite-600 bg-graphite-900 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-graphite-400">
+                      Corregir lote
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSyncLots}
+                      className="text-xs font-semibold text-brand hover:underline disabled:opacity-50"
+                      disabled={busy}
+                    >
+                      Actualizar desde Defontana
+                    </button>
+                  </div>
+
+                  <p className="mt-2 text-xs text-graphite-400">1 · Saldo mal ingresado</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {lineLots.lots.map((lot) => {
+                      const active =
+                        correctFrom?.lot_number === lot.lot_number &&
+                        correctFrom?.location_id === lot.location_id;
+                      return (
+                        <button
+                          key={`from-${lot.location_id}-${lot.lot_number}`}
+                          type="button"
+                          onClick={() => setCorrectFrom(lot)}
+                          className={`rounded-card border px-2 py-1 font-mono text-xs ${
+                            active
+                              ? 'border-brand bg-brand/20 text-white'
+                              : 'border-graphite-600 text-graphite-200'
+                          }`}
+                        >
+                          {lot.lot_number} · {lot.location_code}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <p className="mt-3 text-xs text-graphite-400">2 · Lote correcto (Defontana)</p>
+                  {erpLots === null ? (
+                    <p className="mt-1 text-xs text-graphite-500">Cargando…</p>
+                  ) : erpLots.length === 0 ? (
+                    <p className="mt-1 text-xs text-amber-300">
+                      Defontana no informa lotes para este producto. Actualizá desde Defontana.
+                    </p>
+                  ) : (
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {erpLots.map((lot) => {
+                        const active = correctTo?.lot_number === lot.lot_number;
+                        return (
+                          <button
+                            key={`to-${lot.lot_number}`}
+                            type="button"
+                            onClick={() => setCorrectTo(lot)}
+                            className={`rounded-card border px-2 py-1 font-mono text-xs ${
+                              active
+                                ? 'border-brand bg-brand/20 text-white'
+                                : 'border-graphite-600 text-graphite-200'
+                            }`}
+                          >
+                            {lot.lot_number}
+                            {lot.expiration_date
+                              ? ` · ${new Date(lot.expiration_date).toLocaleDateString('es-CL')}`
+                              : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCorrectLot}
+                      className="btn-secondary flex-1 bg-brand text-white hover:bg-brand-dark disabled:opacity-50"
+                      disabled={busy || !correctFrom || !correctTo}
+                    >
+                      Aplicar corrección
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCorrecting(false)}
+                      className="btn-secondary"
+                      disabled={busy}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

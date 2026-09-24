@@ -192,9 +192,18 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     el `BatchInfo` cuando se arme el mapper de `Dispatch/Save`. Cubierto por `test_picking_lots.py`
     (flujo picking→packing→despacho). **Falta:** el mapper de `Dispatch/Save` en sí (bloqueado por
     el JSON de ejemplo de Luis y el `Motive`).
-  - **Corregir/actualizar lotes** *(Parte 3, opción A — pendiente)*: botón "Actualizar lotes desde
-    Defontana" y corregir el lote del saldo cuando esté mal ingresado, para poder liberar el
-    despacho.
+  - **Corregir/actualizar lotes** *(Parte 3, opción A — hecha 2026-09-24)*. Cuando el lote del
+    saldo está mal ingresado, el operario lo corrige **en picking** para liberar el despacho:
+    "Actualizar lotes desde Defontana" refresca la foto de referencia (`erp_batches`,
+    `product_sync.sync_batches`, no mueve stock) y muestra los lotes correctos; el operario
+    re-etiqueta el saldo del lote malo por el correcto (`inventory_service.correct_balance_lot`).
+    Es un **relabel que conserva la cantidad** —no un ajuste de cantidades— modelado como dos
+    movimientos `lot_correction` net-zero auditados, así que no viaja al ERP (Defontana ya manda
+    cantidades y lotes) y por eso lo hace el operario y no un supervisor. Rutas
+    `GET .../erp-lots`, `POST .../correct-lot`, `POST /picking/sync-lots`; UI en
+    `PickingTaskPage` ("¿El lote está mal? Corregir lote"). Cubierto por `test_picking_lots.py`
+    y mirado renderizado + verificado en base el 2026-09-24 (LOTE-B→LOTE-CORRECTO-2027, cantidad
+    conservada, dos movimientos auditados).
 - **Reemplazo de productos en picking** *(decidido y construido del lado WMS: despachar sin la
   línea y guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se
   despacha lo que hay y lo que falta sale después en otra guía. Un pedido **despachado** con

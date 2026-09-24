@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import CurrentUser, get_current_user
 from app.schemas.picking import (
     CompletePickingRequest,
+    CorrectLotRequest,
     MarkMissingRequest,
     ResetLineRequest,
     ScanRequest,
@@ -54,6 +55,47 @@ async def line_lots(
 ):
     """Lotes disponibles (FEFO) para elegir al pickear una línea."""
     return await picking_service.available_lots(user.tenant_id, task_id, line_id, user)
+
+
+@router.get("/tasks/{task_id}/lines/{line_id}/erp-lots")
+async def line_erp_lots(
+    task_id: str, line_id: str, user: CurrentUser = Depends(get_current_user)
+):
+    """Lotes que Defontana informa para el producto (candidatos correctos al corregir el lote)."""
+    return await picking_service.erp_lots(user.tenant_id, task_id, line_id, user)
+
+
+@router.post("/tasks/{task_id}/lines/{line_id}/correct-lot")
+async def correct_lot(
+    task_id: str, line_id: str, payload: CorrectLotRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Corregir el lote mal ingresado de un saldo por el correcto (Parte 3, opción A)."""
+    result = await picking_service.correct_lot(
+        user.tenant_id, task_id, line_id, user,
+        location_id=payload.location_id,
+        from_lot_number=payload.from_lot_number,
+        to_lot_number=payload.to_lot_number,
+        to_expiration_date=payload.to_expiration_date,
+    )
+    await log_action(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        action="picking_correct_lot",
+        entity_type="picking_task",
+        entity_id=task_id,
+        metadata={"line_id": line_id, "from": payload.from_lot_number,
+                  "to": payload.to_lot_number},
+        ip=user.ip,
+        user_agent=user.user_agent,
+    )
+    return result
+
+
+@router.post("/sync-lots")
+async def sync_lots(user: CurrentUser = Depends(get_current_user)):
+    """Actualizar lotes desde Defontana (refresca la foto de referencia; no mueve stock)."""
+    return await picking_service.sync_lots(user.tenant_id, user)
 
 
 @router.post("/tasks/{task_id}/mark-missing")

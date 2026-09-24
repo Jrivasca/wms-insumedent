@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -11,6 +12,7 @@ from app.models.order import OrderFulfillment, OrderStatus
 from app.models.packing import PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.services import (
+    integration_service,
     inventory_service,
     order_service,
     packing_service,
@@ -310,6 +312,74 @@ async def available_lots(
         "manages_lots": any(l.get("lot_number") for l in lots),
         "lots": [serialize(l) for l in out],
     }
+
+
+def _line_or_404(task: Dict[str, Any], line_id: str) -> Dict[str, Any]:
+    line = next((l for l in task["lines"] if l.get("line_id") == line_id), None)
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    return line
+
+
+async def erp_lots(
+    tenant_id: str, task_id: str, line_id: str, user: CurrentUser
+) -> Dict[str, Any]:
+    """Lotes que Defontana informa para el producto de la línea (foto ``erp_batches``): son los
+    candidatos correctos cuando el lote del saldo del WMS está mal ingresado. Alimenta 'Corregir
+    lote'. Ordenados FEFO."""
+    db = tenant_db(tenant_id)
+    task = await _load_task(tenant_id, task_id)
+    _assert_can_operate(task, user)
+    line = _line_or_404(task, line_id)
+    out: List[Dict[str, Any]] = []
+    async for b in db[Collections.ERP_BATCHES].find({"sku": line.get("sku")}):
+        if not b.get("lot_number"):
+            continue
+        out.append({
+            "lot_number": b.get("lot_number"),
+            "expiration_date": b.get("expiration_date"),
+            "stock": b.get("stock"),
+            "storage_code": b.get("storage_code"),
+        })
+    out.sort(key=lambda r: (r["expiration_date"] is None, r["expiration_date"] or datetime.max))
+    return {"line_id": line_id, "sku": line.get("sku"), "lots": [serialize(x) for x in out]}
+
+
+async def correct_lot(
+    tenant_id: str,
+    task_id: str,
+    line_id: str,
+    user: CurrentUser,
+    *,
+    location_id: str,
+    from_lot_number: Optional[str],
+    to_lot_number: str,
+    to_expiration_date: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Corrige el lote mal ingresado de un saldo por el correcto (Parte 3, opción A). Es un
+    relabel que conserva la cantidad, auditado; lo hace el mismo operario en picking para poder
+    liberar el despacho (ver ``inventory_service.correct_balance_lot``)."""
+    task = await _load_task(tenant_id, task_id)
+    _assert_can_operate(task, user)
+    line = _line_or_404(task, line_id)
+    balance = await inventory_service.correct_balance_lot(
+        tenant_id=tenant_id,
+        product_id=line["product_id"],
+        warehouse_id=task["warehouse_id"],
+        location_id=location_id,
+        from_lot_number=from_lot_number,
+        to_lot_number=to_lot_number,
+        to_expiration_date=to_expiration_date,
+        created_by=user.id,
+        reason=f"Corrección de lote en picking (tarea {task_id})",
+    )
+    return {"line_id": line_id, "balance": serialize(balance)}
+
+
+async def sync_lots(tenant_id: str, user: CurrentUser) -> Dict[str, Any]:
+    """Refresca la foto de lotes de Defontana (``erp_batches``) para ver el lote correcto. No
+    mueve stock, así que la puede disparar el operario desde picking."""
+    return await integration_service.run_sync_batches(tenant_id, user.id)
 
 
 async def mark_missing(

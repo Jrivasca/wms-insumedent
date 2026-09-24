@@ -8,6 +8,7 @@ import pytest
 
 from app.core.database import get_database
 from app.core.tenant_db import tenant_db
+from app.core.utils import to_object_id
 from app.models import Collections
 from app.seed import run_seed
 from app.services import dispatch_service, order_service, packing_service, picking_service
@@ -141,3 +142,43 @@ async def test_a_lote_without_pickable_stock_is_rejected():
     # Un lote que no tiene saldo pickeable no se puede elegir (invita a actualizar desde Defontana).
     rej = await picking_service.scan(s.tenant_id, s.task_id, s.picker, s.bc, 3, s.loc_id, "NO-EXISTE")
     assert rej["status"] == "rejected" and "lote" in rej["message"].lower()
+
+
+async def test_corregir_lote_mal_ingresado_relabela_el_saldo_sin_cambiar_cantidad():
+    """Parte 3 (opción A): el operario corrige el lote mal ingresado por el correcto. Es un
+    relabel que conserva la cantidad (dos movimientos de corrección auditados) y deja el lote
+    correcto pickeable para liberar el despacho."""
+    s = await _setup()
+    res = await picking_service.correct_lot(
+        s.tenant_id, s.task_id, s.line_id, s.picker,
+        location_id=s.loc_id, from_lot_number="LOTE-B", to_lot_number="LOTE-OK",
+        to_expiration_date=datetime(2027, 1, 31, tzinfo=timezone.utc),
+    )
+    assert res["balance"]["lot_number"] == "LOTE-OK"
+
+    old = await s.db[Collections.INVENTORY_BALANCES].find_one(
+        {"product_id": s.product_id, "location_id": s.loc_id, "lot_number": "LOTE-B"})
+    new = await s.db[Collections.INVENTORY_BALANCES].find_one(
+        {"product_id": s.product_id, "location_id": s.loc_id, "lot_number": "LOTE-OK"})
+    assert (old is None or old["quantity_on_hand"] == 0)
+    assert new and new["quantity_on_hand"] == 5 and new.get("expiration_date") is not None
+
+    mvs = await s.db[Collections.INVENTORY_MOVEMENTS].find(
+        {"product_id": s.product_id, "movement_type": "lot_correction"}).to_list(10)
+    assert len(mvs) == 2  # net-zero: una pata de salida (lote viejo), una de entrada (lote nuevo)
+
+    # El lote correcto ahora aparece pickeable.
+    lots = await picking_service.available_lots(s.tenant_id, s.task_id, s.line_id, s.picker)
+    assert "LOTE-OK" in [l["lot_number"] for l in lots["lots"]]
+
+
+async def test_erp_lots_lista_los_lotes_de_referencia_de_defontana():
+    """Los candidatos correctos al corregir salen de la foto ``erp_batches`` de Defontana."""
+    s = await _setup()
+    sku = (await s.db[Collections.PRODUCTS].find_one({"_id": to_object_id(s.product_id)}))["sku"]
+    await s.db[Collections.ERP_BATCHES].insert_many([
+        {"sku": sku, "lot_number": "ERP-2", "expiration_date": datetime(2029, 1, 1, tzinfo=timezone.utc), "stock": 3, "storage_code": "BODEGACENTRAL"},
+        {"sku": sku, "lot_number": "ERP-1", "expiration_date": datetime(2027, 1, 1, tzinfo=timezone.utc), "stock": 7, "storage_code": "BODEGACENTRAL"},
+    ])
+    res = await picking_service.erp_lots(s.tenant_id, s.task_id, s.line_id, s.picker)
+    assert [l["lot_number"] for l in res["lots"]] == ["ERP-1", "ERP-2"]  # FEFO

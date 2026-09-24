@@ -7,6 +7,28 @@ from app.integrations.defontana.client import DefontanaConnector
 from app.integrations.defontana.mapper import DefontanaMapper
 
 
+async def sync_batches(tenant_id: str, actor: str = "system") -> Dict[str, Any]:
+    """Refresca SOLO la foto de lotes de referencia (``erp_batches``) desde Defontana
+    (``Inventory/GetBatchesInfo``), sin tocar el catálogo de productos. Es la versión liviana
+    que el operario dispara en picking ("Actualizar lotes desde Defontana") para ver el lote
+    correcto cuando el del saldo está mal ingresado. No mueve stock del WMS."""
+    db = tenant_db(tenant_id)
+    connector = DefontanaConnector(tenant_id)
+    raw_products = await connector.get_products()
+
+    batches: List[Dict[str, Any]] = []
+    for raw in raw_products:
+        batches.extend(DefontanaMapper.map_batches(raw))
+
+    now = now_utc()
+    await db[Collections.ERP_BATCHES].delete_many({})
+    if batches:
+        await db[Collections.ERP_BATCHES].insert_many(
+            [{**batch, "synced_at": now, "synced_by": actor} for batch in batches]
+        )
+    return {"batches": len(batches)}
+
+
 async def sync_products(tenant_id: str, actor: str = "system") -> Dict[str, Any]:
     """Artículos que manejan lotes, desde el módulo Inventario (``Inventory/GetBatchesInfo``,
     contratado), por SKU (``code``), más sus lotes como referencia. No es el catálogo
