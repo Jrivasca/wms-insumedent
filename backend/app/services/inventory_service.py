@@ -19,7 +19,7 @@ from app.integrations.defontana.mapper import DefontanaMapper
 from app.integrations.defontana.schedule import local_now
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
-from app.models.location import COMMITTED_LOCATION_TYPES
+from app.models.location import COMMITTED_LOCATION_TYPES, NON_PICKABLE_LOCATION_TYPES
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
 from app.services import notification_service, replenishment_alert_service, sync_job_service
@@ -611,11 +611,18 @@ async def register_operational_move(
     reference_type: str,
     reference_id: str,
     created_by: str,
+    lot_number: Optional[str] = None,
+    expiration_date: Optional[datetime] = None,
 ) -> None:
     """Stock move triggered by picking/packing/dispatch.
 
     Operational floor moves never block the operation, so they are recorded with
     ``allow_negative=True`` while still being fully traceable via the movement.
+
+    ``lot_number`` (con su ``expiration_date``) mueve el saldo de **ese lote**: el picking de
+    un producto con lotes descuenta el lote elegido por el operario y lo lleva a staging con su
+    vencimiento, para que el lote viaje hasta la guía de despacho. Sin lote, mueve el saldo sin
+    lote como antes.
     """
     if from_location_id:
         await change_location_stock(
@@ -624,6 +631,7 @@ async def register_operational_move(
             warehouse_id=warehouse_id,
             location_id=from_location_id,
             delta=-quantity,
+            lot_number=lot_number,
             allow_negative=True,
         )
     if to_location_id:
@@ -633,6 +641,8 @@ async def register_operational_move(
             warehouse_id=warehouse_id,
             location_id=to_location_id,
             delta=quantity,
+            lot_number=lot_number,
+            expiration_date=expiration_date,
             allow_negative=True,
         )
     await record_movement(
@@ -643,10 +653,58 @@ async def register_operational_move(
         from_location_id=from_location_id,
         to_location_id=to_location_id,
         quantity=quantity,
+        lot_number=lot_number,
         reference_type=reference_type,
         reference_id=reference_id,
         created_by=created_by,
     )
+
+
+async def available_lots(
+    tenant_id: str, product_id: str, warehouse_id: str
+) -> List[Dict[str, Any]]:
+    """Saldos pickeables de un producto, uno por lote/ubicación, ordenados FEFO (vence primero
+    arriba; los sin vencimiento al final). Es la lista de la que el operario elige el lote al
+    pickear. Excluye lo no pickeable (staging/packing/despacho, cuarentena, recepción)."""
+    db = tenant_db(tenant_id)
+    excluded = [
+        str(loc["_id"])
+        async for loc in db[Collections.LOCATIONS].find(
+            {
+                "tenant_id": tenant_id,
+                "warehouse_id": warehouse_id,
+                "type": {"$in": list(NON_PICKABLE_LOCATION_TYPES)},
+            },
+            {"_id": 1},
+        )
+    ]
+    codes = {
+        str(loc["_id"]): loc.get("code")
+        async for loc in db[Collections.LOCATIONS].find(
+            {"tenant_id": tenant_id, "warehouse_id": warehouse_id}, {"code": 1}
+        )
+    }
+    rows = [
+        {
+            "location_id": b.get("location_id"),
+            "location_code": codes.get(b.get("location_id")) or b.get("location_id"),
+            "lot_number": b.get("lot_number"),
+            "expiration_date": b.get("expiration_date"),
+            "quantity_on_hand": b.get("quantity_on_hand") or 0,
+        }
+        async for b in db[Collections.INVENTORY_BALANCES].find(
+            {
+                "tenant_id": tenant_id,
+                "product_id": product_id,
+                "warehouse_id": warehouse_id,
+                "location_id": {"$nin": excluded},
+                "quantity_on_hand": {"$gt": 0},
+            }
+        )
+    ]
+    # FEFO: por vencimiento ascendente; los sin vencimiento al final.
+    rows.sort(key=lambda r: (r["expiration_date"] is None, r["expiration_date"] or datetime.max))
+    return rows
 
 
 async def reverse_moves_for_reference(

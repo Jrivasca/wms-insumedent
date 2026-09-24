@@ -23,9 +23,30 @@ export async function startPicking(id: string): Promise<PickingTask> {
 
 export async function scanPicking(
   id: string,
-  payload: { barcode: string; quantity: number; location_id?: string }
+  payload: { barcode: string; quantity: number; location_id?: string; lot_number?: string }
 ): Promise<ScanResult> {
   const { data } = await http.post<ScanResult>(`/picking/tasks/${id}/scan`, payload);
+  return data;
+}
+
+export interface PickLot {
+  location_id: string;
+  location_code: string;
+  lot_number: string | null;
+  expiration_date: string | null;
+  quantity_on_hand: number;
+  quantity_available: number;
+}
+
+export interface LineLots {
+  line_id: string;
+  manages_lots: boolean;
+  lots: PickLot[];
+}
+
+/** Lotes disponibles (FEFO) para elegir al pickear una línea. */
+export async function getLineLots(id: string, lineId: string): Promise<LineLots> {
+  const { data } = await http.get<LineLots>(`/picking/tasks/${id}/lines/${lineId}/lots`);
   return data;
 }
 

@@ -355,6 +355,7 @@ export interface ParsedOrderDraft {
 }
 
 export interface PickingLine {
+  line_id?: string;
   product_id: string;
   sku: string;
   name: string;

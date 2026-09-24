@@ -171,6 +171,20 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   incompleto fallaba). Ahora, con el flag apagado, el despacho queda **completo solo en el WMS** y
   no toca el ERP; con el flag encendido arma el payload completo y emite. Cubierto por tests
   (`test_flow` los dos caminos, `test_defontana_automation` la estructura del payload).
+  - **Elegir lote al pickear** *(Parte 1, hecha 2026-09-24)*. `Dispatch/Save` manda lote/serie por
+    línea, pero hasta ahora picking era **ciego al lote**: el FEFO solo elegía **ubicación**
+    (`order_service._suggested_location`), no un lote puntual, y el staging no guardaba el
+    vencimiento. Ahora, para un producto que maneja lotes, la app lista los lotes **pickeables
+    ordenados FEFO** (`inventory_service.available_lots`, excluye ubicaciones no pickeables) y el
+    operario **elige y confirma** el lote antes de escanear (obligatorio: sin lote el escaneo se
+    rechaza). El pick descuenta **ese** lote y lo lleva a staging con su vencimiento, para que el
+    lote viaje hasta la guía. Backend: `available_lots` + `scan`/`complete` con lote,
+    `register_operational_move(lot_number, expiration_date)`, ruta
+    `GET /picking/tasks/{id}/lines/{line_id}/lots`, `test_picking_lots.py`. Front:
+    `PickingTaskPage` lista los lotes y bloquea confirmar sin elección (mirado renderizado el
+    2026-09-24). **Pendientes:** *(Parte 2)* llevar el lote por packing → despacho para poblar el
+    `BatchInfo` de `Dispatch/Save`; *(Parte 3, opción A)* botón "Actualizar lotes desde Defontana"
+    + corregir el lote del saldo cuando esté mal ingresado, para poder liberar el despacho.
 - **Reemplazo de productos en picking** *(decidido y construido del lado WMS: despachar sin la
   línea y guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se
   despacha lo que hay y lo que falta sale después en otra guía. Un pedido **despachado** con

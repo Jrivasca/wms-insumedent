@@ -43,8 +43,17 @@ async def scan(
     task_id: str, payload: ScanRequest, user: CurrentUser = Depends(get_current_user)
 ):
     return await picking_service.scan(
-        user.tenant_id, task_id, user, payload.barcode, payload.quantity, payload.location_id
+        user.tenant_id, task_id, user, payload.barcode, payload.quantity,
+        payload.location_id, payload.lot_number,
     )
+
+
+@router.get("/tasks/{task_id}/lines/{line_id}/lots")
+async def line_lots(
+    task_id: str, line_id: str, user: CurrentUser = Depends(get_current_user)
+):
+    """Lotes disponibles (FEFO) para elegir al pickear una línea."""
+    return await picking_service.available_lots(user.tenant_id, task_id, line_id, user)
 
 
 @router.post("/tasks/{task_id}/mark-missing")

@@ -7,6 +7,8 @@ class ScanRequest(BaseModel):
     barcode: str
     quantity: float = Field(default=1, gt=0)
     location_id: Optional[str] = None
+    # Lote elegido por el operario (obligatorio para productos que manejan lotes).
+    lot_number: Optional[str] = None
 
 
 class MarkMissingRequest(BaseModel):

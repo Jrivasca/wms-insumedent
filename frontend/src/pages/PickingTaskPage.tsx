@@ -3,11 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, PackageX, RotateCcw } from 'lucide-react';
 import {
   completePicking,
+  getLineLots,
   getPickingTask,
   markMissing,
   resetPickingLine,
   scanPicking,
   startPicking,
+  type LineLots,
+  type PickLot,
 } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
@@ -38,6 +41,10 @@ export default function PickingTaskPage() {
   const [busy, setBusy] = useState(false);
   // The operator can tap a line to pick it; otherwise we auto-focus the first pending one.
   const [selectedSku, setSelectedSku] = useState<string | null>(null);
+  // Lote elegido para la línea actual: la app lista los lotes pickeables (FEFO) y el operario
+  // elige. Para productos que manejan lote es obligatorio (no se confirma sin lote).
+  const [lineLots, setLineLots] = useState<LineLots | null>(null);
+  const [selectedLot, setSelectedLot] = useState<PickLot | null>(null);
 
   // missing modal
   const [missingFor, setMissingFor] = useState<PickingLine | null>(null);
@@ -76,6 +83,43 @@ export default function PickingTaskPage() {
     return task.lines.find(pending) ?? null;
   }, [task, selectedSku]);
 
+  // Al cambiar de línea, traemos los lotes pickeables (FEFO) y limpiamos la elección previa:
+  // el operario debe elegir siempre, no autoseleccionamos para que confirme el lote a conciencia.
+  const currentLineId = currentLine?.line_id ?? null;
+  useEffect(() => {
+    let alive = true;
+    setSelectedLot(null);
+    if (!currentLineId) {
+      setLineLots(null);
+      return;
+    }
+    getLineLots(id, currentLineId)
+      .then((r) => alive && setLineLots(r))
+      .catch(() => alive && setLineLots(null));
+    return () => {
+      alive = false;
+    };
+  }, [id, currentLineId]);
+
+  // Tras un escaneo, refrescamos los saldos de lote (bajan las cantidades disponibles) y
+  // re-resolvemos el lote elegido; si se quedó sin saldo, se limpia la elección.
+  async function refreshLots() {
+    if (!currentLineId) return;
+    try {
+      const r = await getLineLots(id, currentLineId);
+      setLineLots(r);
+      setSelectedLot((prev) =>
+        prev
+          ? r.lots.find(
+              (l) => l.lot_number === prev.lot_number && l.location_id === prev.location_id
+            ) ?? null
+          : null
+      );
+    } catch {
+      /* mantenemos la lista actual si el refresco falla */
+    }
+  }
+
   const progress = useMemo(() => {
     if (!task) return { picked: 0, total: 0, lines: 0, done: 0 };
     const total = task.lines.reduce((a, l) => a + l.quantity_required, 0);
@@ -102,11 +146,19 @@ export default function PickingTaskPage() {
   async function handleScan(barcode: string) {
     setError(null);
     setMessage(null);
+    // Este producto maneja lotes: no se confirma sin elegir el lote de la lista.
+    if (lineLots?.manages_lots && !selectedLot) {
+      setFeedback('warning');
+      showMessage('Elegí el lote de la lista antes de escanear.', 'warning');
+      setTimeout(() => setFeedback('idle'), 2200);
+      return;
+    }
     try {
       const res = await scanPicking(id, {
         barcode,
         quantity: quantity || 1,
-        location_id: currentLine?.suggested_location_id,
+        location_id: selectedLot?.location_id ?? currentLine?.suggested_location_id,
+        lot_number: selectedLot?.lot_number ?? undefined,
       });
 
       // Over-scan and wrong-code are both rejected by the backend; distinguish by feedback.
@@ -130,6 +182,7 @@ export default function PickingTaskPage() {
           ? (res.task as PickingTask)
           : await getPickingTask(id);
       setTask(refreshed);
+      await refreshLots();
     } catch (err) {
       setFeedback('error');
       setError(errorMessage(err));
@@ -146,6 +199,13 @@ export default function PickingTaskPage() {
     const bc = currentLine.barcode_expected?.[0];
     const remaining = currentLine.quantity_required - currentLine.quantity_picked;
     if (!bc || remaining <= 0) return;
+    // Este producto maneja lotes: no se confirma sin elegir el lote de la lista.
+    if (lineLots?.manages_lots && !selectedLot) {
+      setFeedback('warning');
+      showMessage('Elegí el lote de la lista antes de confirmar.', 'warning');
+      setTimeout(() => setFeedback('idle'), 2200);
+      return;
+    }
     const qty = Math.min(quantity || 1, remaining);
     setBusy(true);
     setError(null);
@@ -157,13 +217,15 @@ export default function PickingTaskPage() {
       const res = await scanPicking(id, {
         barcode: bc,
         quantity: qty,
-        location_id: currentLine.suggested_location_id,
+        location_id: selectedLot?.location_id ?? currentLine.suggested_location_id,
+        lot_number: selectedLot?.lot_number ?? undefined,
       });
       const refreshed =
         res.task && typeof res.task === 'object'
           ? (res.task as PickingTask)
           : await getPickingTask(id);
       setTask(refreshed);
+      await refreshLots();
       setFeedback('success');
       showMessage('Línea confirmada', 'success');
       setTimeout(() => setFeedback('idle'), 1200);
@@ -324,10 +386,62 @@ export default function PickingTaskPage() {
             </p>
           )}
 
+          {/* Lote (FEFO): para productos que manejan lote, el operario debe leer y elegir el lote
+              de la lista antes de confirmar. Se ofrece el que vence primero arriba. */}
+          {lineLots?.manages_lots && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-graphite-400">
+                Elegí el lote {selectedLot ? '' : '(obligatorio)'}
+              </p>
+              {lineLots.lots.length === 0 ? (
+                <p className="mt-1 text-xs text-amber-300">
+                  No hay lotes con stock pickeable. Hay que actualizar los lotes desde Defontana
+                  antes de liberar el despacho.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {lineLots.lots.map((lot) => {
+                    const active =
+                      selectedLot?.lot_number === lot.lot_number &&
+                      selectedLot?.location_id === lot.location_id;
+                    return (
+                      <button
+                        key={`${lot.location_id}-${lot.lot_number}`}
+                        type="button"
+                        onClick={() => setSelectedLot(lot)}
+                        className={`flex w-full items-center justify-between rounded-card border px-3 py-2 text-left transition ${
+                          active
+                            ? 'border-brand bg-brand/20 text-white'
+                            : 'border-graphite-600 bg-graphite-800 text-graphite-200 hover:border-graphite-400'
+                        }`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-mono text-sm tracking-tight">
+                            {lot.lot_number}
+                          </span>
+                          <span className="block text-xs text-graphite-400">
+                            Vence{' '}
+                            {lot.expiration_date
+                              ? new Date(lot.expiration_date).toLocaleDateString('es-CL')
+                              : 'sin fecha'}{' '}
+                            · {lot.location_code}
+                          </span>
+                        </span>
+                        <span className="ml-2 shrink-0 text-sm font-semibold tabular-nums">
+                          {lot.quantity_available} disp.
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             onClick={pickWithoutScanner}
-            className="btn-xl mt-4 w-full bg-brand text-white hover:bg-brand-dark"
-            disabled={busy}
+            className="btn-xl mt-4 w-full bg-brand text-white hover:bg-brand-dark disabled:opacity-50"
+            disabled={busy || (!!lineLots?.manages_lots && !selectedLot)}
           >
             Confirmar sin escáner (+
             {Math.min(quantity, remainingCurrent)})
