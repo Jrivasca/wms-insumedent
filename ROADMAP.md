@@ -150,10 +150,13 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
   (notificación `sync_job_failed`, lleva a la Cola de Sincronización): antes quedaba
   descuadrado en silencio.
-- **Flujo 3 — Guía de despacho → `Order/DispatchOrder`** *(B.1: mapeo construido, dos valores por
-  confirmar)*. El payload se arma en `DefontanaMapper.build_dispatch_order` con la estructura del
-  swagger de pruebas (`Api.Defontana.Models.Order.DispatchOrderInput`) y los valores leídos de
-  guías **GDVELECT reales** el 2026-09-22:
+- **Flujo 3 — Guía de despacho → `Dispatch/Save`** *(B.1: mapper construido 2026-09-24; faltan
+  valores contables que define Insumedent)*. **El método cambió de `Order/DispatchOrder` a
+  `Dispatch/Save`** (Luis, 2026-09-23: soporta lote/serie). El payload lo arma
+  `DefontanaMapper.build_dispatch_save` (ver el detalle en la sección de lote/vencimiento, más
+  arriba); el worker manda `Dispatch/Save` detrás de `erp_sync_enabled`. Lo que sigue vale como
+  historial del mapeo anterior (`build_dispatch_order`, superado pero conservado) y de los valores
+  ya confirmados, que se reusan:
   - `dispatchInfo.assetsType` = **`1`** (tipo de bien "Constituye una venta") y `dispatchType` =
     **`1`** ("Por cuenta del cliente"), `isTransferDispatch` = **false** — confirmados en
     `dispatchTypeData` de guías reales.
@@ -189,9 +192,20 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     de la guía lleva sus lotes (`dispatch.lines[].lots`), asignados **FEFO** desde lo pickeado y
     restando lo que otras guías del mismo pedido ya despacharon (`dispatch_service._allocate_lots`;
     se acumula en `order.lines[].dispatched_lots` y se revierte al anular). Es el dato que poblará
-    el `BatchInfo` cuando se arme el mapper de `Dispatch/Save`. Cubierto por `test_picking_lots.py`
-    (flujo picking→packing→despacho). **Falta:** el mapper de `Dispatch/Save` en sí (bloqueado por
-    el JSON de ejemplo de Luis y el `Motive`).
+    el `BatchInfo` de la guía. Cubierto por `test_picking_lots.py` (flujo picking→packing→despacho).
+  - **Mapper de `Dispatch/Save`** *(hecho 2026-09-24)*. `DefontanaMapper.build_dispatch_save` arma
+    el payload de la guía: la cabecera comercial (cliente, condición de pago, vendedor, moneda,
+    local, lista, giro, comuna, región, precios) sale del **pedido original** (`raw_erp_data.order`
+    = `Order/Get`); las líneas y su lote (`Details` + `BatchInfo`, `UseBatch`), del despacho del
+    WMS (Parte 2). `DispatchInfo` confirmado (`assets/dispatch/transaction = 1`);
+    `IsTransferDocument` configurable (default `true` = no viaja al SII). El worker
+    (`_handle_dispatch_order`) ahora manda `Dispatch/Save` (connector `dispatch_save`), detrás del
+    mismo candado `erp_sync_enabled` (apagado). `build_dispatch_order` (Order/DispatchOrder) queda
+    superado pero se conserva. Cubierto por `test_defontana_automation`. **Pendientes (config, los
+    define Insumedent):** código del tipo de documento (`defontana_dispatch_document_type`), las
+    cuentas contables (`_client/_sale/_inventory_account`) y el `Motive` (hoy `COMPRA`, debería ser
+    `VENTA`/`SALIDA`). Ejemplo real para validar con Luis en
+    `docs/entregables/Dispatch-Save-ejemplo.{json,md}` (pedido 2854, con lote).
   - **Corregir/actualizar lotes** *(Parte 3, opción A — hecha 2026-09-24)*. Cuando el lote del
     saldo está mal ingresado, el operario lo corrige **en picking** para liberar el despacho:
     "Actualizar lotes desde Defontana" refresca la foto de referencia (`erp_batches`,

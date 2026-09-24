@@ -1,0 +1,129 @@
+{
+  "DocumentType": "<PENDIENTE: codigo tipo de doc guia (GetDocumentInfo)>",
+  "FirstFolio": 0,
+  "LastFolio": 0,
+  "ExternalDocumentID": "WMS-GD-EJEMPLO-1",
+  "EmissionDate": {
+    "day": 24,
+    "month": 9,
+    "year": 2026
+  },
+  "FirstFeePaid": {
+    "day": 24,
+    "month": 9,
+    "year": 2026
+  },
+  "ClientFile": "69.050.600-9",
+  "ContactIndex": "SALINAS 1211",
+  "PaymentCondition": "CREDITO30",
+  "SellerFileId": "185291901",
+  "BillingCoin": "PESO",
+  "BillingRate": 1.0,
+  "ShopId": "Local",
+  "PriceList": "7942",
+  "Giro": "Actividades de la administración pública en general",
+  "District": "VALPARAISO",
+  "City": "REGION VALPARAISO",
+  "Contact": -1,
+  "Gloss": "Guia de venta - ejemplo Dispatch/Save (datos de pruebas)",
+  "ClientAnalysis": {
+    "AccountNumber": "<PENDIENTE: cuenta cliente>",
+    "BusinessCenter": "EMPNEGVTAVTA000",
+    "Classifier01": "",
+    "Classifier02": ""
+  },
+  "AttachedDocuments": [],
+  "IsTransferDocument": true,
+  "OriginStorage": {
+    "Code": "BODEGACENTRAL",
+    "Motive": "VENTA",
+    "StorageAnalysis": {
+      "AccountNumber": "<PENDIENTE: cuenta inventario>",
+      "BusinessCenter": "EMPNEGVTAVTA000",
+      "Classifier01": "",
+      "Classifier02": ""
+    }
+  },
+  "DestinationStorage": {
+    "Code": "BODEGACENTRAL",
+    "Motive": "VENTA",
+    "StorageAnalysis": {
+      "AccountNumber": "<PENDIENTE: cuenta inventario>",
+      "BusinessCenter": "EMPNEGVTAVTA000",
+      "Classifier01": "",
+      "Classifier02": ""
+    }
+  },
+  "DispatchInfo": {
+    "AssetsType": "1",
+    "DispatchType": "1",
+    "TransactionType": "1",
+    "IsTransferDispatch": false
+  },
+  "Details": [
+    {
+      "Type": "A",
+      "IsExempt": false,
+      "Code": "GUT0440",
+      "Count": 4,
+      "ProductName": "CONO GUTAPERCHA 04 N°40",
+      "Price": 4990.0,
+      "Comment": "",
+      "Unit": "UN",
+      "Analysis": {
+        "AccountNumber": "<PENDIENTE: cuenta venta>",
+        "BusinessCenter": "EMPNEGVTAVTA000",
+        "Classifier01": "",
+        "Classifier02": ""
+      },
+      "analysisInventory": {
+        "AccountNumber": "<PENDIENTE: cuenta inventario>",
+        "BusinessCenter": "EMPNEGVTAVTA000",
+        "Classifier01": "",
+        "Classifier02": ""
+      },
+      "UseBatch": true,
+      "BatchInfo": [
+        {
+          "Amount": 3,
+          "BatchNumber": "LOTE-2027A"
+        },
+        {
+          "Amount": 1,
+          "BatchNumber": "LOTE-2028B"
+        }
+      ],
+      "UseSeries": false,
+      "Serials": []
+    },
+    {
+      "Type": "A",
+      "IsExempt": false,
+      "Code": "IYESO003",
+      "Count": 5,
+      "ProductName": "YESO PIEDRA AMARILLO VELMIX 1 KILO",
+      "Price": 3550.0,
+      "Comment": "",
+      "Unit": "UN",
+      "Analysis": {
+        "AccountNumber": "<PENDIENTE: cuenta venta>",
+        "BusinessCenter": "EMPNEGVTAVTA000",
+        "Classifier01": "",
+        "Classifier02": ""
+      },
+      "analysisInventory": {
+        "AccountNumber": "<PENDIENTE: cuenta inventario>",
+        "BusinessCenter": "EMPNEGVTAVTA000",
+        "Classifier01": "",
+        "Classifier02": ""
+      },
+      "UseBatch": false,
+      "BatchInfo": [],
+      "UseSeries": false,
+      "Serials": []
+    }
+  ],
+  "SaleTaxes": [],
+  "VentaRecDesGlobal": [],
+  "CustomFields": []
+}

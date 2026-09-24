@@ -57,9 +57,9 @@ async def _handle_dispatch_order(job: Dict[str, Any]) -> Dict[str, Any]:
     order_id = payload.get("order_id")
     order_number = int(payload.get("erp_order_number") or 0)
 
-    # Order/DispatchOrder despacha el pedido por su número; el centro de negocio y el tipo de
-    # documento van en el análisis contable (B.1). La bodega de origen es el `erp_storage_code`
-    # de la bodega del despacho.
+    # Guía de despacho por Dispatch/Save (B.1): documento de venta con lote/serie por línea. La
+    # cabecera comercial sale del pedido original (`raw_erp_data.order` = Order/Get); las líneas y
+    # su lote, del despacho del WMS; la bodega de origen es el `erp_storage_code` de la bodega.
     order = (
         await db[Collections.ORDERS].find_one({"_id": to_object_id(order_id)}) if order_id else None
     )
@@ -72,19 +72,25 @@ async def _handle_dispatch_order(job: Dict[str, Any]) -> Dict[str, Any]:
         await db[Collections.WAREHOUSES].find_one({"_id": to_object_id(warehouse_id)})
         if warehouse_id else None
     )
-    dispatch_payload = DefontanaMapper.build_dispatch_order(
-        order_number=order_number,
-        line_count=len((order or {}).get("lines", [])),
+    order_raw = ((order or {}).get("raw_erp_data") or {}).get("order") or {}
+    dispatch_payload = DefontanaMapper.build_dispatch_save(
+        dispatch=dispatch or {},
+        order_raw=order_raw,
+        storage_code=(warehouse or {}).get("erp_storage_code") or "",
+        document_type=settings.defontana_dispatch_document_type,
         business_center=settings.defontana_business_center,
+        client_account=settings.defontana_dispatch_client_account,
+        sale_account=settings.defontana_dispatch_sale_account,
+        inventory_account=settings.defontana_dispatch_inventory_account,
         assets_type=settings.defontana_dispatch_assets_type,
         dispatch_type=settings.defontana_dispatch_type,
         transaction_type=settings.defontana_dispatch_transaction_type,
         motive=settings.defontana_dispatch_motive,
-        storage_code=(warehouse or {}).get("erp_storage_code") or "",
+        is_transfer_document=settings.defontana_dispatch_is_transfer_document,
         emission_date=now_utc().date(),
         gloss=(order or {}).get("customer") or "",
     )
-    response = await dispatch_sync.dispatch_order(tenant_id, order_number, dispatch_payload)
+    response = await dispatch_sync.dispatch_save(tenant_id, dispatch_payload)
 
     if dispatch_id:
         await db[Collections.DISPATCHES].update_one(
@@ -97,7 +103,10 @@ async def _handle_dispatch_order(job: Dict[str, Any]) -> Dict[str, Any]:
                 }
             },
         )
-    return {"external_document_id": response.get("DispatchGuide"), "response": response}
+    return {
+        "external_document_id": response.get("Folio") or response.get("DispatchGuide"),
+        "response": response,
+    }
 
 
 async def _handle_create_inventory_document(job: Dict[str, Any]) -> Dict[str, Any]:

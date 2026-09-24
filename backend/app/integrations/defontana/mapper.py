@@ -290,6 +290,114 @@ class DefontanaMapper:
         }
 
     @staticmethod
+    def build_dispatch_save(
+        *,
+        dispatch: Dict[str, Any],
+        order_raw: Dict[str, Any],
+        storage_code: str,
+        document_type: str,
+        business_center: str,
+        client_account: str,
+        sale_account: str,
+        inventory_account: str,
+        assets_type: str,
+        dispatch_type: str,
+        transaction_type: str,
+        motive: str,
+        is_transfer_document: bool,
+        emission_date: date,
+        gloss: str = "",
+    ) -> Dict[str, Any]:
+        """Payload de ``POST /api/Dispatch/Save`` (guía de despacho, B.1). Reemplaza a
+        ``build_dispatch_order``: ``Dispatch/Save`` es un documento de venta completo que **permite
+        lote y serie por línea**, que es por lo que Defontana lo recomendó (spec en
+        ``docs/entregables/Dispatch-Save-campos.md``).
+
+        Las líneas y su desglose de **lote** salen del despacho del WMS (``dispatch['lines']`` con
+        ``lots``, que ya viene FEFO desde el picking, Parte 2). La cabecera (cliente, condición de
+        pago, vendedor, moneda, local, giro, comuna, región, precios) sale del **pedido original**
+        de Defontana (``order_raw`` = ``Order/Get``), que es la fuente de esos datos comerciales.
+
+        Lo que el WMS **no** decide —código del tipo de documento, ``Motive`` de la bodega y las
+        **cuentas contables** (``AccountNumber``)— llega por parámetro desde la config; van vacíos
+        hasta que Insumedent los defina (pendientes B.1 #2 y #3). ``FirstFolio``/``LastFolio`` en
+        ``0`` para que el ERP tome el correlativo; ``Contact`` en ``-1`` como pide la spec.
+        """
+        client = order_raw.get("client") or {}
+        details_by_code = {d.get("code"): d for d in (order_raw.get("details") or [])}
+        emission = {"day": emission_date.day, "month": emission_date.month, "year": emission_date.year}
+
+        def analysis(account: str) -> Dict[str, Any]:
+            return {
+                "AccountNumber": account, "BusinessCenter": business_center,
+                "Classifier01": "", "Classifier02": "",
+            }
+
+        def line(dl: Dict[str, Any]) -> Dict[str, Any]:
+            src = details_by_code.get(dl.get("sku")) or {}
+            lots = dl.get("lots") or []
+            return {
+                "Type": "A",
+                "IsExempt": bool(src.get("isExempt", False)),
+                "Code": dl.get("sku"),
+                "Count": _qty(dl.get("quantity")),
+                "ProductName": dl.get("sku") and (src.get("name") or dl.get("sku")),
+                "Price": src.get("price") or 0,
+                "Comment": "",
+                "Unit": src.get("unit") or "UN",
+                "Analysis": analysis(sale_account),
+                "analysisInventory": analysis(inventory_account),
+                "UseBatch": bool(lots),
+                "BatchInfo": [
+                    {"Amount": _qty(l.get("quantity")), "BatchNumber": l.get("lot_number")}
+                    for l in lots
+                ],
+                "UseSeries": False,
+                "Serials": [],
+            }
+
+        storage = {
+            "Code": storage_code, "Motive": motive, "StorageAnalysis": analysis(inventory_account),
+        }
+        return {
+            "DocumentType": document_type,
+            "FirstFolio": 0,
+            "LastFolio": 0,
+            "ExternalDocumentID": f"WMS-GD-{dispatch.get('_id') or dispatch.get('id') or ''}",
+            "EmissionDate": emission,
+            "FirstFeePaid": emission,
+            "ClientFile": client.get("fileId"),
+            "ContactIndex": client.get("address"),
+            "PaymentCondition": order_raw.get("paymentConditionID"),
+            "SellerFileId": order_raw.get("sellerID"),
+            "BillingCoin": order_raw.get("billingCoindID"),
+            "BillingRate": order_raw.get("billingRate") or 1,
+            "ShopId": order_raw.get("shopID"),
+            "PriceList": order_raw.get("referenceNumberPricingID"),
+            "Giro": client.get("giro"),
+            "District": client.get("district"),   # comuna
+            "City": client.get("region"),         # la spec: City = código de la región
+            "Contact": -1,
+            "Gloss": gloss or order_raw.get("dispatchComment") or "",
+            "ClientAnalysis": analysis(client_account),
+            "AttachedDocuments": [],
+            "IsTransferDocument": is_transfer_document,
+            "OriginStorage": storage,
+            # No es traslado entre bodegas: destino = origen (como pide la spec).
+            "DestinationStorage": storage,
+            "DispatchInfo": {
+                "AssetsType": assets_type,
+                "DispatchType": dispatch_type,
+                "TransactionType": transaction_type,
+                "IsTransferDispatch": False,
+            },
+            "Details": [line(dl) for dl in dispatch.get("lines", [])],
+            "SaleTaxes": [],
+            "VentaRecDesGlobal": [],
+            "CustomFields": [],
+        }
+
+    @staticmethod
     def map_product_by_barcode(raw: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not raw:
             return None

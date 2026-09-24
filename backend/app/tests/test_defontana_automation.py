@@ -293,3 +293,56 @@ async def test_build_dispatch_order_has_the_verified_structure():
     assert payload["orderDetailAnalysis"][0]["detailAnalysis"]["businessCenter"] == "EMPNEGVTAVTA000"
     assert payload["emissionDate"] == {"day": 22, "month": 9, "year": 2026}
     assert payload["isTransferDocument"] is False
+
+
+async def test_build_dispatch_save_lleva_cabecera_del_pedido_y_lote_por_linea():
+    # B.1: payload de Dispatch/Save. La cabecera comercial sale del pedido original (Order/Get) y
+    # las líneas con su lote, del despacho del WMS (BatchInfo por línea).
+    order_raw = {
+        "client": {"fileId": "CLI-77", "giro": "Odontología", "district": "SANTIAGO",
+                   "region": "RM", "address": "Av. Siempre Viva 123"},
+        "paymentConditionID": "30D", "sellerID": "V-01", "billingCoindID": "PESO",
+        "billingRate": 1, "shopID": "CASA-MATRIZ", "referenceNumberPricingID": "LISTA-1",
+        "details": [
+            {"code": "SKU-1", "name": "Producto 1", "unit": "UN", "price": 1990, "isExempt": False},
+        ],
+    }
+    dispatch = {
+        "_id": "d-1",
+        "lines": [
+            {"line_id": "l1", "sku": "SKU-1", "quantity": 3,
+             "lots": [{"lot_number": "LOTE-B", "expiration_date": None, "quantity": 2},
+                      {"lot_number": "LOTE-A", "expiration_date": None, "quantity": 1}]},
+        ],
+    }
+    payload = DefontanaMapper.build_dispatch_save(
+        dispatch=dispatch, order_raw=order_raw, storage_code="BODEGACENTRAL",
+        document_type="GDV", business_center="EMPNEGVTAVTA000",
+        client_account="1101", sale_account="4101", inventory_account="1201",
+        assets_type="1", dispatch_type="1", transaction_type="1", motive="VENTA",
+        is_transfer_document=True, emission_date=date(2026, 9, 24), gloss="CLINICA X",
+    )
+    # Cabecera del pedido original.
+    assert payload["ClientFile"] == "CLI-77"
+    assert payload["District"] == "SANTIAGO" and payload["City"] == "RM"  # comuna / región
+    assert payload["PaymentCondition"] == "30D" and payload["SellerFileId"] == "V-01"
+    assert payload["Contact"] == -1 and payload["FirstFolio"] == 0
+    # DispatchInfo confirmado y IsTransferDocument (no viaja al SII).
+    assert payload["DispatchInfo"] == {
+        "AssetsType": "1", "DispatchType": "1", "TransactionType": "1", "IsTransferDispatch": False,
+    }
+    assert payload["IsTransferDocument"] is True
+    assert payload["OriginStorage"]["Code"] == "BODEGACENTRAL"
+    assert payload["OriginStorage"]["Motive"] == "VENTA"
+    assert payload["DestinationStorage"] == payload["OriginStorage"]  # no es traslado
+    # Cuentas contables en los asientos.
+    assert payload["ClientAnalysis"]["AccountNumber"] == "1101"
+    # Línea con precio del pedido y lote por línea (BatchInfo).
+    line = payload["Details"][0]
+    assert line["Code"] == "SKU-1" and line["Count"] == 3 and line["Price"] == 1990
+    assert line["Analysis"]["AccountNumber"] == "4101"
+    assert line["UseBatch"] is True
+    assert line["BatchInfo"] == [
+        {"Amount": 2, "BatchNumber": "LOTE-B"},
+        {"Amount": 1, "BatchNumber": "LOTE-A"},
+    ]

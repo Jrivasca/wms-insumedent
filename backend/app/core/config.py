@@ -88,8 +88,22 @@ class Settings(BaseSettings):
     # una guía real es ``COMPRA`` (raro para un egreso de venta: confirmar antes de encender).
     defontana_dispatch_assets_type: str = "1"
     defontana_dispatch_type: str = "1"
-    defontana_dispatch_transaction_type: str = ""
+    # Confirmado por la spec de Dispatch/Save (Luis, 2026-09-23): 1 = "Venta del Giro".
+    defontana_dispatch_transaction_type: str = "1"
     defontana_dispatch_motive: str = "COMPRA"
+
+    # Guía de despacho → Dispatch/Save (B.1, método recomendado por Defontana: soporta lote/serie
+    # por línea). Reemplaza a Order/DispatchOrder. Sigue detrás de ``erp_sync_enabled`` (apagado).
+    # ``IsTransferDocument=true`` registra y contabiliza la guía pero NO la envía al SII (útil para
+    # probar sin emitir un DTE real; igual consume folio y no se puede borrar) — por eso el default.
+    defontana_dispatch_is_transfer_document: bool = True
+    # Código del tipo de documento de la guía (GetDocumentInfo). Pendiente: lo define Insumedent.
+    defontana_dispatch_document_type: str = ""
+    # Cuentas contables de los asientos (AccountNumber, sin puntos). Pendientes: los define la
+    # contabilidad de Insumedent. Vacío = el ejemplo/payload los deja en blanco para completar.
+    defontana_dispatch_client_account: str = ""
+    defontana_dispatch_sale_account: str = ""
+    defontana_dispatch_inventory_account: str = ""
 
     # Inventory
     allow_negative_stock: bool = False
