@@ -10,7 +10,7 @@ from app.core.database import get_database
 from app.core.tenant_db import tenant_db
 from app.models import Collections
 from app.seed import run_seed
-from app.services import order_service, picking_service
+from app.services import dispatch_service, order_service, packing_service, picking_service
 from .conftest import make_user
 
 pytestmark = pytest.mark.asyncio
@@ -101,6 +101,39 @@ async def test_pick_decrements_the_chosen_lote_and_carries_it_to_staging():
     mv = await s.db[Collections.INVENTORY_MOVEMENTS].find_one(
         {"product_id": s.product_id, "movement_type": "pick", "lot_number": "LOTE-B"})
     assert mv is not None
+
+
+async def test_el_lote_viaja_por_packing_hasta_la_guia_de_despacho():
+    """Parte 2: el lote elegido al pickear queda en la línea del pedido (``picked_lots``) y, al
+    despachar, la línea de la guía lo lleva (``lots``) para poblar el ``BatchInfo`` de la guía."""
+    s = await _setup()
+    admin = make_user({"_id": "admin-1", "tenant_id": s.tenant_id, "role": "admin"})
+    order = await s.db[Collections.ORDERS].find_one({"erp_order_number": "9101"})
+    order_id = str(order["_id"])
+
+    # Pick de 3 del LOTE-B y cierre.
+    await picking_service.scan(s.tenant_id, s.task_id, s.picker, s.bc, 3, s.loc_id, "LOTE-B")
+    await picking_service.complete(s.tenant_id, s.task_id, s.picker)
+
+    # El pedido tomó el desglose de lote de lo pickeado.
+    order = await s.db[Collections.ORDERS].find_one({"_id": order["_id"]})
+    picked_lots = order["lines"][0].get("picked_lots")
+    assert picked_lots and picked_lots[0]["lot_number"] == "LOTE-B"
+    assert picked_lots[0]["quantity"] == 3
+
+    # Packing: escanear y cerrar -> pedido listo para despacho.
+    pk = (await packing_service.list_tasks(s.tenant_id, admin))["items"][0]
+    await packing_service.start_task(s.tenant_id, pk["id"], admin)
+    await packing_service.scan(s.tenant_id, pk["id"], admin, s.bc, 3, None)
+    await packing_service.complete(s.tenant_id, pk["id"], admin)
+
+    # Despacho: la línea de la guía lleva el lote (con su vencimiento) y la cantidad.
+    dispatch = await dispatch_service.confirm_dispatch(s.tenant_id, order_id, admin)
+    line = dispatch["lines"][0]
+    assert len(line["lots"]) == 1
+    assert line["lots"][0]["lot_number"] == "LOTE-B"
+    assert line["lots"][0]["quantity"] == 3
+    assert line["lots"][0]["expiration_date"] is not None
 
 
 async def test_a_lote_without_pickable_stock_is_rejected():

@@ -182,9 +182,19 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     `register_operational_move(lot_number, expiration_date)`, ruta
     `GET /picking/tasks/{id}/lines/{line_id}/lots`, `test_picking_lots.py`. Front:
     `PickingTaskPage` lista los lotes y bloquea confirmar sin elección (mirado renderizado el
-    2026-09-24). **Pendientes:** *(Parte 2)* llevar el lote por packing → despacho para poblar el
-    `BatchInfo` de `Dispatch/Save`; *(Parte 3, opción A)* botón "Actualizar lotes desde Defontana"
-    + corregir el lote del saldo cuando esté mal ingresado, para poder liberar el despacho.
+    2026-09-24).
+  - **El lote viaja hasta la guía** *(Parte 2, hecha 2026-09-24)*. Al cerrar el picking, el
+    desglose de lote de lo pickeado queda en la línea del pedido (`order.lines[].picked_lots`,
+    agrupado por lote+vencimiento, `order_service._picked_lots_by_line`). Al despachar, cada línea
+    de la guía lleva sus lotes (`dispatch.lines[].lots`), asignados **FEFO** desde lo pickeado y
+    restando lo que otras guías del mismo pedido ya despacharon (`dispatch_service._allocate_lots`;
+    se acumula en `order.lines[].dispatched_lots` y se revierte al anular). Es el dato que poblará
+    el `BatchInfo` cuando se arme el mapper de `Dispatch/Save`. Cubierto por `test_picking_lots.py`
+    (flujo picking→packing→despacho). **Falta:** el mapper de `Dispatch/Save` en sí (bloqueado por
+    el JSON de ejemplo de Luis y el `Motive`).
+  - **Corregir/actualizar lotes** *(Parte 3, opción A — pendiente)*: botón "Actualizar lotes desde
+    Defontana" y corregir el lote del saldo cuando esté mal ingresado, para poder liberar el
+    despacho.
 - **Reemplazo de productos en picking** *(decidido y construido del lado WMS: despachar sin la
   línea y guía aparte para lo pendiente — A.7)*. Insumedent eligió la alternativa (a): se
   despacha lo que hay y lo que falta sale después en otra guía. Un pedido **despachado** con

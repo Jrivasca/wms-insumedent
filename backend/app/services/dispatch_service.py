@@ -59,6 +59,41 @@ def _remaining_by_line(order_lines: List[Dict[str, Any]]) -> Dict[str, int]:
     }
 
 
+def _lot_key(lot: Dict[str, Any]):
+    return (lot.get("lot_number"), lot.get("expiration_date"))
+
+
+def _allocate_lots(
+    picked_lots: List[Dict[str, Any]],
+    already_dispatched: List[Dict[str, Any]],
+    quantity: float,
+) -> List[Dict[str, Any]]:
+    """Reparte ``quantity`` entre los lotes pickeados de la línea, en orden FEFO (el que
+    vence antes primero), restando lo que otras guías del mismo pedido ya despacharon de cada
+    lote. Devuelve ``[{lot_number, expiration_date, quantity}]`` para poblar el lote de la
+    línea de la guía (``BatchInfo`` de ``Dispatch/Save``). Si la línea no maneja lote
+    (``picked_lots`` vacío) devuelve ``[]``: la guía va sin desglose de lote, como antes."""
+    consumed: Dict[Any, float] = {}
+    for d in already_dispatched or []:
+        consumed[_lot_key(d)] = consumed.get(_lot_key(d), 0) + (d.get("quantity", 0) or 0)
+    out: List[Dict[str, Any]] = []
+    need = quantity
+    for lot in picked_lots or []:
+        if need <= 0:
+            break
+        avail = (lot.get("quantity", 0) or 0) - consumed.get(_lot_key(lot), 0)
+        if avail <= 0:
+            continue
+        take = min(avail, need)
+        out.append({
+            "lot_number": lot.get("lot_number"),
+            "expiration_date": lot.get("expiration_date"),
+            "quantity": take,
+        })
+        need -= take
+    return out
+
+
 async def _active_packing_task(tenant_id: str, order_id: str) -> Optional[Dict[str, Any]]:
     """La tarea de packing vigente: la más reciente no cancelada. Con un pendiente (A.7) el
     pedido tiene más de una, y los bultos por despachar están en la última."""
@@ -173,7 +208,12 @@ async def confirm_dispatch(
         "warehouse_id": warehouse_id,
         "lines": [
             {"line_id": lid, "product_id": line_by_id[lid].get("product_id"),
-             "sku": line_by_id[lid].get("sku"), "quantity": q}
+             "sku": line_by_id[lid].get("sku"), "quantity": q,
+             "lots": _allocate_lots(
+                 line_by_id[lid].get("picked_lots", []),
+                 line_by_id[lid].get("dispatched_lots", []),
+                 q,
+             )}
             for lid, q in target.items()
         ],
         "package_ids": used_packages,
@@ -206,11 +246,16 @@ async def confirm_dispatch(
                 created_by=user.id,
             )
 
-    # Acumular lo despachado en el pedido.
+    # Acumular lo despachado en el pedido (cantidad y desglose de lote, para que una segunda
+    # guía del mismo pedido consuma los lotes que quedan sin repetir los ya despachados).
+    lots_by_line = {dl["line_id"]: dl.get("lots", []) for dl in dispatch["lines"]}
     for ol in order_lines:
         inc = target.get(ol.get("line_id"), 0)
         if inc:
             ol["dispatched_quantity"] = (ol.get("dispatched_quantity", 0) or 0) + inc
+            new_lots = lots_by_line.get(ol.get("line_id"), [])
+            if new_lots:
+                ol["dispatched_lots"] = (ol.get("dispatched_lots", []) or []) + new_lots
 
     # Estampar la guía en los bultos incluidos.
     if used_packages and packing_task:
@@ -292,6 +337,22 @@ async def _revert_dispatch_effects(
             ol["dispatched_quantity"] = max(
                 0, (ol.get("dispatched_quantity", 0) or 0) - int(dl.get("quantity") or 0)
             )
+            # Soltar los lotes que esta guía había despachado, para que una nueva guía los
+            # vuelva a asignar FEFO (empareja por lote+vencimiento+cantidad).
+            if dl.get("lots"):
+                pend = [dict(x) for x in dl["lots"]]
+                kept = []
+                for cur in ol.get("dispatched_lots", []) or []:
+                    match = next(
+                        (p for p in pend if _lot_key(p) == _lot_key(cur)
+                         and (p.get("quantity", 0) or 0) == (cur.get("quantity", 0) or 0)),
+                        None,
+                    )
+                    if match:
+                        pend.remove(match)
+                    else:
+                        kept.append(cur)
+                ol["dispatched_lots"] = kept
     # Liberar los bultos de esta guía en la tarea de packing que los tenga: con un pendiente
     # (A.7) hay más de una, y la guía anulada puede ser la de la tarea anterior.
     db = tenant_db(tenant_id)
