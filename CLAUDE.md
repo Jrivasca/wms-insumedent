@@ -201,10 +201,11 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
   —`EMPNEGVTAVTA000`, probado por escritura contra `Inventory/Insert` el 2026-09-21— así que lo
   que traba el envío de inventario es el corte de bodega, no A.2. Para las **guías** el método es
   **`Dispatch/Save`** (reemplazó a `Order/DispatchOrder`: soporta lote/serie). El mapeo está
-  **completo y validado por Defontana** (`build_dispatch_save`, detrás de `erp_sync_enabled`, ver B.1
-  en `ROADMAP.md`); lo **único** que falta para encender es que Insumedent cargue en
-  `DEFONTANA_DISPATCH_*_ACCOUNT` las cuentas contables de **cliente** y **venta de línea** (las de
-  inventario ya están confirmadas). No lo enciendas sin esas cuentas.
+  **completo y validado por Defontana**, con las **cuentas contables cargadas y verificadas en QA**
+  (`build_dispatch_save` + `DEFONTANA_DISPATCH_*_ACCOUNT`, detrás de `erp_sync_enabled`, ver B.1 en
+  `ROADMAP.md`). Lo único que queda es **encender `erp_sync_enabled`** cuando se decida la puesta en
+  marcha; una emisión real consume un folio de QA y **no se puede borrar**, así que es una decisión
+  deliberada, no "para probar".
 - Las sincronizaciones automáticas están en un solo programador,
   **`app/workers/defontana_scheduler.py`** (corre en el worker), con la última corrida por
   empresa en `scheduler_runs`. Cada nivel tiene su flag; ver la tabla del `ROADMAP.md`.
@@ -326,12 +327,13 @@ falta depende de terceros, no de código:
 - **B.1, guía de despacho → `Dispatch/Save`**: **mapeo completo y validado por Defontana**
   (2026-09-25, Luis). Casing (minúscula), `attachedDocuments` (Nota de Pedido 802 obligatoria),
   `businessCenter` por cuenta, IVA, `firstFeePaid` por condición de pago, `documentType`=`GDVELECT`,
-  `motive`=`VENTA`: todo aplicado (PR #34, `build_dispatch_save`). **Lo único que falta para encender:**
-  Insumedent debe cargar en `DEFONTANA_DISPATCH_*_ACCOUNT` las cuentas contables de **cliente** y
-  **venta de línea** (las de inventario ya confirmadas). El envío sigue apagado (`erp_sync_enabled`)
-  hasta eso: por ahora **ninguna guía viaja al ERP**. Para una prueba real de emisión hay que
-  encender el flag en un `.env` local con `DEFONTANA_MOCK=false` y una guía de prueba **consume folio
-  y no se puede borrar** (a diferencia de los documentos de inventario).
+  `motive`=`VENTA`: todo aplicado (PR #34, `build_dispatch_save`). **Cuentas contables cargadas y
+  verificadas en vivo en QA** (2026-09-25, `DEFONTANA_DISPATCH_*_ACCOUNT`): la guía se contabiliza solo
+  por el movimiento de inventario (MERCADERIAS `1110801001` / COSTOS DE VENTAS `4110101001`). El envío
+  sigue apagado (`erp_sync_enabled`): por ahora **ninguna guía viaja al ERP**. **Lo único que queda** es
+  encender el flag cuando se decida la puesta en marcha; una prueba real de emisión (en un `.env` local
+  con `DEFONTANA_MOCK=false`) **consume folio y no se puede borrar** (a diferencia de los documentos de
+  inventario), así que es deliberada.
 
 ## Intentado y descartado (no repetir)
 

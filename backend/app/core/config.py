@@ -96,16 +96,19 @@ class Settings(BaseSettings):
     # ``IsTransferDocument=true`` registra y contabiliza la guía pero NO la envía al SII (útil para
     # probar sin emitir un DTE real; igual consume folio y no se puede borrar) — por eso el default.
     defontana_dispatch_is_transfer_document: bool = True
-    # Código del tipo de documento de la guía (GetDocumentInfo). Pendiente: lo define Insumedent.
-    defontana_dispatch_document_type: str = ""
-    # Cuentas contables de los asientos (accountNumber, sin puntos). Valores del ejemplo de Luis
-    # (2026-09-25), a confirmar por la contabilidad de Insumedent antes de encender la guía:
-    # cliente 1110401001, venta e inventario de línea 1110801001, inventario de bodega 4110101001.
-    # Vacío = el payload los deja en blanco para completar.
-    defontana_dispatch_client_account: str = ""
-    defontana_dispatch_sale_account: str = ""
-    defontana_dispatch_inventory_account: str = ""
-    defontana_dispatch_storage_account: str = ""
+    # Código del tipo de documento de la guía (GetDocumentInfo): la guía de despacho electrónica.
+    defontana_dispatch_document_type: str = "GDVELECT"
+    # Cuentas contables de los asientos (accountNumber, sin puntos). Salen de la config del ERP de
+    # Insumedent y son las mismas en todos los entornos. Verificadas en vivo en el ERP QA el
+    # 2026-09-25 (Configuración → Inventario → Tipos de Documentos → GDVELECT → Definición Contable):
+    # la guía se contabiliza SOLO por el movimiento de inventario, así que las que importan son
+    # ``inventory`` (Asiento por Inventario = MERCADERIAS) y ``storage`` (Asiento por Facturas por
+    # Recibir = COSTOS DE VENTAS). ``client`` y ``sale`` son obligatorios en el payload pero en una
+    # guía no generan asiento propio (eso ocurre en la factura); valores de la emisión real 3525.
+    defontana_dispatch_client_account: str = "1110401001"
+    defontana_dispatch_sale_account: str = "1110801001"
+    defontana_dispatch_inventory_account: str = "1110801001"
+    defontana_dispatch_storage_account: str = "4110101001"
 
     # Inventory
     allow_negative_stock: bool = False

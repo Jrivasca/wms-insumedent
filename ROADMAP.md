@@ -150,8 +150,9 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
   (notificación `sync_job_failed`, lleva a la Cola de Sincronización): antes quedaba
   descuadrado en silencio.
-- **Flujo 3 — Guía de despacho → `Dispatch/Save`** *(B.1: mapper completo 2026-09-25, estructura
-  validada por Defontana; falta que Insumedent cargue dos cuentas contables)*. **El método cambió de
+- **Flujo 3 — Guía de despacho → `Dispatch/Save`** *(B.1: completo 2026-09-25 — estructura validada
+  por Defontana y cuentas contables cargadas y verificadas en QA; solo falta encender `erp_sync_enabled`
+  cuando se decida la puesta en marcha)*. **El método cambió de
   `Order/DispatchOrder` a `Dispatch/Save`** (Luis, 2026-09-23: soporta lote/serie). El payload lo arma
   `DefontanaMapper.build_dispatch_save` (ver el detalle en la sección de lote/vencimiento, más
   arriba); el worker manda `Dispatch/Save` detrás de `erp_sync_enabled`. Valores confirmados que se
@@ -171,10 +172,11 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   - **`attachedDocuments`:** la **Nota de Pedido** (`documentTypeId 802`, folio = nº de pedido)
     **siempre va** (mueve el estado del pedido). Catálogo de códigos en
     `docs/entregables/Dispatch-Save-documentos-asociados.md`.
-  - **Cuentas contables** (`GDVELECT` → Definición Contable, las define el cliente en su ERP):
-    inventario de línea **`1110801001`** (MERCADERIAS) y de bodega **`4110101001`** (COSTOS DE VENTAS),
-    **confirmadas**. **Faltan** las de **cliente** (`1110401001` en el ejemplo) y **venta de línea**,
-    que Insumedent debe sacar de su ERP y cargar en `DEFONTANA_DISPATCH_*_ACCOUNT`.
+  - **Cuentas contables** (`DEFONTANA_DISPATCH_*_ACCOUNT`, ya cargadas como default): verificadas en
+    vivo en el ERP QA el 2026-09-25 (`GDVELECT` → Definición Contable). La guía se contabiliza **solo**
+    por el movimiento de inventario, así que las que importan son inventario de línea **`1110801001`**
+    (MERCADERIAS) y de bodega **`4110101001`** (COSTOS DE VENTAS). Cliente (`1110401001`) y venta de
+    línea (`1110801001`) son obligatorios en el payload pero no generan asiento propio en una guía.
 
   **El envío ya está detrás de `erp_sync_enabled` (apagado).** Antes no lo estaba: confirmar un
   despacho encolaba `Order/DispatchOrder` sin candado (no emitía guía solo porque el payload
@@ -211,10 +213,10 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     superado pero se conserva. Cubierto por `test_defontana_automation`. **Estructura validada por
     Defontana (Luis, 2026-09-25):** casing (minúscula inicial), `attachedDocuments` (Nota de Pedido
     802 obligatoria), `businessCenter` por cuenta, IVA en `saleTaxes`, `firstFeePaid` por condición de
-    pago, `documentType` = `GDVELECT`, `motive` = `VENTA` — todo aplicado. **Único pendiente (config,
-    lo define Insumedent):** cargar en `DEFONTANA_DISPATCH_*_ACCOUNT` las cuentas de **cliente** y
-    **venta de línea** desde el ERP (las de inventario ya están confirmadas). Ejemplo y catálogos en
-    `docs/entregables/Dispatch-Save-*.{json,md}` (pedido 2854, con lote).
+    pago, `documentType` = `GDVELECT`, `motive` = `VENTA` — todo aplicado. **Cuentas cargadas y
+    verificadas en QA** (`DEFONTANA_DISPATCH_*_ACCOUNT`, 2026-09-25). **Único pendiente:** encender
+    `erp_sync_enabled` cuando se decida la puesta en marcha (una emisión real consume un folio de QA y
+    no se puede borrar). Ejemplo y catálogos en `docs/entregables/Dispatch-Save-*.{json,md}`.
   - **Corregir/actualizar lotes** *(Parte 3, opción A — hecha 2026-09-24)*. Cuando el lote del
     saldo está mal ingresado, el operario lo corrige **en picking** para liberar el despacho:
     "Actualizar lotes desde Defontana" refresca la foto de referencia (`erp_batches`,
