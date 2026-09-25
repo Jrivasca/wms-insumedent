@@ -28,12 +28,26 @@ su ejemplo.
   `false`.
 - **`destinationStorage` = `originStorage`**: no es traslado entre bodegas.
 
-**Valores que definió Insumedent (según el ejemplo de Luis, a confirmar por contabilidad):**
+**Valores que definió Insumedent (confirmados por Luis el 2026-09-25):**
 
 - **`documentType`** = `GDVELECT`.
-- **Cuentas** (`accountNumber`): cliente `1110401001`; venta e inventario de línea `1110801001`;
-  inventario de bodega `4110101001`. En el código van por config (`defontana_dispatch_*_account`);
-  hoy vacías hasta la confirmación contable.
+- **Cuentas** (`accountNumber`): salen del ERP y las define el cliente; son fijas salvo que él las
+  cambie. Se ven en *Configuración → Inventario → Listado de Documentos → editar `GDVELECT` →
+  Definición Contable*. Confirmadas en la captura de Luis: **Asiento por Inventario** =
+  `1110801001` (MERCADERIAS) → `analysisInventory` de línea; **Asiento por Facturas por Recibir** =
+  `4110101001` (COSTOS DE VENTAS) → `storageAnalysis` de la bodega. **Van distintas a propósito.**
+  Faltan del ERP la cuenta de **cliente** (`1110401001` en el ejemplo) y la de **venta de línea**.
+  En el código van por config (`defontana_dispatch_*_account`), hoy vacías hasta cargarlas.
+- **`businessCenter`**: es **por cuenta** — se envía solo si esa cuenta está configurada para usar
+  centro de negocio; si no, no se envía. En el ejemplo solo la de bodega (`EMPNEGVTAVTA000`) lo
+  lleva. Se valida por cuenta con `api/Accounting/Analysis/GetBusinessCenterAnalysisItems` o el plan
+  `api/Accounting/BusinessCenterPlan` — **módulo Contabilidad, que no tenemos contratado**, así que
+  la configuración por cuenta la confirma Insumedent con su ERP.
+- **`attachedDocuments`**: la **Nota de Pedido** (`documentTypeId 802`, folio = nº de pedido)
+  **siempre va**, porque es lo que mueve el estado del pedido al emitir la guía. Se pueden sumar más
+  (Orden de Compra `801`, etc.); esos los agrega el cliente. El catálogo de códigos está en
+  `G - TIPOS DE DOCUMENTOS ASOCIADOS.xlsx` (802 Nota de Pedido, 801 Orden de Compra, 52 Guía
+  Despacho Electrónica, 50 Guía de Despacho, 803 Contrato, 804 Resolución…).
 - **`motive`** de la bodega = `VENTA`.
 
 **Diferencias del payload del WMS respecto al ejemplo de Luis (esperadas):**
@@ -44,16 +58,14 @@ su ejemplo.
   condición de pago (ver pregunta abierta).
 - `attachedDocuments` trae solo la Nota de Pedido; la Orden de Compra la suma Insumedent si aplica.
 
-**Preguntas abiertas para Luis:**
+**Preguntas cerradas por Luis (2026-09-25):** cuentas (2), `businessCenter` (3) y
+`attachedDocuments` (4) — ver la sección de valores confirmados arriba.
+
+**Preguntas que quedan abiertas:**
 
 1. **Casing:** ¿el endpoint exige los campos en minúscula inicial (`documentType`, `clientFile`…),
-   o los acepta también en mayúscula? Lo dejamos igual a tu ejemplo.
-2. **Cuentas:** ¿confirmás que son las definitivas y a qué asiento va cada una? ¿El
-   `analysisInventory` de la línea (`1110801001`) va distinto al `storageAnalysis` de la bodega
-   (`4110101001`) a propósito?
-3. **`businessCenter`:** ¿va solo en `storageAnalysis` y vacío en cliente y líneas, como en tu
-   ejemplo?
-4. **`attachedDocuments`:** ¿es obligatorio, o basta con la Nota de Pedido? ¿`documentTypeId 802` es
-   siempre Nota de Pedido y `801` Orden de Compra?
-5. **`firstFeePaid`:** ¿lo calcula el ERP a partir de la condición de pago, o hay que mandarlo con la
-   fecha de vencimiento de la primera cuota?
+   o los acepta también en mayúscula? Los dejamos igual al payload real de la guía 3525.
+2. **`firstFeePaid`:** el campo es la fecha de vencimiento del primer pago (obligatorio). Hoy
+   mandamos la de emisión; para una venta a crédito (`CREDITO30`) debería ser emisión + N días.
+   ¿Lo calcula el ERP a partir de la condición de pago, o hay que enviarlo con la fecha de la
+   primera cuota?
