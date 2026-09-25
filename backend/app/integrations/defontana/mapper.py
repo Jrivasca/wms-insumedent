@@ -3,7 +3,8 @@
 Campos reales (camelCase) verificados contra la API de pruebas. Defontana marca los
 indicadores de maestro como ``"S"``/``"N"``.
 """
-from datetime import date, datetime, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -30,6 +31,17 @@ def _qty(value: Any) -> Any:
 def _erp_date(value: Any) -> Dict[str, int]:
     """Fecha en la forma que usa Defontana (``{day, month, year}``); acepta date o datetime."""
     return {"day": value.day, "month": value.month, "year": value.year}
+
+
+def _credit_days(payment_condition: Any) -> int:
+    """Días de plazo de una condición de pago de Defontana, para calcular el vencimiento
+    (``firstFeePaid``). Al contado son 0; a crédito los días van en el propio código
+    (``CREDITO30`` → 30, ``CREDITO60`` → 60). Confirmado por Luis (Defontana) el 2026-09-25: el ERP
+    **no** calcula el vencimiento, hay que enviarlo. Si el código no trae número, se asume contado."""
+    if not payment_condition:
+        return 0
+    match = re.search(r"\d+", str(payment_condition))
+    return int(match.group()) if match else 0
 
 
 def _yes(value: Any, default: bool = True) -> bool:
@@ -340,6 +352,8 @@ class DefontanaMapper:
         client = order_raw.get("client") or {}
         details_by_code = {d.get("code"): d for d in (order_raw.get("details") or [])}
         emission = _erp_date(emission_date)
+        # Vencimiento del primer pago: al contado = emisión; a crédito = emisión + los días del plazo.
+        first_fee_paid = _erp_date(emission_date + timedelta(days=_credit_days(order_raw.get("paymentConditionID"))))
 
         def analysis(account: str, bc: str = "") -> Dict[str, Any]:
             return {
@@ -411,7 +425,7 @@ class DefontanaMapper:
             "lastFolio": 0,
             "externalDocumentID": f"WMS-GD-{dispatch.get('_id') or dispatch.get('id') or ''}",
             "emissionDate": emission,
-            "firstFeePaid": emission,
+            "firstFeePaid": first_fee_paid,
             "clientFile": client.get("fileId"),
             "contactIndex": client.get("address"),
             "paymentCondition": order_raw.get("paymentConditionID"),

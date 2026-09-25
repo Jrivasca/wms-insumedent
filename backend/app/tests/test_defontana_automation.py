@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.database import get_database
 from app.core.tenant_db import tenant_db
 from app.integrations.defontana import order_sync, product_sync, stock_sync
-from app.integrations.defontana.mapper import DefontanaMapper
+from app.integrations.defontana.mapper import DefontanaMapper, _credit_days
 from app.integrations.defontana.schedule import within_schedule
 from app.models import Collections
 from app.services import integration_service, inventory_service
@@ -302,7 +302,7 @@ async def test_build_dispatch_save_lleva_cabecera_del_pedido_y_lote_por_linea():
         "number": 2854, "creationDate": "2026-07-11T00:00:00",
         "client": {"fileId": "CLI-77", "giro": "Odontología", "district": "SANTIAGO",
                    "region": "RM", "address": "Av. Siempre Viva 123"},
-        "paymentConditionID": "30D", "sellerID": "V-01", "billingCoindID": "PESO",
+        "paymentConditionID": "CREDITO30", "sellerID": "V-01", "billingCoindID": "PESO",
         "billingRate": 1, "shopID": "CASA-MATRIZ", "referenceNumberPricingID": "LISTA-1",
         "details": [
             {"code": "SKU-1", "name": "Producto 1", "unit": "UN", "price": 1990, "isExempt": False},
@@ -327,8 +327,13 @@ async def test_build_dispatch_save_lleva_cabecera_del_pedido_y_lote_por_linea():
     # Claves en camelCase con minúscula inicial (como el ejemplo de Defontana).
     assert payload["clientFile"] == "CLI-77"
     assert payload["district"] == "SANTIAGO" and payload["city"] == "RM"  # comuna / región
-    assert payload["paymentCondition"] == "30D" and payload["sellerFileId"] == "V-01"
+    assert payload["paymentCondition"] == "CREDITO30" and payload["sellerFileId"] == "V-01"
     assert payload["contact"] == -1 and payload["firstFolio"] == 0
+    # Venta a credito: el vencimiento (firstFeePaid) = emision + los dias del plazo (30), no la emision.
+    assert payload["emissionDate"] == {"day": 24, "month": 9, "year": 2026}
+    assert payload["firstFeePaid"] == {"day": 24, "month": 10, "year": 2026}
+    # Al contado (o sin numero en el codigo) el plazo es 0 dias; a credito son los dias del codigo.
+    assert _credit_days("CONTADO") == 0 and _credit_days("CREDITO60") == 60 and _credit_days(None) == 0
     # dispatchInfo confirmado e isTransferDocument (no viaja al SII).
     assert payload["dispatchInfo"] == {
         "assetsType": "1", "dispatchType": "1", "transactionType": "1", "isTransferDispatch": False,
