@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -385,6 +386,40 @@ async def _task_totals(
     return totals
 
 
+def _fefo_key(expiration):
+    """Orden FEFO: primero el que vence antes; los sin fecha, al final."""
+    return (expiration is None, expiration or datetime.max)
+
+
+async def _picked_lots_by_line(
+    db, tenant_id: str, order_id: str
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Desglose de lote por línea de lo pickeado del pedido: agrupa los scans de todas las
+    tareas de picking cerradas por (lote, vencimiento) y suma cantidades, ordenado FEFO. Es
+    la fuente para poblar los lotes de la guía (``BatchInfo`` de ``Dispatch/Save``): el lote
+    lo eligió el operario al pickear (Parte 1) y acá viaja hasta el pedido."""
+    by_line: Dict[str, Dict[Any, Dict[str, Any]]] = {}
+    async for task in db[Collections.PICKING_TASKS].find(
+        {"tenant_id": tenant_id, "order_id": order_id, "status": {"$in": list(_DONE_PICKING)}}
+    ):
+        for line in task.get("lines", []):
+            groups = by_line.setdefault(line.get("line_id"), {})
+            for s in line.get("scans", []):
+                qty = s.get("quantity", 0) or 0
+                if qty <= 0 or not s.get("lot_number"):
+                    continue
+                exp = s.get("expiration_date")
+                g = groups.setdefault(
+                    (s.get("lot_number"), exp),
+                    {"lot_number": s.get("lot_number"), "expiration_date": exp, "quantity": 0.0},
+                )
+                g["quantity"] += qty
+    return {
+        line_id: sorted(groups.values(), key=lambda g: _fefo_key(g["expiration_date"]))
+        for line_id, groups in by_line.items()
+    }
+
+
 async def reconcile_order_from_picking(
     tenant_id: str, order_id: str, picking_task: Dict[str, Any]
 ) -> None:
@@ -400,12 +435,15 @@ async def reconcile_order_from_picking(
     picked_by_line = await _task_totals(
         db, tenant_id, Collections.PICKING_TASKS, order_id, _DONE_PICKING, "quantity_picked"
     )
+    lots_by_line = await _picked_lots_by_line(db, tenant_id, order_id)
     lines = order.get("lines", [])
     for ol in lines:
         picked = picked_by_line.get(ol.get("line_id"))
         if picked is None:
             continue
         ol["picked_quantity"] = picked
+        # Desglose de lote de lo pickeado (para la guía). Solo para líneas con lote elegido.
+        ol["picked_lots"] = lots_by_line.get(ol.get("line_id"), [])
         ol["status"] = _line_status_for(picked, ol.get("ordered_quantity", 0),
                                         OrderLineStatus.PICKED.value)
     await db[Collections.ORDERS].update_one(
@@ -463,6 +501,10 @@ async def reset_order_reconciliation(
         if stage == "picking":
             ol["picked_quantity"] = 0
             ol["dispatched_quantity"] = 0
+            # El desglose de lote se re-deriva al recompletar el picking; limpiarlo para no
+            # dejar lotes fantasma de la corrida anterior.
+            ol["picked_lots"] = []
+            ol["dispatched_lots"] = []
             ol["status"] = OrderLineStatus.PENDING.value
         else:  # packing: el pickeado se mantiene, se re-deriva el estado
             ol["status"] = _line_status_for(ol.get("picked_quantity", 0),

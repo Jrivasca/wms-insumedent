@@ -19,7 +19,7 @@ from app.integrations.defontana.mapper import DefontanaMapper
 from app.integrations.defontana.schedule import local_now
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
-from app.models.location import COMMITTED_LOCATION_TYPES
+from app.models.location import COMMITTED_LOCATION_TYPES, NON_PICKABLE_LOCATION_TYPES
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
 from app.services import notification_service, replenishment_alert_service, sync_job_service
@@ -599,6 +599,75 @@ async def create_reception(
     }
 
 
+async def correct_balance_lot(
+    *,
+    tenant_id: str,
+    product_id: str,
+    warehouse_id: str,
+    location_id: str,
+    from_lot_number: Optional[str],
+    to_lot_number: str,
+    to_expiration_date: Optional[datetime] = None,
+    serial_number: Optional[str] = None,
+    created_by: str,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Corrige la IDENTIDAD del lote de un saldo (lote mal ingresado → el correcto que informa
+    Defontana) **sin cambiar la cantidad**. No es un ajuste de stock: la cantidad total del
+    producto no se toca, por eso no viaja al ERP (Defontana ya manda cantidades y lotes) y por eso
+    el operario puede hacerlo al pickear para poder liberar el despacho, en vez de un ajuste de
+    supervisor.
+
+    Se modela como dos movimientos net-zero en la misma ubicación (sale del lote viejo, entra al
+    nuevo con su vencimiento) para que quede auditado. Rechaza si el saldo tiene reservas o
+    bloqueos: no se re-etiqueta stock comprometido a otra tarea."""
+    if not to_lot_number:
+        raise HTTPException(status_code=400, detail="Falta el lote correcto.")
+    if to_lot_number == from_lot_number:
+        raise HTTPException(status_code=400, detail="El lote nuevo es igual al actual.")
+    db = tenant_db(tenant_id)
+    src = await db[Collections.INVENTORY_BALANCES].find_one({
+        "tenant_id": tenant_id, "product_id": product_id, "warehouse_id": warehouse_id,
+        "location_id": location_id, "lot_number": from_lot_number, "serial_number": serial_number,
+    })
+    qty = (src or {}).get("quantity_on_hand", 0) or 0
+    if not src or qty <= 0:
+        raise HTTPException(status_code=404, detail="No hay saldo de ese lote en la ubicación.")
+    if (src.get("quantity_reserved", 0) or 0) > 0 or (src.get("quantity_blocked", 0) or 0) > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ese saldo tiene stock comprometido; no se puede corregir el lote.",
+        )
+    # Sale del lote mal ingresado y entra al correcto, misma ubicación y cantidad.
+    await change_location_stock(
+        tenant_id=tenant_id, product_id=product_id, warehouse_id=warehouse_id,
+        location_id=location_id, delta=-qty, lot_number=from_lot_number,
+        serial_number=serial_number, notify=False,
+    )
+    balance = await change_location_stock(
+        tenant_id=tenant_id, product_id=product_id, warehouse_id=warehouse_id,
+        location_id=location_id, delta=qty, lot_number=to_lot_number,
+        serial_number=serial_number, expiration_date=to_expiration_date,
+    )
+    note = reason or f"Corrección de lote {from_lot_number or '(sin lote)'} → {to_lot_number}"
+    for lot, direction in ((from_lot_number, "from"), (to_lot_number, "to")):
+        await record_movement(
+            tenant_id=tenant_id,
+            movement_type=MovementType.LOT_CORRECTION.value,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            from_location_id=location_id if direction == "from" else None,
+            to_location_id=location_id if direction == "to" else None,
+            quantity=qty,
+            lot_number=lot,
+            serial_number=serial_number,
+            reference_type=ReferenceType.MANUAL.value,
+            reason=note,
+            created_by=created_by,
+        )
+    return balance
+
+
 async def register_operational_move(
     *,
     tenant_id: str,
@@ -611,11 +680,18 @@ async def register_operational_move(
     reference_type: str,
     reference_id: str,
     created_by: str,
+    lot_number: Optional[str] = None,
+    expiration_date: Optional[datetime] = None,
 ) -> None:
     """Stock move triggered by picking/packing/dispatch.
 
     Operational floor moves never block the operation, so they are recorded with
     ``allow_negative=True`` while still being fully traceable via the movement.
+
+    ``lot_number`` (con su ``expiration_date``) mueve el saldo de **ese lote**: el picking de
+    un producto con lotes descuenta el lote elegido por el operario y lo lleva a staging con su
+    vencimiento, para que el lote viaje hasta la guía de despacho. Sin lote, mueve el saldo sin
+    lote como antes.
     """
     if from_location_id:
         await change_location_stock(
@@ -624,6 +700,7 @@ async def register_operational_move(
             warehouse_id=warehouse_id,
             location_id=from_location_id,
             delta=-quantity,
+            lot_number=lot_number,
             allow_negative=True,
         )
     if to_location_id:
@@ -633,6 +710,8 @@ async def register_operational_move(
             warehouse_id=warehouse_id,
             location_id=to_location_id,
             delta=quantity,
+            lot_number=lot_number,
+            expiration_date=expiration_date,
             allow_negative=True,
         )
     await record_movement(
@@ -643,10 +722,58 @@ async def register_operational_move(
         from_location_id=from_location_id,
         to_location_id=to_location_id,
         quantity=quantity,
+        lot_number=lot_number,
         reference_type=reference_type,
         reference_id=reference_id,
         created_by=created_by,
     )
+
+
+async def available_lots(
+    tenant_id: str, product_id: str, warehouse_id: str
+) -> List[Dict[str, Any]]:
+    """Saldos pickeables de un producto, uno por lote/ubicación, ordenados FEFO (vence primero
+    arriba; los sin vencimiento al final). Es la lista de la que el operario elige el lote al
+    pickear. Excluye lo no pickeable (staging/packing/despacho, cuarentena, recepción)."""
+    db = tenant_db(tenant_id)
+    excluded = [
+        str(loc["_id"])
+        async for loc in db[Collections.LOCATIONS].find(
+            {
+                "tenant_id": tenant_id,
+                "warehouse_id": warehouse_id,
+                "type": {"$in": list(NON_PICKABLE_LOCATION_TYPES)},
+            },
+            {"_id": 1},
+        )
+    ]
+    codes = {
+        str(loc["_id"]): loc.get("code")
+        async for loc in db[Collections.LOCATIONS].find(
+            {"tenant_id": tenant_id, "warehouse_id": warehouse_id}, {"code": 1}
+        )
+    }
+    rows = [
+        {
+            "location_id": b.get("location_id"),
+            "location_code": codes.get(b.get("location_id")) or b.get("location_id"),
+            "lot_number": b.get("lot_number"),
+            "expiration_date": b.get("expiration_date"),
+            "quantity_on_hand": b.get("quantity_on_hand") or 0,
+        }
+        async for b in db[Collections.INVENTORY_BALANCES].find(
+            {
+                "tenant_id": tenant_id,
+                "product_id": product_id,
+                "warehouse_id": warehouse_id,
+                "location_id": {"$nin": excluded},
+                "quantity_on_hand": {"$gt": 0},
+            }
+        )
+    ]
+    # FEFO: por vencimiento ascendente; los sin vencimiento al final.
+    rows.sort(key=lambda r: (r["expiration_date"] is None, r["expiration_date"] or datetime.max))
+    return rows
 
 
 async def reverse_moves_for_reference(

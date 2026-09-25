@@ -83,13 +83,32 @@ class Settings(BaseSettings):
     # (apagado): confirmar un despacho con el flag apagado deja la guía SOLO en el WMS, no la
     # emite en el ERP. Valores del ``dispatchInfo`` confirmados leyendo guías GDVELECT reales
     # (``dispatchTypeData``) el 2026-09-22: tipo de bien 1 = "Constituye una venta", tipo de
-    # despacho 1 = "Por cuenta del cliente". ``transactionType`` no aparece en las guías (campo
-    # opcional en el swagger, sin enum) y el ``motive`` que trae el movimiento de inventario de
-    # una guía real es ``COMPRA`` (raro para un egreso de venta: confirmar antes de encender).
+    # despacho 1 = "Por cuenta del cliente".
     defontana_dispatch_assets_type: str = "1"
     defontana_dispatch_type: str = "1"
-    defontana_dispatch_transaction_type: str = ""
-    defontana_dispatch_motive: str = "COMPRA"
+    # Confirmado por la spec de Dispatch/Save (Luis, 2026-09-23): 1 = "Venta del Giro".
+    defontana_dispatch_transaction_type: str = "1"
+    # ``motive`` de la bodega: ``VENTA`` (confirmado en el ejemplo que devolvió Luis, 2026-09-25).
+    defontana_dispatch_motive: str = "VENTA"
+
+    # Guía de despacho → Dispatch/Save (B.1, método recomendado por Defontana: soporta lote/serie
+    # por línea). Reemplaza a Order/DispatchOrder. Sigue detrás de ``erp_sync_enabled`` (apagado).
+    # ``IsTransferDocument=true`` registra y contabiliza la guía pero NO la envía al SII (útil para
+    # probar sin emitir un DTE real; igual consume folio y no se puede borrar) — por eso el default.
+    defontana_dispatch_is_transfer_document: bool = True
+    # Código del tipo de documento de la guía (GetDocumentInfo): la guía de despacho electrónica.
+    defontana_dispatch_document_type: str = "GDVELECT"
+    # Cuentas contables de los asientos (accountNumber, sin puntos). Salen de la config del ERP de
+    # Insumedent y son las mismas en todos los entornos. Verificadas en vivo en el ERP QA el
+    # 2026-09-25 (Configuración → Inventario → Tipos de Documentos → GDVELECT → Definición Contable):
+    # la guía se contabiliza SOLO por el movimiento de inventario, así que las que importan son
+    # ``inventory`` (Asiento por Inventario = MERCADERIAS) y ``storage`` (Asiento por Facturas por
+    # Recibir = COSTOS DE VENTAS). ``client`` y ``sale`` son obligatorios en el payload pero en una
+    # guía no generan asiento propio (eso ocurre en la factura); valores de la emisión real 3525.
+    defontana_dispatch_client_account: str = "1110401001"
+    defontana_dispatch_sale_account: str = "1110801001"
+    defontana_dispatch_inventory_account: str = "1110801001"
+    defontana_dispatch_storage_account: str = "4110101001"
 
     # Inventory
     allow_negative_stock: bool = False

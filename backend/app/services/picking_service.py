@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -11,6 +12,7 @@ from app.models.order import OrderFulfillment, OrderStatus
 from app.models.packing import PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.services import (
+    integration_service,
     inventory_service,
     order_service,
     packing_service,
@@ -120,6 +122,7 @@ async def scan(
     barcode: str,
     quantity: float,
     location_id: Optional[str],
+    lot_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
@@ -179,6 +182,60 @@ async def scan(
             "task": serialize(task),
         }
 
+    # Lote: el operario elige de la lista FEFO. Para un producto que maneja lotes es
+    # obligatorio (no se confirma sin lote); se valida contra el stock pickeable y se guarda el
+    # lote + vencimiento en el scan, para que viaje hasta la guía de despacho.
+    product_id = line.get("product_id")
+    lots = (
+        await inventory_service.available_lots(tenant_id, product_id, task["warehouse_id"])
+        if product_id else []
+    )
+    manages_lots = any(l.get("lot_number") for l in lots)
+    scan_lot: Optional[str] = None
+    scan_expiration = None
+    if manages_lots:
+        if not lot_number:
+            return {
+                "status": "rejected",
+                "feedback": "warning",
+                "message": "Este producto maneja lotes: elegí el lote de la lista antes de confirmar.",
+                "line": line,
+                "task": serialize(task),
+            }
+        loc = location_id or line.get("suggested_location_id")
+        balance = next(
+            (l for l in lots
+             if l.get("lot_number") == lot_number and l.get("location_id") == loc),
+            None,
+        ) or next((l for l in lots if l.get("lot_number") == lot_number), None)
+        if balance is None:
+            return {
+                "status": "rejected",
+                "feedback": "warning",
+                "message": (
+                    f"El lote «{lot_number}» ya no tiene stock pickeable. "
+                    "Actualizá los lotes desde Defontana o elegí otro."
+                ),
+                "line": line,
+                "task": serialize(task),
+            }
+        scan_lot = lot_number
+        scan_expiration = balance.get("expiration_date")
+        location_id = balance["location_id"]
+        already_lot = sum(
+            s.get("quantity", 0) for s in line.get("scans", [])
+            if s.get("lot_number") == lot_number and s.get("location_id") == location_id
+        )
+        if already_lot + quantity > (balance.get("quantity_on_hand") or 0):
+            quedan = max((balance.get("quantity_on_hand") or 0) - already_lot, 0)
+            return {
+                "status": "rejected",
+                "feedback": "warning",
+                "message": f"No hay suficiente del lote «{lot_number}» en esa ubicación: quedan {quedan:g}.",
+                "line": line,
+                "task": serialize(task),
+            }
+
     new_qty = already + quantity
     line["quantity_picked"] = new_qty
     line.setdefault("scans", []).append(
@@ -186,6 +243,8 @@ async def scan(
             "barcode": code,
             "quantity": quantity,
             "location_id": location_id or line.get("suggested_location_id"),
+            "lot_number": scan_lot,
+            "expiration_date": scan_expiration,
             "user_id": user.id,
             "device": user.user_agent,
             "scanned_at": now,
@@ -220,6 +279,107 @@ async def scan(
         "line": line,
         "task": serialize(await _load_task(tenant_id, task_id)),
     }
+
+
+async def available_lots(
+    tenant_id: str, task_id: str, line_id: str, user: CurrentUser
+) -> Dict[str, Any]:
+    """Lotes que el operario puede elegir para una línea: el stock pickeable ordenado FEFO,
+    restando lo ya escaneado en la línea para no comprometer el mismo lote de más. ``manages_lots``
+    dice si el producto maneja lotes (si es False, la pantalla sigue con el escaneo simple)."""
+    task = await _load_task(tenant_id, task_id)
+    _assert_can_operate(task, user)
+    line = next((l for l in task["lines"] if l.get("line_id") == line_id), None)
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    lots = (
+        await inventory_service.available_lots(tenant_id, line["product_id"], task["warehouse_id"])
+        if line.get("product_id") else []
+    )
+    picked: Dict[Any, float] = {}
+    for s in line.get("scans", []):
+        key = (s.get("location_id"), s.get("lot_number"))
+        picked[key] = picked.get(key, 0) + (s.get("quantity", 0) or 0)
+    out = []
+    for l in lots:
+        remaining = (l.get("quantity_on_hand") or 0) - picked.get(
+            (l.get("location_id"), l.get("lot_number")), 0
+        )
+        if remaining > 0:
+            out.append({**l, "quantity_available": remaining})
+    return {
+        "line_id": line_id,
+        "manages_lots": any(l.get("lot_number") for l in lots),
+        "lots": [serialize(l) for l in out],
+    }
+
+
+def _line_or_404(task: Dict[str, Any], line_id: str) -> Dict[str, Any]:
+    line = next((l for l in task["lines"] if l.get("line_id") == line_id), None)
+    if not line:
+        raise HTTPException(status_code=404, detail="Línea no encontrada")
+    return line
+
+
+async def erp_lots(
+    tenant_id: str, task_id: str, line_id: str, user: CurrentUser
+) -> Dict[str, Any]:
+    """Lotes que Defontana informa para el producto de la línea (foto ``erp_batches``): son los
+    candidatos correctos cuando el lote del saldo del WMS está mal ingresado. Alimenta 'Corregir
+    lote'. Ordenados FEFO."""
+    db = tenant_db(tenant_id)
+    task = await _load_task(tenant_id, task_id)
+    _assert_can_operate(task, user)
+    line = _line_or_404(task, line_id)
+    out: List[Dict[str, Any]] = []
+    async for b in db[Collections.ERP_BATCHES].find({"sku": line.get("sku")}):
+        if not b.get("lot_number"):
+            continue
+        out.append({
+            "lot_number": b.get("lot_number"),
+            "expiration_date": b.get("expiration_date"),
+            "stock": b.get("stock"),
+            "storage_code": b.get("storage_code"),
+        })
+    out.sort(key=lambda r: (r["expiration_date"] is None, r["expiration_date"] or datetime.max))
+    return {"line_id": line_id, "sku": line.get("sku"), "lots": [serialize(x) for x in out]}
+
+
+async def correct_lot(
+    tenant_id: str,
+    task_id: str,
+    line_id: str,
+    user: CurrentUser,
+    *,
+    location_id: str,
+    from_lot_number: Optional[str],
+    to_lot_number: str,
+    to_expiration_date: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Corrige el lote mal ingresado de un saldo por el correcto (Parte 3, opción A). Es un
+    relabel que conserva la cantidad, auditado; lo hace el mismo operario en picking para poder
+    liberar el despacho (ver ``inventory_service.correct_balance_lot``)."""
+    task = await _load_task(tenant_id, task_id)
+    _assert_can_operate(task, user)
+    line = _line_or_404(task, line_id)
+    balance = await inventory_service.correct_balance_lot(
+        tenant_id=tenant_id,
+        product_id=line["product_id"],
+        warehouse_id=task["warehouse_id"],
+        location_id=location_id,
+        from_lot_number=from_lot_number,
+        to_lot_number=to_lot_number,
+        to_expiration_date=to_expiration_date,
+        created_by=user.id,
+        reason=f"Corrección de lote en picking (tarea {task_id})",
+    )
+    return {"line_id": line_id, "balance": serialize(balance)}
+
+
+async def sync_lots(tenant_id: str, user: CurrentUser) -> Dict[str, Any]:
+    """Refresca la foto de lotes de Defontana (``erp_batches``) para ver el lote correcto. No
+    mueve stock, así que la puede disparar el operario desde picking."""
+    return await integration_service.run_sync_batches(tenant_id, user.id)
 
 
 async def mark_missing(
@@ -327,21 +487,43 @@ async def complete(
     warehouse_id = task["warehouse_id"]
     staging_id = await _location_id_by_type(tenant_id, warehouse_id, "staging")
 
-    # Record traceable pick movements (floor moves never block).
+    # Movimientos de pick auditables (los movimientos de piso nunca bloquean). Un movimiento por
+    # (ubicación, lote): descuenta el lote que eligió el operario en cada scan y lo lleva a
+    # staging con su vencimiento, para que el lote viaje hasta la guía de despacho.
     for line in task["lines"]:
         qty = line.get("quantity_picked", 0)
-        if qty and qty > 0 and line.get("product_id"):
+        if not (qty and qty > 0 and line.get("product_id")):
+            continue
+        groups: Dict[Any, Dict[str, Any]] = {}
+        covered = 0.0
+        for s in line.get("scans", []):
+            sq = s.get("quantity", 0) or 0
+            if sq <= 0:
+                continue
+            loc = s.get("location_id") or line.get("suggested_location_id")
+            g = groups.setdefault((loc, s.get("lot_number")),
+                                  {"qty": 0.0, "expiration": s.get("expiration_date")})
+            g["qty"] += sq
+            covered += sq
+        # Residual sin scans (no debería pasar): sale de la ubicación sugerida, sin lote.
+        if covered < qty:
+            g = groups.setdefault((line.get("suggested_location_id"), None),
+                                  {"qty": 0.0, "expiration": None})
+            g["qty"] += qty - covered
+        for (loc, lot), g in groups.items():
             await inventory_service.register_operational_move(
                 tenant_id=tenant_id,
                 movement_type=MovementType.PICK.value,
                 product_id=line["product_id"],
                 warehouse_id=warehouse_id,
-                quantity=qty,
-                from_location_id=line.get("suggested_location_id"),
+                quantity=g["qty"],
+                from_location_id=loc,
                 to_location_id=staging_id,
                 reference_type=ReferenceType.PICKING_TASK.value,
                 reference_id=task_id,
                 created_by=user.id,
+                lot_number=lot,
+                expiration_date=g["expiration"],
             )
 
     now = now_utc()

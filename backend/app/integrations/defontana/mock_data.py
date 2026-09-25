@@ -114,6 +114,16 @@ def mock_dispatch_response(order_number: int) -> dict:
     }
 
 
+def mock_dispatch_save_response(external_document_id: str) -> dict:
+    return {
+        "success": True,
+        "mock": True,
+        "ExternalDocumentID": external_document_id,
+        "Folio": f"MOCK-GD-{external_document_id}",
+        "Message": "Guía Dispatch/Save simulada (DEFONTANA_MOCK=true)",
+    }
+
+
 def mock_inventory_response(external_document_id: str) -> dict:
     return {
         "success": True,

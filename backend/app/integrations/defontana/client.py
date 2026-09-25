@@ -172,6 +172,12 @@ class DefontanaConnector(ERPConnector):
             "POST", "/Order/DispatchOrder", json={"orderNumber": order_number, **payload}
         )
 
+    async def dispatch_save(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Guía de despacho por ``Dispatch/Save`` (B.1): documento de venta con lote/serie."""
+        if self.mock:
+            return mock_data.mock_dispatch_save_response(payload.get("ExternalDocumentID", "unknown"))
+        return await self._request("POST", "/Dispatch/Save", json=payload)
+
     async def create_inventory_document(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if self.mock:
             return mock_data.mock_inventory_response(

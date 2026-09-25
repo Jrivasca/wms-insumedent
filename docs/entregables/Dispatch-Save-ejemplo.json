@@ -1,0 +1,211 @@
+{
+  "documentType": "GDVELECT",
+  "firstFolio": 0,
+  "lastFolio": 0,
+  "externalDocumentID": "WMS-GD-EJEMPLO-1",
+  "emissionDate": {
+    "day": 25,
+    "month": 9,
+    "year": 2026
+  },
+  "firstFeePaid": {
+    "day": 25,
+    "month": 10,
+    "year": 2026
+  },
+  "clientFile": "69.050.600-9",
+  "contactIndex": "SALINAS 1211",
+  "paymentCondition": "CREDITO30",
+  "sellerFileId": "185291901",
+  "clientAnalysis": {
+    "accountNumber": "1110401001",
+    "businessCenter": "",
+    "classifier01": "",
+    "classifier02": ""
+  },
+  "billingCoin": "PESO",
+  "billingRate": 1,
+  "shopId": "Local",
+  "priceList": "7942",
+  "giro": "Actividades de la administración pública en general",
+  "district": "VALPARAISO",
+  "city": "REGION VALPARAISO",
+  "contact": -1,
+  "attachedDocuments": [
+    {
+      "date": {
+        "day": 11,
+        "month": 7,
+        "year": 2026
+      },
+      "documentTypeId": "802",
+      "folio": "2854",
+      "reason": "Nota de Pedido 2854"
+    }
+  ],
+  "originStorage": {
+    "code": "BODEGACENTRAL",
+    "motive": "VENTA",
+    "storageAnalysis": {
+      "accountNumber": "4110101001",
+      "businessCenter": "EMPNEGVTAVTA000",
+      "classifier01": "",
+      "classifier02": ""
+    }
+  },
+  "destinationStorage": {
+    "code": "BODEGACENTRAL",
+    "motive": "VENTA",
+    "storageAnalysis": {
+      "accountNumber": "4110101001",
+      "businessCenter": "EMPNEGVTAVTA000",
+      "classifier01": "",
+      "classifier02": ""
+    }
+  },
+  "dispatchInfo": {
+    "assetsType": "1",
+    "dispatchType": "1",
+    "transactionType": "1",
+    "isTransferDispatch": false
+  },
+  "details": [
+    {
+      "type": "A",
+      "isExempt": false,
+      "code": "GUT0440",
+      "count": 4,
+      "productName": "CONO GUTAPERCHA 04 N°40",
+      "productNameBarCode": "",
+      "price": 4990,
+      "comment": "",
+      "discount": {
+        "type": 0,
+        "value": 0
+      },
+      "especificTax": {
+        "value": 0
+      },
+      "unit": "UN",
+      "analysis": {
+        "accountNumber": "1110801001",
+        "businessCenter": "",
+        "classifier01": "",
+        "classifier02": ""
+      },
+      "analysisInventory": {
+        "accountNumber": "1110801001",
+        "businessCenter": "",
+        "classifier01": "",
+        "classifier02": ""
+      },
+      "useBatch": true,
+      "batchInfo": [
+        {
+          "amount": 4,
+          "batchNumber": "16052026"
+        }
+      ],
+      "useSeries": false,
+      "serials": [],
+      "serialStart": "",
+      "serialSufix": "",
+      "serialPrefix": ""
+    },
+    {
+      "type": "A",
+      "isExempt": false,
+      "code": "IYESO003",
+      "count": 5,
+      "productName": "YESO PIEDRA AMARILLO VELMIX 1 KILO",
+      "productNameBarCode": "",
+      "price": 3550,
+      "comment": "",
+      "discount": {
+        "type": 0,
+        "value": 0
+      },
+      "especificTax": {
+        "value": 0
+      },
+      "unit": "UN",
+      "analysis": {
+        "accountNumber": "1110801001",
+        "businessCenter": "",
+        "classifier01": "",
+        "classifier02": ""
+      },
+      "analysisInventory": {
+        "accountNumber": "1110801001",
+        "businessCenter": "",
+        "classifier01": "",
+        "classifier02": ""
+      },
+      "useBatch": true,
+      "batchInfo": [
+        {
+          "amount": 5,
+          "batchNumber": "21072026"
+        }
+      ],
+      "useSeries": false,
+      "serials": [],
+      "serialStart": "",
+      "serialSufix": "",
+      "serialPrefix": ""
+    },
+    {
+      "type": "A",
+      "isExempt": false,
+      "code": "ROGIN057",
+      "count": 12,
+      "productName": "KIT GRANOS (3 FINO - 3 MEDIO) PULIDORES DE COMPOSITE TIPO TWIST MARCA ROGIN",
+      "productNameBarCode": "",
+      "price": 14300,
+      "comment": "",
+      "discount": {
+        "type": 0,
+        "value": 0
+      },
+      "especificTax": {
+        "value": 0
+      },
+      "unit": "UN",
+      "analysis": {
+        "accountNumber": "1110801001",
+        "businessCenter": "",
+        "classifier01": "",
+        "classifier02": ""
+      },
+      "analysisInventory": {
+        "accountNumber": "1110801001",
+        "businessCenter": "",
+        "classifier01": "",
+        "classifier02": ""
+      },
+      "useBatch": false,
+      "batchInfo": [],
+      "useSeries": false,
+      "serials": [],
+      "serialStart": "",
+      "serialSufix": "",
+      "serialPrefix": ""
+    }
+  ],
+  "saleTaxes": [
+    {
+      "code": "IVA",
+      "value": 19,
+      "taxAnalysis": {
+        "accountNumber": "",
+        "businessCenter": "",
+        "classifier01": "",
+        "classifier02": ""
+      }
+    }
+  ],
+  "ventaRecDesGlobal": [],
+  "gloss": "Guia de venta - ejemplo Dispatch/Save (datos de pruebas)",
+  "customFields": [],
+  "isTransferDocument": true
+}

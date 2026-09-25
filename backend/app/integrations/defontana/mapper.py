@@ -3,7 +3,8 @@
 Campos reales (camelCase) verificados contra la API de pruebas. Defontana marca los
 indicadores de maestro como ``"S"``/``"N"``.
 """
-from datetime import date, datetime, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -25,6 +26,22 @@ def _qty(value: Any) -> Any:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return value
+
+
+def _erp_date(value: Any) -> Dict[str, int]:
+    """Fecha en la forma que usa Defontana (``{day, month, year}``); acepta date o datetime."""
+    return {"day": value.day, "month": value.month, "year": value.year}
+
+
+def _credit_days(payment_condition: Any) -> int:
+    """Días de plazo de una condición de pago de Defontana, para calcular el vencimiento
+    (``firstFeePaid``). Al contado son 0; a crédito los días van en el propio código
+    (``CREDITO30`` → 30, ``CREDITO60`` → 60). Confirmado por Luis (Defontana) el 2026-09-25: el ERP
+    **no** calcula el vencimiento, hay que enviarlo. Si el código no trae número, se asume contado."""
+    if not payment_condition:
+        return 0
+    match = re.search(r"\d+", str(payment_condition))
+    return int(match.group()) if match else 0
 
 
 def _yes(value: Any, default: bool = True) -> bool:
@@ -287,6 +304,156 @@ class DefontanaMapper:
             ],
             "gloss": gloss,
             "isTransferDocument": False,
+        }
+
+    @staticmethod
+    def build_dispatch_save(
+        *,
+        dispatch: Dict[str, Any],
+        order_raw: Dict[str, Any],
+        storage_code: str,
+        document_type: str,
+        business_center: str,
+        client_account: str,
+        sale_account: str,
+        inventory_account: str,
+        storage_account: str,
+        assets_type: str,
+        dispatch_type: str,
+        transaction_type: str,
+        motive: str,
+        is_transfer_document: bool,
+        emission_date: date,
+        gloss: str = "",
+    ) -> Dict[str, Any]:
+        """Payload de ``POST /api/Dispatch/Save`` (guía de despacho, B.1). Reemplaza a
+        ``build_dispatch_order``: ``Dispatch/Save`` es un documento de venta completo que **permite
+        lote y serie por línea**, que es por lo que Defontana lo recomendó.
+
+        Estructura y valores alineados al ejemplo que Defontana (Luis) devolvió el 2026-09-25
+        (``docs/entregables/Dispatch-Save-ejemplo.json``):
+
+        - **claves en camelCase con minúscula inicial** (``documentType``, ``clientFile``…);
+        - ``attachedDocuments`` referencia la **Nota de Pedido** (``documentTypeId`` ``"802"``,
+          folio = nº de pedido) que da origen a la guía. La Orden de Compra (``"801"``), cuando
+          exista, la suma Insumedent: el WMS no siempre la tiene (pendiente confirmar si es obligatoria);
+        - ``businessCenter`` **solo** en el análisis de la bodega; vacío en cliente y líneas;
+        - ``saleTaxes`` con el **IVA 19 %** cuando hay al menos una línea afecta.
+
+        Las líneas y su desglose de **lote** salen del despacho del WMS (``dispatch['lines']`` con
+        ``lots``, que ya viene FEFO desde el picking, Parte 2). La cabecera (cliente, condición de
+        pago, vendedor, moneda, local, giro, comuna, región, precios) sale del **pedido original**
+        de Defontana (``order_raw`` = ``Order/Get``).
+
+        Lo que el WMS **no** decide —código del tipo de documento, ``motive`` de la bodega y las
+        **cuentas contables**— llega por parámetro desde la config. ``firstFolio``/``lastFolio`` en
+        ``0`` para que el ERP tome el correlativo; ``contact`` en ``-1`` como pide la spec.
+        """
+        client = order_raw.get("client") or {}
+        details_by_code = {d.get("code"): d for d in (order_raw.get("details") or [])}
+        emission = _erp_date(emission_date)
+        # Vencimiento del primer pago: al contado = emisión; a crédito = emisión + los días del plazo.
+        first_fee_paid = _erp_date(emission_date + timedelta(days=_credit_days(order_raw.get("paymentConditionID"))))
+
+        def analysis(account: str, bc: str = "") -> Dict[str, Any]:
+            return {
+                "accountNumber": account, "businessCenter": bc,
+                "classifier01": "", "classifier02": "",
+            }
+
+        def line(dl: Dict[str, Any]) -> Dict[str, Any]:
+            src = details_by_code.get(dl.get("sku")) or {}
+            lots = dl.get("lots") or []
+            return {
+                "type": "A",
+                "isExempt": bool(src.get("isExempt", False)),
+                "code": dl.get("sku"),
+                "count": _qty(dl.get("quantity")),
+                "productName": src.get("name") or dl.get("sku"),
+                "productNameBarCode": "",
+                "price": src.get("price") or 0,
+                "comment": "",
+                "discount": {"type": 0, "value": 0},
+                "especificTax": {"value": 0},
+                "unit": src.get("unit") or "UN",
+                # cliente y líneas van sin centro de negocio (según el ejemplo de Defontana).
+                "analysis": analysis(sale_account),
+                "analysisInventory": analysis(inventory_account),
+                "useBatch": bool(lots),
+                "batchInfo": [
+                    {"amount": _qty(l.get("quantity")), "batchNumber": l.get("lot_number")}
+                    for l in lots
+                ],
+                "useSeries": False,
+                "serials": [],
+                "serialStart": "",
+                "serialSufix": "",
+                "serialPrefix": "",
+            }
+
+        # La bodega de origen sí lleva el centro de negocio. Origen = destino: no es traslado.
+        storage = {
+            "code": storage_code, "motive": motive,
+            "storageAnalysis": analysis(storage_account, business_center),
+        }
+        details = [line(dl) for dl in dispatch.get("lines", [])]
+
+        # La Nota de Pedido que origina la guía (folio = nº de pedido de Defontana).
+        attached: List[Dict[str, Any]] = []
+        order_number = order_raw.get("number")
+        if order_number is not None:
+            pedido_date = _parse_datetime(order_raw.get("creationDate"))
+            attached.append({
+                "date": _erp_date(pedido_date.date() if pedido_date else emission_date),
+                "documentTypeId": "802",
+                "folio": str(order_number),
+                "reason": f"Nota de Pedido {order_number}",
+            })
+
+        # IVA 19 % si hay al menos una línea afecta; las cuentas de impuesto las resuelve el ERP.
+        sale_taxes: List[Dict[str, Any]] = []
+        if any(not d["isExempt"] for d in details):
+            sale_taxes.append({
+                "code": "IVA", "value": 19,
+                "taxAnalysis": {"accountNumber": "", "businessCenter": "",
+                                "classifier01": "", "classifier02": ""},
+            })
+
+        return {
+            "documentType": document_type,
+            "firstFolio": 0,
+            "lastFolio": 0,
+            "externalDocumentID": f"WMS-GD-{dispatch.get('_id') or dispatch.get('id') or ''}",
+            "emissionDate": emission,
+            "firstFeePaid": first_fee_paid,
+            "clientFile": client.get("fileId"),
+            "contactIndex": client.get("address"),
+            "paymentCondition": order_raw.get("paymentConditionID"),
+            "sellerFileId": order_raw.get("sellerID"),
+            "clientAnalysis": analysis(client_account),
+            "billingCoin": order_raw.get("billingCoindID"),
+            "billingRate": order_raw.get("billingRate") or 1,
+            "shopId": order_raw.get("shopID"),
+            "priceList": order_raw.get("referenceNumberPricingID"),
+            "giro": client.get("giro"),
+            "district": client.get("district"),   # comuna
+            "city": client.get("region"),         # la spec: city = código de la región
+            "contact": -1,
+            "attachedDocuments": attached,
+            "originStorage": storage,
+            "destinationStorage": storage,
+            "dispatchInfo": {
+                "assetsType": assets_type,
+                "dispatchType": dispatch_type,
+                "transactionType": transaction_type,
+                "isTransferDispatch": False,
+            },
+            "details": details,
+            "saleTaxes": sale_taxes,
+            "ventaRecDesGlobal": [],
+            "gloss": gloss or order_raw.get("dispatchComment") or "",
+            "customFields": [],
+            "isTransferDocument": is_transfer_document,
         }
 
     @staticmethod
