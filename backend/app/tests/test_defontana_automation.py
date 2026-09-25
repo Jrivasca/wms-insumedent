@@ -299,6 +299,7 @@ async def test_build_dispatch_save_lleva_cabecera_del_pedido_y_lote_por_linea():
     # B.1: payload de Dispatch/Save. La cabecera comercial sale del pedido original (Order/Get) y
     # las líneas con su lote, del despacho del WMS (BatchInfo por línea).
     order_raw = {
+        "number": 2854, "creationDate": "2026-07-11T00:00:00",
         "client": {"fileId": "CLI-77", "giro": "Odontología", "district": "SANTIAGO",
                    "region": "RM", "address": "Av. Siempre Viva 123"},
         "paymentConditionID": "30D", "sellerID": "V-01", "billingCoindID": "PESO",
@@ -317,32 +318,50 @@ async def test_build_dispatch_save_lleva_cabecera_del_pedido_y_lote_por_linea():
     }
     payload = DefontanaMapper.build_dispatch_save(
         dispatch=dispatch, order_raw=order_raw, storage_code="BODEGACENTRAL",
-        document_type="GDV", business_center="EMPNEGVTAVTA000",
-        client_account="1101", sale_account="4101", inventory_account="1201",
+        document_type="GDVELECT", business_center="EMPNEGVTAVTA000",
+        client_account="1110401001", sale_account="1110801001",
+        inventory_account="1110801001", storage_account="4110101001",
         assets_type="1", dispatch_type="1", transaction_type="1", motive="VENTA",
         is_transfer_document=True, emission_date=date(2026, 9, 24), gloss="CLINICA X",
     )
-    # Cabecera del pedido original.
-    assert payload["ClientFile"] == "CLI-77"
-    assert payload["District"] == "SANTIAGO" and payload["City"] == "RM"  # comuna / región
-    assert payload["PaymentCondition"] == "30D" and payload["SellerFileId"] == "V-01"
-    assert payload["Contact"] == -1 and payload["FirstFolio"] == 0
-    # DispatchInfo confirmado y IsTransferDocument (no viaja al SII).
-    assert payload["DispatchInfo"] == {
-        "AssetsType": "1", "DispatchType": "1", "TransactionType": "1", "IsTransferDispatch": False,
+    # Claves en camelCase con minúscula inicial (como el ejemplo de Defontana).
+    assert payload["clientFile"] == "CLI-77"
+    assert payload["district"] == "SANTIAGO" and payload["city"] == "RM"  # comuna / región
+    assert payload["paymentCondition"] == "30D" and payload["sellerFileId"] == "V-01"
+    assert payload["contact"] == -1 and payload["firstFolio"] == 0
+    # dispatchInfo confirmado e isTransferDocument (no viaja al SII).
+    assert payload["dispatchInfo"] == {
+        "assetsType": "1", "dispatchType": "1", "transactionType": "1", "isTransferDispatch": False,
     }
-    assert payload["IsTransferDocument"] is True
-    assert payload["OriginStorage"]["Code"] == "BODEGACENTRAL"
-    assert payload["OriginStorage"]["Motive"] == "VENTA"
-    assert payload["DestinationStorage"] == payload["OriginStorage"]  # no es traslado
-    # Cuentas contables en los asientos.
-    assert payload["ClientAnalysis"]["AccountNumber"] == "1101"
-    # Línea con precio del pedido y lote por línea (BatchInfo).
-    line = payload["Details"][0]
-    assert line["Code"] == "SKU-1" and line["Count"] == 3 and line["Price"] == 1990
-    assert line["Analysis"]["AccountNumber"] == "4101"
-    assert line["UseBatch"] is True
-    assert line["BatchInfo"] == [
-        {"Amount": 2, "BatchNumber": "LOTE-B"},
-        {"Amount": 1, "BatchNumber": "LOTE-A"},
+    assert payload["isTransferDocument"] is True
+    assert payload["originStorage"]["code"] == "BODEGACENTRAL"
+    assert payload["originStorage"]["motive"] == "VENTA"
+    assert payload["destinationStorage"] == payload["originStorage"]  # no es traslado
+    # La guía referencia la Nota de Pedido (documentTypeId 802, folio = nº de pedido).
+    assert payload["attachedDocuments"] == [
+        {"date": {"day": 11, "month": 7, "year": 2026}, "documentTypeId": "802",
+         "folio": "2854", "reason": "Nota de Pedido 2854"},
+    ]
+    # Centro de negocio solo en la bodega; vacío en cliente y líneas.
+    assert payload["clientAnalysis"] == {
+        "accountNumber": "1110401001", "businessCenter": "",
+        "classifier01": "", "classifier02": "",
+    }
+    assert payload["originStorage"]["storageAnalysis"]["accountNumber"] == "4110101001"
+    assert payload["originStorage"]["storageAnalysis"]["businessCenter"] == "EMPNEGVTAVTA000"
+    # IVA 19 % por haber una línea afecta.
+    assert payload["saleTaxes"] == [
+        {"code": "IVA", "value": 19,
+         "taxAnalysis": {"accountNumber": "", "businessCenter": "",
+                         "classifier01": "", "classifier02": ""}},
+    ]
+    # Línea con precio del pedido y lote por línea (batchInfo).
+    line = payload["details"][0]
+    assert line["code"] == "SKU-1" and line["count"] == 3 and line["price"] == 1990
+    assert line["analysis"]["accountNumber"] == "1110801001" and line["analysis"]["businessCenter"] == ""
+    assert line["analysisInventory"]["accountNumber"] == "1110801001"
+    assert line["useBatch"] is True
+    assert line["batchInfo"] == [
+        {"amount": 2, "batchNumber": "LOTE-B"},
+        {"amount": 1, "batchNumber": "LOTE-A"},
     ]

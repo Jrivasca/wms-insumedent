@@ -82,6 +82,7 @@ async def _handle_dispatch_order(job: Dict[str, Any]) -> Dict[str, Any]:
         client_account=settings.defontana_dispatch_client_account,
         sale_account=settings.defontana_dispatch_sale_account,
         inventory_account=settings.defontana_dispatch_inventory_account,
+        storage_account=settings.defontana_dispatch_storage_account,
         assets_type=settings.defontana_dispatch_assets_type,
         dispatch_type=settings.defontana_dispatch_type,
         transaction_type=settings.defontana_dispatch_transaction_type,

@@ -2,15 +2,15 @@
   "documentType": "GDVELECT",
   "firstFolio": 0,
   "lastFolio": 0,
-  "externalDocumentID": "WMS-GD-EJEMPLO-1",
+  "externalDocumentID": "",
   "emissionDate": {
-    "day": 25,
-    "month": 9,
+    "day": 23,
+    "month": 7,
     "year": 2026
   },
   "firstFeePaid": {
-    "day": 25,
-    "month": 9,
+    "day": 22,
+    "month": 8,
     "year": 2026
   },
   "clientFile": "69.050.600-9",
@@ -40,7 +40,17 @@
       },
       "documentTypeId": "802",
       "folio": "2854",
-      "reason": "Nota de Pedido 2854"
+      "reason": "Nota de Pedido - 525800-248-COT26"
+    },
+    {
+      "date": {
+        "day": 23,
+        "month": 7,
+        "year": 2026
+      },
+      "documentTypeId": "801",
+      "folio": "525800-215-AG26",
+      "reason": "Orden de Compra"
     }
   ],
   "originStorage": {

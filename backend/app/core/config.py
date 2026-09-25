@@ -83,14 +83,13 @@ class Settings(BaseSettings):
     # (apagado): confirmar un despacho con el flag apagado deja la guía SOLO en el WMS, no la
     # emite en el ERP. Valores del ``dispatchInfo`` confirmados leyendo guías GDVELECT reales
     # (``dispatchTypeData``) el 2026-09-22: tipo de bien 1 = "Constituye una venta", tipo de
-    # despacho 1 = "Por cuenta del cliente". ``transactionType`` no aparece en las guías (campo
-    # opcional en el swagger, sin enum) y el ``motive`` que trae el movimiento de inventario de
-    # una guía real es ``COMPRA`` (raro para un egreso de venta: confirmar antes de encender).
+    # despacho 1 = "Por cuenta del cliente".
     defontana_dispatch_assets_type: str = "1"
     defontana_dispatch_type: str = "1"
     # Confirmado por la spec de Dispatch/Save (Luis, 2026-09-23): 1 = "Venta del Giro".
     defontana_dispatch_transaction_type: str = "1"
-    defontana_dispatch_motive: str = "COMPRA"
+    # ``motive`` de la bodega: ``VENTA`` (confirmado en el ejemplo que devolvió Luis, 2026-09-25).
+    defontana_dispatch_motive: str = "VENTA"
 
     # Guía de despacho → Dispatch/Save (B.1, método recomendado por Defontana: soporta lote/serie
     # por línea). Reemplaza a Order/DispatchOrder. Sigue detrás de ``erp_sync_enabled`` (apagado).
@@ -99,11 +98,14 @@ class Settings(BaseSettings):
     defontana_dispatch_is_transfer_document: bool = True
     # Código del tipo de documento de la guía (GetDocumentInfo). Pendiente: lo define Insumedent.
     defontana_dispatch_document_type: str = ""
-    # Cuentas contables de los asientos (AccountNumber, sin puntos). Pendientes: los define la
-    # contabilidad de Insumedent. Vacío = el ejemplo/payload los deja en blanco para completar.
+    # Cuentas contables de los asientos (accountNumber, sin puntos). Valores del ejemplo de Luis
+    # (2026-09-25), a confirmar por la contabilidad de Insumedent antes de encender la guía:
+    # cliente 1110401001, venta e inventario de línea 1110801001, inventario de bodega 4110101001.
+    # Vacío = el payload los deja en blanco para completar.
     defontana_dispatch_client_account: str = ""
     defontana_dispatch_sale_account: str = ""
     defontana_dispatch_inventory_account: str = ""
+    defontana_dispatch_storage_account: str = ""
 
     # Inventory
     allow_negative_stock: bool = False

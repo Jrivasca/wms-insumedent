@@ -1,37 +1,59 @@
-# `Dispatch/Save` — ejemplo de payload (para validar con Defontana)
+# `Dispatch/Save` — ejemplo de payload (alineado con Defontana)
 
-Ejemplo real del payload que el WMS arma para `POST /api/Dispatch/Save` (guía de despacho, B.1).
-Generado con el mapper `DefontanaMapper.build_dispatch_save` a partir de un **pedido real del
-ambiente de pruebas** (Order/Get nº **2854**, I. Municipalidad de San Felipe), acotado a las dos
-primeras líneas de artículo para que sea legible. El JSON completo está en
-[`Dispatch-Save-ejemplo.json`](./Dispatch-Save-ejemplo.json).
+Ejemplo del payload que el WMS arma para `POST /api/Dispatch/Save` (guía de despacho, B.1).
+Generado por el mapper `DefontanaMapper.build_dispatch_save` a partir de un **pedido real del
+ambiente de pruebas** (Order/Get nº **2854**, I. Municipalidad de San Felipe). El JSON completo
+está en [`Dispatch-Save-ejemplo.json`](./Dispatch-Save-ejemplo.json).
+
+Esta versión **ya incorpora las correcciones que envió Luis (Defontana) el 2026-09-25**: claves en
+camelCase con minúscula inicial, `attachedDocuments` con la Nota de Pedido, `saleTaxes` con IVA,
+`businessCenter` solo en la bodega, y el tipo de documento / cuentas / `motive` con los valores de
+su ejemplo.
 
 **De dónde sale cada parte:**
 
 - **Cabecera comercial** (cliente, condición de pago, vendedor, moneda, local, lista de precios,
-  giro, comuna, región, precios de línea): del **pedido original** de Defontana (`Order/Get`), que
-  es la fuente de esos datos. Acá salen con los valores reales del pedido 2854.
-- **Líneas y lote** (`Details` + `BatchInfo`): del **despacho del WMS**. El lote lo elige el
-  operario al pickear y viaja FEFO hasta la guía. En el ejemplo, la 1ª línea lleva dos lotes
-  (`LOTE-2027A` ×3, `LOTE-2028B` ×1) y la 2ª va sin lote, para mostrar los dos casos.
-- **`DispatchInfo`**: `AssetsType="1"` (constituye venta), `DispatchType="1"` (por cuenta del
-  cliente), `TransactionType="1"` (venta del giro), `IsTransferDispatch=false`. Confirmados.
-- **`IsTransferDocument=true`**: registra y contabiliza la guía **sin enviarla al SII** (para
+  giro, comuna, región, precios de línea): del **pedido original** de Defontana (`Order/Get`).
+- **`attachedDocuments`**: la **Nota de Pedido** que origina la guía — `documentTypeId: "802"`,
+  `folio` = nº de pedido (2854). La **Orden de Compra** (`"801"`), cuando exista, la agrega
+  Insumedent: el WMS no siempre la tiene (ver pregunta abierta abajo).
+- **Líneas y lote** (`details` + `batchInfo`): del **despacho del WMS**. El lote lo elige el
+  operario al pickear y viaja FEFO hasta la guía. Las dos primeras líneas llevan lote; la tercera va
+  sin lote, para mostrar ambos casos.
+- **`saleTaxes`**: IVA 19 % cuando hay al menos una línea afecta.
+- **`dispatchInfo`**: `assetsType="1"` (constituye venta), `dispatchType="1"` (por cuenta del
+  cliente), `transactionType="1"` (venta del giro), `isTransferDispatch=false`. Confirmados.
+- **`isTransferDocument=true`**: registra y contabiliza la guía **sin enviarla al SII** (para
   probar sin emitir un DTE real; igual consume folio y no se puede borrar). En producción irá
   `false`.
-- **`DestinationStorage` = `OriginStorage`**: no es traslado entre bodegas.
+- **`destinationStorage` = `originStorage`**: no es traslado entre bodegas.
 
-**Lo que falta definir Insumedent (van marcados `<PENDIENTE: ...>` en el JSON):**
+**Valores que definió Insumedent (según el ejemplo de Luis, a confirmar por contabilidad):**
 
-1. **`DocumentType`** — código del tipo de documento de la guía (`GetDocumentInfo`).
-2. **Cuentas contables** (`AccountNumber`) de los asientos de **cliente**, **venta** e
-   **inventario**.
-3. **`Motive`** de la bodega de origen: en el ejemplo va `VENTA` (para un egreso de venta lo
-   lógico es `VENTA` o `SALIDA`); confirmar cuál usa Insumedent.
+- **`documentType`** = `GDVELECT`.
+- **Cuentas** (`accountNumber`): cliente `1110401001`; venta e inventario de línea `1110801001`;
+  inventario de bodega `4110101001`. En el código van por config (`defontana_dispatch_*_account`);
+  hoy vacías hasta la confirmación contable.
+- **`motive`** de la bodega = `VENTA`.
 
-**Preguntas para Luis:**
+**Diferencias del payload del WMS respecto al ejemplo de Luis (esperadas):**
 
-- ¿La estructura y los nombres de campo calzan con lo que espera `Dispatch/Save`?
-- ¿`ContactIndex` es la dirección en texto (como acá) o un índice/código del contacto del cliente?
-- ¿`PriceList` corresponde al `referenceNumberPricingID` del pedido?
-- Para una guía de venta normal, ¿confirmás `Motive` y el tipo de documento a usar?
+- `externalDocumentID` lleva un identificador interno del WMS (`WMS-GD-<id>`), no vacío: sirve para
+  correlacionar la guía con el despacho.
+- `firstFeePaid` = `emissionDate`: el WMS aún no calcula el vencimiento de la cuota según la
+  condición de pago (ver pregunta abierta).
+- `attachedDocuments` trae solo la Nota de Pedido; la Orden de Compra la suma Insumedent si aplica.
+
+**Preguntas abiertas para Luis:**
+
+1. **Casing:** ¿el endpoint exige los campos en minúscula inicial (`documentType`, `clientFile`…),
+   o los acepta también en mayúscula? Lo dejamos igual a tu ejemplo.
+2. **Cuentas:** ¿confirmás que son las definitivas y a qué asiento va cada una? ¿El
+   `analysisInventory` de la línea (`1110801001`) va distinto al `storageAnalysis` de la bodega
+   (`4110101001`) a propósito?
+3. **`businessCenter`:** ¿va solo en `storageAnalysis` y vacío en cliente y líneas, como en tu
+   ejemplo?
+4. **`attachedDocuments`:** ¿es obligatorio, o basta con la Nota de Pedido? ¿`documentTypeId 802` es
+   siempre Nota de Pedido y `801` Orden de Compra?
+5. **`firstFeePaid`:** ¿lo calcula el ERP a partir de la condición de pago, o hay que mandarlo con la
+   fecha de vencimiento de la primera cuota?
