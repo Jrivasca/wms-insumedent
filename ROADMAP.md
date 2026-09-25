@@ -150,24 +150,31 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
   (notificación `sync_job_failed`, lleva a la Cola de Sincronización): antes quedaba
   descuadrado en silencio.
-- **Flujo 3 — Guía de despacho → `Dispatch/Save`** *(B.1: mapper construido 2026-09-24; faltan
-  valores contables que define Insumedent)*. **El método cambió de `Order/DispatchOrder` a
-  `Dispatch/Save`** (Luis, 2026-09-23: soporta lote/serie). El payload lo arma
+- **Flujo 3 — Guía de despacho → `Dispatch/Save`** *(B.1: mapper completo 2026-09-25, estructura
+  validada por Defontana; falta que Insumedent cargue dos cuentas contables)*. **El método cambió de
+  `Order/DispatchOrder` a `Dispatch/Save`** (Luis, 2026-09-23: soporta lote/serie). El payload lo arma
   `DefontanaMapper.build_dispatch_save` (ver el detalle en la sección de lote/vencimiento, más
-  arriba); el worker manda `Dispatch/Save` detrás de `erp_sync_enabled`. Lo que sigue vale como
-  historial del mapeo anterior (`build_dispatch_order`, superado pero conservado) y de los valores
-  ya confirmados, que se reusan:
-  - `dispatchInfo.assetsType` = **`1`** (tipo de bien "Constituye una venta") y `dispatchType` =
-    **`1`** ("Por cuenta del cliente"), `isTransferDispatch` = **false** — confirmados en
-    `dispatchTypeData` de guías reales.
-  - Centro de negocio **`EMPNEGVTAVTA000`** en el análisis contable de cliente, bodega de origen y
-    cada línea (así aparece en las guías, cada línea con análisis "VENTAS"); bodega de origen
-    `BODEGACENTRAL`.
-  - **Sin confirmar (config, `DEFONTANA_DISPATCH_*`):** `transactionType` no aparece en las guías
-    (opcional en el swagger, sin enum) y `originStorageInfo.motive` se observó como **`COMPRA`** en
-    el movimiento de inventario de una guía real (raro para un egreso de venta). Faltan de nombrar
-    con certeza; se confirman con **una emisión de prueba** (consume folio y **no se puede borrar**,
-    a diferencia de los documentos de inventario) o preguntándole a Defontana.
+  arriba); el worker manda `Dispatch/Save` detrás de `erp_sync_enabled`. Valores confirmados que se
+  reusan:
+  - `dispatchInfo.assetsType` = **`1`** (tipo de bien "Constituye una venta"), `dispatchType` =
+    **`1`** ("Por cuenta del cliente"), `transactionType` = **`1`** ("Venta del Giro"),
+    `isTransferDispatch` = **false** — confirmados (spec de `Dispatch/Save`, Luis 2026-09-23/25).
+  - `originStorage.motive` = **`VENTA`**; bodega de origen `BODEGACENTRAL` (= destino, no es traslado).
+  - **Casing:** los campos van en **minúscula inicial** (camelCase), tal como el Swagger — confirmado
+    por Luis (2026-09-25).
+  - **`firstFeePaid`** (vencimiento): al contado = emisión; a crédito = emisión + los días del plazo
+    del código de la condición (`CREDITO30` → 30). El ERP **no** lo calcula (Luis, 2026-09-25);
+    lo resuelve el mapper (`_credit_days`).
+  - **`businessCenter`** (`EMPNEGVTAVTA000`): es **por cuenta** — se envía solo si la cuenta lo tiene
+    configurado; si no, no va. Se valida por cuenta con `Accounting/BusinessCenterPlan` (módulo
+    Contabilidad, **no contratado**), así que la config por cuenta la confirma Insumedent con su ERP.
+  - **`attachedDocuments`:** la **Nota de Pedido** (`documentTypeId 802`, folio = nº de pedido)
+    **siempre va** (mueve el estado del pedido). Catálogo de códigos en
+    `docs/entregables/Dispatch-Save-documentos-asociados.md`.
+  - **Cuentas contables** (`GDVELECT` → Definición Contable, las define el cliente en su ERP):
+    inventario de línea **`1110801001`** (MERCADERIAS) y de bodega **`4110101001`** (COSTOS DE VENTAS),
+    **confirmadas**. **Faltan** las de **cliente** (`1110401001` en el ejemplo) y **venta de línea**,
+    que Insumedent debe sacar de su ERP y cargar en `DEFONTANA_DISPATCH_*_ACCOUNT`.
 
   **El envío ya está detrás de `erp_sync_enabled` (apagado).** Antes no lo estaba: confirmar un
   despacho encolaba `Order/DispatchOrder` sin candado (no emitía guía solo porque el payload
@@ -201,11 +208,13 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     `IsTransferDocument` configurable (default `true` = no viaja al SII). El worker
     (`_handle_dispatch_order`) ahora manda `Dispatch/Save` (connector `dispatch_save`), detrás del
     mismo candado `erp_sync_enabled` (apagado). `build_dispatch_order` (Order/DispatchOrder) queda
-    superado pero se conserva. Cubierto por `test_defontana_automation`. **Pendientes (config, los
-    define Insumedent):** código del tipo de documento (`defontana_dispatch_document_type`), las
-    cuentas contables (`_client/_sale/_inventory_account`) y el `Motive` (hoy `COMPRA`, debería ser
-    `VENTA`/`SALIDA`). Ejemplo real para validar con Luis en
-    `docs/entregables/Dispatch-Save-ejemplo.{json,md}` (pedido 2854, con lote).
+    superado pero se conserva. Cubierto por `test_defontana_automation`. **Estructura validada por
+    Defontana (Luis, 2026-09-25):** casing (minúscula inicial), `attachedDocuments` (Nota de Pedido
+    802 obligatoria), `businessCenter` por cuenta, IVA en `saleTaxes`, `firstFeePaid` por condición de
+    pago, `documentType` = `GDVELECT`, `motive` = `VENTA` — todo aplicado. **Único pendiente (config,
+    lo define Insumedent):** cargar en `DEFONTANA_DISPATCH_*_ACCOUNT` las cuentas de **cliente** y
+    **venta de línea** desde el ERP (las de inventario ya están confirmadas). Ejemplo y catálogos en
+    `docs/entregables/Dispatch-Save-*.{json,md}` (pedido 2854, con lote).
   - **Corregir/actualizar lotes** *(Parte 3, opción A — hecha 2026-09-24)*. Cuando el lote del
     saldo está mal ingresado, el operario lo corrige **en picking** para liberar el despacho:
     "Actualizar lotes desde Defontana" refresca la foto de referencia (`erp_batches`,
@@ -227,7 +236,7 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   del pedido son la suma de las tareas cerradas, y reabrir picking o packing sobre el pendiente
   solo toca esa tarea: la guía anterior y su inventario quedan intactos. Un pedido "despachado
   en parte" (queda algo empacado sin despachar) no se ofrece: primero se despacha eso. El lado
-  del ERP sigue esperando el mapeo de `Order/DispatchOrder` (ver Flujo 3).
+  del ERP usa `Dispatch/Save` (ver Flujo 3), aún detrás de `erp_sync_enabled`.
   **Defontana confirmó que un pedido solo se puede editar en estado P**; los que el WMS prepara
   ya están aprobados (`E..`), así que no se pueden modificar con `Order/UpdateOrder`. Hay que
   definir con Defontana y con Insumedent cómo se hace hoy un reemplazo en un pedido aprobado.
