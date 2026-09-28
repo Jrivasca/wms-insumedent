@@ -486,15 +486,21 @@ export default function PickingTaskPage() {
                         }`}
                       >
                         <span className="min-w-0">
-                          <span className="block font-mono text-sm tracking-tight">
-                            {lot.lot_number}
+                          <span className="block text-sm tracking-tight text-graphite-100">
+                            <span className="text-graphite-400">Lote </span>
+                            <span className="font-mono">{lot.lot_number}</span>
+                            {lineLots.lots.length === 1 && (
+                              <span className="text-xs font-normal text-graphite-500">
+                                {' '}· único disponible
+                              </span>
+                            )}
                           </span>
                           <span className="block text-xs text-graphite-400">
                             Vence{' '}
                             {lot.expiration_date
                               ? new Date(lot.expiration_date).toLocaleDateString('es-CL')
                               : 'sin fecha'}{' '}
-                            · {lot.location_code}
+                            · Ubicación {lot.location_code}
                           </span>
                         </span>
                         <span className="ml-2 shrink-0 text-sm font-semibold tabular-nums">
