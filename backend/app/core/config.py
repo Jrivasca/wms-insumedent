@@ -113,9 +113,11 @@ class Settings(BaseSettings):
     # por Luis (2026-09-28): NO es el ``referenceNumberPricingID`` del pedido (da "out of range");
     # es un código de ``GetPriceList``, que vive en el ERP (Ventas → Lista de Precios). Lo define
     # Insumedent con un código válido y estable. ``GetPriceList`` es del módulo Ventas (no
-    # contratado), así que no se consulta desde el WMS. Vacío hasta que Insumedent lo cargue; para
-    # probar en QA sirvió ``"1"``. Ojo: la réplica de fin de semana puede invalidar códigos.
-    defontana_dispatch_price_list: str = ""
+    # contratado), así que no se consulta desde el WMS. Insumedent eligió (2026-09-28) el código
+    # ``"1"`` = LISTA BASE (las listas válidas en QA son 1 BASE, 2 CLINICAS, 3 MERCADO PUBLICO,
+    # 4 Carolina Briones). Como el WMS manda los precios explícitos por línea, la lista es referencia
+    # de cabecera. Ojo: la réplica de fin de semana puede invalidar códigos de lista de precios.
+    defontana_dispatch_price_list: str = "1"
 
     # Inventory
     allow_negative_stock: bool = False
