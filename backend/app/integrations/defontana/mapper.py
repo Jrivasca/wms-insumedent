@@ -318,6 +318,7 @@ class DefontanaMapper:
         sale_account: str,
         inventory_account: str,
         storage_account: str,
+        price_list: str,
         assets_type: str,
         dispatch_type: str,
         transaction_type: str,
@@ -434,7 +435,7 @@ class DefontanaMapper:
             "billingCoin": order_raw.get("billingCoindID"),
             "billingRate": order_raw.get("billingRate") or 1,
             "shopId": order_raw.get("shopID"),
-            "priceList": order_raw.get("referenceNumberPricingID"),
+            "priceList": price_list,  # código de GetPriceList (config); NO el referenceNumberPricingID
             "giro": client.get("giro"),
             "district": client.get("district"),   # comuna
             "city": client.get("region"),         # la spec: city = código de la región

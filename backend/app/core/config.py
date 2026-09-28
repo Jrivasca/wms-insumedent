@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     defontana_dispatch_sale_account: str = "1110801001"
     defontana_dispatch_inventory_account: str = "1110801001"
     defontana_dispatch_storage_account: str = "4110101001"
+    # Código de la lista de precios para la guía (campo ``priceList`` de Dispatch/Save). Confirmado
+    # por Luis (2026-09-28): NO es el ``referenceNumberPricingID`` del pedido (da "out of range");
+    # es un código de ``GetPriceList``, que vive en el ERP (Ventas → Lista de Precios). Lo define
+    # Insumedent con un código válido y estable. ``GetPriceList`` es del módulo Ventas (no
+    # contratado), así que no se consulta desde el WMS. Vacío hasta que Insumedent lo cargue; para
+    # probar en QA sirvió ``"1"``. Ojo: la réplica de fin de semana puede invalidar códigos.
+    defontana_dispatch_price_list: str = ""
 
     # Inventory
     allow_negative_stock: bool = False

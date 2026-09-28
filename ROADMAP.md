@@ -214,9 +214,14 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     Defontana (Luis, 2026-09-25):** casing (minúscula inicial), `attachedDocuments` (Nota de Pedido
     802 obligatoria), `businessCenter` por cuenta, IVA en `saleTaxes`, `firstFeePaid` por condición de
     pago, `documentType` = `GDVELECT`, `motive` = `VENTA` — todo aplicado. **Cuentas cargadas y
-    verificadas en QA** (`DEFONTANA_DISPATCH_*_ACCOUNT`, 2026-09-25). **Único pendiente:** encender
-    `erp_sync_enabled` cuando se decida la puesta en marcha (una emisión real consume un folio de QA y
-    no se puede borrar). Ejemplo y catálogos en `docs/entregables/Dispatch-Save-*.{json,md}`.
+    verificadas en QA** (`DEFONTANA_DISPATCH_*_ACCOUNT`, 2026-09-25). **Emisión real probada**
+    (2026-09-28, folio 3736, con lote, `IsTransferDocument=true` → sin SII). **`priceList`:** NO es el
+    `referenceNumberPricingID` (da "out of range"); es un código de `GetPriceList` (Ventas, no
+    contratado), va por config `DEFONTANA_DISPATCH_PRICE_LIST` — lo provee Insumedent (en QA sirvió
+    `"1"`). **Pendientes de valor (config, los pone Insumedent):** las cuentas de cliente/venta ya
+    tienen default; falta que Insumedent confirme el `priceList`. Luego, **encender `erp_sync_enabled`**
+    (una emisión real consume un folio de QA y no se puede borrar). Ejemplo en
+    `docs/entregables/Dispatch-Save-*.{json,md}`.
   - **Corregir/actualizar lotes** *(Parte 3, opción A — hecha 2026-09-24)*. Cuando el lote del
     saldo está mal ingresado, el operario lo corrige **en picking** para liberar el despacho:
     "Actualizar lotes desde Defontana" refresca la foto de referencia (`erp_batches`,
