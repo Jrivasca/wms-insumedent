@@ -219,7 +219,7 @@ export default function PickingTaskPage() {
     // Este producto maneja lotes: no se confirma sin elegir el lote de la lista.
     if (lineLots?.manages_lots && !selectedLot) {
       setFeedback('warning');
-      showMessage('Elegí el lote de la lista antes de escanear.', 'warning');
+      showMessage('Seleccione el lote de la lista antes de escanear.', 'warning');
       setTimeout(() => setFeedback('idle'), 2200);
       return;
     }
@@ -272,7 +272,7 @@ export default function PickingTaskPage() {
     // Este producto maneja lotes: no se confirma sin elegir el lote de la lista.
     if (lineLots?.manages_lots && !selectedLot) {
       setFeedback('warning');
-      showMessage('Elegí el lote de la lista antes de confirmar.', 'warning');
+      showMessage('Seleccione el lote de la lista antes de confirmar.', 'warning');
       setTimeout(() => setFeedback('idle'), 2200);
       return;
     }
@@ -461,7 +461,7 @@ export default function PickingTaskPage() {
           {lineLots?.manages_lots && (
             <div className="mt-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-graphite-400">
-                Elegí el lote {selectedLot ? '' : '(obligatorio)'}
+                Seleccione el lote {selectedLot ? '' : '(obligatorio)'}
               </p>
               {lineLots.lots.length === 0 ? (
                 <p className="mt-1 text-xs text-amber-300">
@@ -486,15 +486,21 @@ export default function PickingTaskPage() {
                         }`}
                       >
                         <span className="min-w-0">
-                          <span className="block font-mono text-sm tracking-tight">
-                            {lot.lot_number}
+                          <span className="block text-sm tracking-tight text-graphite-100">
+                            <span className="text-graphite-400">Lote </span>
+                            <span className="font-mono">{lot.lot_number}</span>
+                            {lineLots.lots.length === 1 && (
+                              <span className="text-xs font-normal text-graphite-500">
+                                {' '}· único disponible
+                              </span>
+                            )}
                           </span>
                           <span className="block text-xs text-graphite-400">
                             Vence{' '}
                             {lot.expiration_date
                               ? new Date(lot.expiration_date).toLocaleDateString('es-CL')
                               : 'sin fecha'}{' '}
-                            · {lot.location_code}
+                            · Ubicación {lot.location_code}
                           </span>
                         </span>
                         <span className="ml-2 shrink-0 text-sm font-semibold tabular-nums">
@@ -560,7 +566,7 @@ export default function PickingTaskPage() {
                     <p className="mt-1 text-xs text-graphite-500">Cargando…</p>
                   ) : erpLots.length === 0 ? (
                     <p className="mt-1 text-xs text-amber-300">
-                      Defontana no informa lotes para este producto. Actualizá desde Defontana.
+                      Defontana no informa lotes para este producto. Actualícelos desde Defontana.
                     </p>
                   ) : (
                     <div className="mt-1 flex flex-wrap gap-2">
