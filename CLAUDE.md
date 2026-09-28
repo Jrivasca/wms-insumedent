@@ -201,11 +201,13 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
   —`EMPNEGVTAVTA000`, probado por escritura contra `Inventory/Insert` el 2026-09-21— así que lo
   que traba el envío de inventario es el corte de bodega, no A.2. Para las **guías** el método es
   **`Dispatch/Save`** (reemplazó a `Order/DispatchOrder`: soporta lote/serie). El mapeo está
-  **completo y validado por Defontana**, con las **cuentas contables cargadas y verificadas en QA**
-  (`build_dispatch_save` + `DEFONTANA_DISPATCH_*_ACCOUNT`, detrás de `erp_sync_enabled`, ver B.1 en
-  `ROADMAP.md`). Lo único que queda es **encender `erp_sync_enabled`** cuando se decida la puesta en
-  marcha; una emisión real consume un folio de QA y **no se puede borrar**, así que es una decisión
-  deliberada, no "para probar".
+  **completo, validado por Defontana y con una emisión real probada** (folio 3736 en QA, 2026-09-28,
+  con lote, `IsTransferDocument=true` → sin SII). Cuentas por config (`DEFONTANA_DISPATCH_*_ACCOUNT`)
+  y **`priceList` por config** (`DEFONTANA_DISPATCH_PRICE_LIST`): **no** es el `referenceNumberPricingID`
+  del pedido (da "out of range"), es un código de `GetPriceList` que provee Insumedent (Ventas → Lista
+  de Precios; en QA sirvió `"1"`). Todo detrás de `erp_sync_enabled`. Lo que queda: que Insumedent
+  confirme el `priceList`, y luego **encender `erp_sync_enabled`** — una emisión real consume folio de
+  QA y **no se puede borrar**, así que es decisión deliberada, no "para probar".
 - Las sincronizaciones automáticas están en un solo programador,
   **`app/workers/defontana_scheduler.py`** (corre en el worker), con la última corrida por
   empresa en `scheduler_runs`. Cada nivel tiene su flag; ver la tabla del `ROADMAP.md`.

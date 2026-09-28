@@ -321,13 +321,15 @@ async def test_build_dispatch_save_lleva_cabecera_del_pedido_y_lote_por_linea():
         document_type="GDVELECT", business_center="EMPNEGVTAVTA000",
         client_account="1110401001", sale_account="1110801001",
         inventory_account="1110801001", storage_account="4110101001",
-        assets_type="1", dispatch_type="1", transaction_type="1", motive="VENTA",
+        price_list="1", assets_type="1", dispatch_type="1", transaction_type="1", motive="VENTA",
         is_transfer_document=True, emission_date=date(2026, 9, 24), gloss="CLINICA X",
     )
     # Claves en camelCase con minúscula inicial (como el ejemplo de Defontana).
     assert payload["clientFile"] == "CLI-77"
     assert payload["district"] == "SANTIAGO" and payload["city"] == "RM"  # comuna / región
     assert payload["paymentCondition"] == "CREDITO30" and payload["sellerFileId"] == "V-01"
+    # priceList sale de config (GetPriceList), NO del referenceNumberPricingID del pedido ("LISTA-1").
+    assert payload["priceList"] == "1"
     assert payload["contact"] == -1 and payload["firstFolio"] == 0
     # Venta a credito: el vencimiento (firstFeePaid) = emision + los dias del plazo (30), no la emision.
     assert payload["emissionDate"] == {"day": 24, "month": 9, "year": 2026}

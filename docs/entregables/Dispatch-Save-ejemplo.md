@@ -12,8 +12,14 @@ su ejemplo.
 
 **De dónde sale cada parte:**
 
-- **Cabecera comercial** (cliente, condición de pago, vendedor, moneda, local, lista de precios,
-  giro, comuna, región, precios de línea): del **pedido original** de Defontana (`Order/Get`).
+- **Cabecera comercial** (cliente, condición de pago, vendedor, moneda, local, giro, comuna, región,
+  precios de línea): del **pedido original** de Defontana (`Order/Get`).
+- **`priceList`** (lista de precios): **NO** sale del pedido. Confirmado por Luis (2026-09-28): el
+  `referenceNumberPricingID` del `Order/Get` da *"Parameter value X is out of range"*; el valor
+  correcto es un código de **`GetPriceList`** (registrado en el ERP, Ventas → Lista de Precios). Va
+  por config (`DEFONTANA_DISPATCH_PRICE_LIST`); lo define Insumedent con un código válido y estable.
+  En QA sirvió `"1"`. (`GetPriceList` es del módulo Ventas, no contratado, así que no se consulta
+  desde el WMS.)
 - **`attachedDocuments`**: la **Nota de Pedido** que origina la guía — `documentTypeId: "802"`,
   `folio` = nº de pedido (2854). La **Orden de Compra** (`"801"`), cuando exista, la agrega
   Insumedent: el WMS no siempre la tiene (ver pregunta abierta abajo).
