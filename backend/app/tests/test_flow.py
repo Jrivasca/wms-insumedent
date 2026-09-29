@@ -1,5 +1,6 @@
 """End-to-end backend flow test against an in-memory Mongo (DEFONTANA_MOCK)."""
 import pytest
+from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.database import get_database
@@ -385,6 +386,30 @@ async def test_create_reception_adds_stock_and_syncs(monkeypatch):
     await sync_worker.process_job(job)
     job_after = await db[Collections.SYNC_JOBS].find_one({"_id": job["_id"]})
     assert job_after["status"] == "success"
+
+
+async def test_transfer_rejects_same_origin_and_destination():
+    """Transferir a la misma ubicación no debe "pasar": registraría dos movimientos
+    espurios (-q y +q) sobre el mismo saldo sin mover nada real."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+
+    db = get_database()
+    bal = await db[Collections.INVENTORY_BALANCES].find_one({"tenant_id": tenant_id})
+
+    with pytest.raises(HTTPException) as exc:
+        await inventory_service.create_transfer(
+            tenant_id=tenant_id,
+            product_id=bal["product_id"],
+            warehouse_id=bal["warehouse_id"],
+            from_location_id=bal["location_id"],
+            to_location_id=bal["location_id"],
+            quantity=1,
+            created_by=admin.id,
+        )
+    assert exc.value.status_code == 400
+    assert "iguales" in exc.value.detail
 
 
 async def test_products_pagination():

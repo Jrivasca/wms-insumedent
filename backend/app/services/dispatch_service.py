@@ -37,7 +37,7 @@ async def get_dispatch(tenant_id: str, dispatch_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(dispatch_id), "tenant_id": tenant_id}
     )
     if not doc:
-        raise HTTPException(status_code=404, detail="Dispatch not found")
+        raise HTTPException(status_code=404, detail="Despacho no encontrado")
     return serialize(doc)
 
 
@@ -129,14 +129,14 @@ async def confirm_dispatch(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
     if order.get("status") not in (
         OrderStatus.READY_TO_DISPATCH.value,
         OrderStatus.PARTIALLY_DISPATCHED.value,
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Order must be ready_to_dispatch or partially_dispatched to confirm dispatch",
+            detail="El pedido debe estar listo para despacho o parcialmente despachado para confirmar el despacho",
         )
 
     order_lines = order.get("lines", [])

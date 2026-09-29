@@ -413,6 +413,11 @@ contratos de datos, pero no se ha mirado en pantalla.
 
 ## Hecho (referencia rápida)
 
+- **QA funcional de backend (2026-09-29)**: se tradujeron al español ~40 mensajes de error que
+  aún salían en inglés (picking/packing, login, inventario, pedidos, usuarios, productos, sync);
+  y la **transferencia rechaza origen == destino** (antes "pasaba" registrando dos movimientos
+  espurios). Suite verde (199 tests). *Queda abierta una duda:* "Finalizar packing" con packing
+  incompleto deja la tarea «Con observaciones» — falta confirmar si es lo deseado o debe bloquear.
 - Catálogo dental real de INSUMEDENT en la demo (1251 productos con stock real, 17 categorías).
 - Flujo completo **picking → packing → despacho** clickeable, operable sin pistola lectora.
 - Escáner con **soporte móvil**: cámara para escanear + teclado en pantalla al tocar.

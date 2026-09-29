@@ -36,10 +36,10 @@ async def login(email: str, password: str) -> Dict[str, Any]:
     user = matches[0] if matches else None
     if not user or not verify_password(password, user.get("password_hash", "")):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Correo o contraseña inválidos"
         )
     if not user.get("is_active", True):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El usuario está inactivo")
 
     await db[Collections.USERS].update_one(
         {"_id": user["_id"]}, {"$set": {"last_login_at": now_utc()}}

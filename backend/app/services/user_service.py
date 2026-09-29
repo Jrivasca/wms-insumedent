@@ -22,7 +22,7 @@ async def get_user(tenant_id: str, user_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(user_id), "tenant_id": tenant_id}
     )
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return user_public(user)
 
 
@@ -32,7 +32,7 @@ async def create_user(tenant_id: str, data: UserCreate, actor: str) -> Dict[str,
         {"tenant_id": tenant_id, "email": data.email}
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Email already exists for this tenant")
+        raise HTTPException(status_code=409, detail="El correo ya existe para esta empresa")
 
     now = now_utc()
     doc = {
@@ -61,7 +61,7 @@ async def update_user(
         {"_id": to_object_id(user_id), "tenant_id": tenant_id}
     )
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     # --- Salvaguardas anti-bloqueo -------------------------------------------
     # get_current_user valida contra la base en cada request: desactivarte o

@@ -123,7 +123,7 @@ async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
     return serialize(order)
 
 
@@ -149,7 +149,7 @@ async def create_order_from_lines(
         {"tenant_id": tenant_id, "erp_order_number": erp_order_number}
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Order number already exists")
+        raise HTTPException(status_code=409, detail="El número de pedido ya existe")
 
     built = []
     for idx, line in enumerate(lines, start=1):
@@ -269,7 +269,7 @@ async def create_picking_task(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
     # Only an order that has not yet been picked can generate a (new) picking task.
     # Once it reaches picked/packing/…/dispatched the flow has moved on, so a second
@@ -301,7 +301,7 @@ async def create_picking_task(
 
     warehouse_id = order.get("warehouse_id") or await _default_warehouse_id(tenant_id)
     if not warehouse_id:
-        raise HTTPException(status_code=400, detail="No warehouse available for picking")
+        raise HTTPException(status_code=400, detail="No hay bodega disponible para picking")
 
     lines = [
         await _picking_line(tenant_id, line, warehouse_id, line.get("ordered_quantity", 0))
@@ -588,7 +588,7 @@ async def create_backorder_picking_task(
         or await _default_warehouse_id(tenant_id)
     )
     if not warehouse_id:
-        raise HTTPException(status_code=400, detail="No warehouse available for picking")
+        raise HTTPException(status_code=400, detail="No hay bodega disponible para picking")
 
     lines = []
     for line in order.get("lines", []):
