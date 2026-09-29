@@ -264,3 +264,41 @@ async def test_despacho_no_puede_superar_lo_empacado():
         )
     assert exc.value.status_code == 409
     assert await tenant_db(tenant_id)[Collections.DISPATCHES].count_documents({}) == 0
+
+
+# ---------------------------------------------------------------------------
+# Limpieza (punto 0 del handoff): el script tiene que ser idempotente y no tocar lo sano
+# ---------------------------------------------------------------------------
+async def test_limpieza_borra_solo_lo_huerfano_y_es_idempotente(capsys):
+    from app.maintenance.limpiar_movimientos_huerfanos import limpiar
+
+    tid = "tA"
+    refs = await crear_referencias(tid)
+    await inventory_service.create_reception(
+        tenant_id=tid, product_id=refs["product_id"], warehouse_id=refs["warehouse_id"],
+        location_id=refs["A-01"], quantity=3, created_by="u1", sync_erp=False,
+    )
+    db = get_database()
+    # Los 8 movimientos de DEV: producto inexistente, sin saldo ni SKU que los explique.
+    for _ in range(2):
+        await db[Collections.INVENTORY_MOVEMENTS].insert_one(
+            {"tenant_id": tid, "product_id": INEXISTENTE, "movement_type": "receipt",
+             "quantity": 1.5, "warehouse_id": refs["warehouse_id"]}
+        )
+    await db[Collections.INVENTORY_BALANCES].insert_one(
+        {"tenant_id": tid, "product_id": INEXISTENTE, "warehouse_id": refs["warehouse_id"],
+         "location_id": refs["A-01"], "quantity_on_hand": 2}
+    )
+
+    # Dry-run: reporta y no borra.
+    await limpiar(apply=False)
+    assert await db[Collections.INVENTORY_MOVEMENTS].count_documents({}) == 3
+
+    await limpiar(apply=True)
+    assert await db[Collections.INVENTORY_MOVEMENTS].count_documents({}) == 1  # la recepción sana
+    assert await db[Collections.INVENTORY_BALANCES].count_documents({}) == 1
+
+    # Idempotente: correrlo de nuevo no rompe ni borra de más.
+    await limpiar(apply=True)
+    assert await db[Collections.INVENTORY_MOVEMENTS].count_documents({}) == 1
+    assert "Nada que limpiar" in capsys.readouterr().out
