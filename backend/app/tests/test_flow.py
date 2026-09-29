@@ -125,8 +125,9 @@ async def test_full_picking_packing_dispatch_flow(monkeypatch):
 
     # 5. Packing: start, re-scan, complete -> order ready_to_dispatch.
     await packing_service.start_task(tenant_id, packing_id, admin)
-    await packing_service.scan(tenant_id, packing_id, admin, bc1, q1, None)
-    await packing_service.scan(tenant_id, packing_id, admin, bc2, q2, None)
+    _pkg = (await packing_service.create_package(tenant_id, packing_id, admin, None))["package_id"]
+    await packing_service.scan(tenant_id, packing_id, admin, bc1, q1, _pkg)
+    await packing_service.scan(tenant_id, packing_id, admin, bc2, q2, _pkg)
     packed = await packing_service.complete(tenant_id, packing_id, admin)
     assert packed["status"] == "completed"
 
@@ -164,8 +165,9 @@ async def test_double_dispatch_blocked():
     await picking_service.complete(tenant_id, task["id"], admin)
     pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     await packing_service.start_task(tenant_id, pk["id"], admin)
-    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
-    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
+    _pkg = (await packing_service.create_package(tenant_id, pk["id"], admin, None))["package_id"]
+    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, _pkg)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, _pkg)
     await packing_service.complete(tenant_id, pk["id"], admin)
 
     await dispatch_service.confirm_dispatch(tenant_id, order_id, admin)
@@ -260,6 +262,51 @@ async def test_packing_reset_line():
     line = next(l for l in t["lines"] if l["sku"] == sku1)
     assert line["quantity_packed"] == 0
     assert all(it.get("sku") != sku1 for p in t["packages"] for it in p.get("items", []))
+
+
+async def test_packing_scan_requires_package():
+    """Bug 1: un escaneo de packing sin bulto (o con un id inexistente) se rechaza y NO suma la
+    unidad; con un bulto válido sí empaca. Evita las unidades empacadas huérfanas."""
+    seed = await run_seed()
+    tenant_id = seed["tenant_id"]
+    admin = make_user(await _admin_user())
+    order, plan = await _order_scan_plan(tenant_id)
+    order_id = str(order["_id"])
+    (bc1, q1), (bc2, q2) = plan[0], plan[1]
+
+    task = await order_service.create_picking_task(tenant_id, order_id, admin.id)
+    await picking_service.scan(tenant_id, task["id"], admin, bc1, q1, None)
+    await picking_service.scan(tenant_id, task["id"], admin, bc2, q2, None)
+    await picking_service.complete(tenant_id, task["id"], admin)
+
+    pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
+    pid = pk["id"]
+    sku1 = pk["lines"][0]["sku"]
+    await packing_service.start_task(tenant_id, pid, admin)
+
+    # Sin bulto: rechazado, nada empacado.
+    res = await packing_service.scan(tenant_id, pid, admin, bc1, q1, None)
+    assert res["status"] == "rejected" and "bulto" in res["message"].lower()
+    t = await packing_service.get_task(tenant_id, pid, admin)
+    line = next(l for l in t["lines"] if l["sku"] == sku1)
+    assert line["quantity_packed"] == 0
+    assert all(not p.get("items") for p in t["packages"])
+
+    # Con un id de bulto que no existe: también rechazado.
+    res = await packing_service.scan(tenant_id, pid, admin, bc1, q1, "PKG-999")
+    assert res["status"] == "rejected"
+    t = await packing_service.get_task(tenant_id, pid, admin)
+    line = next(l for l in t["lines"] if l["sku"] == sku1)
+    assert line["quantity_packed"] == 0
+
+    # Con un bulto válido: empaca y la unidad queda dentro del bulto.
+    pkg = await packing_service.create_package(tenant_id, pid, admin, None)
+    ok = await packing_service.scan(tenant_id, pid, admin, bc1, q1, pkg["package_id"])
+    assert ok["status"] == "ok"
+    t = await packing_service.get_task(tenant_id, pid, admin)
+    line = next(l for l in t["lines"] if l["sku"] == sku1)
+    assert line["quantity_packed"] == q1
+    assert any(it.get("sku") == sku1 for p in t["packages"] for it in p.get("items", []))
 
 
 async def test_create_product_without_erp_sync():
@@ -563,8 +610,9 @@ async def test_revert_flow_dispatch_packing_picking():
     await picking_service.complete(tenant_id, task["id"], admin)
     pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     await packing_service.start_task(tenant_id, pk["id"], admin)
-    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
-    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
+    _pkg = (await packing_service.create_package(tenant_id, pk["id"], admin, None))["package_id"]
+    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, _pkg)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, _pkg)
     await packing_service.complete(tenant_id, pk["id"], admin)
     d1 = await dispatch_service.confirm_dispatch(tenant_id, order_id, admin, guide_number="GD-123")
     assert d1["guide_number"] == "GD-123"
@@ -610,8 +658,9 @@ async def test_list_tasks_hides_cancelled_after_reopen():
     await picking_service.complete(tenant_id, task["id"], admin)
     pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     await packing_service.start_task(tenant_id, pk["id"], admin)
-    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, None)
-    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, None)
+    _pkg = (await packing_service.create_package(tenant_id, pk["id"], admin, None))["package_id"]
+    await packing_service.scan(tenant_id, pk["id"], admin, bc1, q1, _pkg)
+    await packing_service.scan(tenant_id, pk["id"], admin, bc2, q2, _pkg)
     await packing_service.complete(tenant_id, pk["id"], admin)
 
     # Reabrir picking -> la tarea de packing queda cancelada y NO debe listarse.

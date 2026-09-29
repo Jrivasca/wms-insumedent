@@ -51,8 +51,9 @@ async def _drive_to_ready(tenant_id, user, qtys):
     await picking_service.complete(tenant_id, task["id"], user)
     pk = (await packing_service.list_tasks(tenant_id, user))["items"][0]
     await packing_service.start_task(tenant_id, pk["id"], user)
+    _pkg = (await packing_service.create_package(tenant_id, pk["id"], user, None))["package_id"]
     for bc, q in zip(bcs, qtys):
-        await packing_service.scan(tenant_id, pk["id"], user, bc, q, None)
+        await packing_service.scan(tenant_id, pk["id"], user, bc, q, _pkg)
     await packing_service.complete(tenant_id, pk["id"], user)
     return oid, skus
 

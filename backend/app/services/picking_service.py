@@ -20,6 +20,13 @@ from app.services import (
 )
 
 
+def _qty(value: Any) -> Any:
+    """Cantidad para mostrar al operario: entero si no tiene decimales (``2`` en vez de ``2.0``)."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
     db = tenant_db(tenant_id)
     task = await db[Collections.PICKING_TASKS].find_one(
@@ -167,12 +174,12 @@ async def scan(
     if already + quantity > required:
         remaining = max(required - already, 0)
         if remaining <= 0:
-            message = f"Este producto ya está completo ({already}/{required}). No escanees de más."
+            message = f"Este producto ya está completo ({_qty(already)}/{_qty(required)})."
         else:
             name = line.get("name") or line.get("sku")
             message = (
-                f"Excede lo pedido: para «{name}» sólo faltan {remaining} de {required}. "
-                f"Baja la «cantidad por escaneo»."
+                f"Excede lo pedido: para «{name}» sólo faltan {_qty(remaining)} de {_qty(required)}. "
+                f"Baje la «cantidad por escaneo»."
             )
         return {
             "status": "rejected",
@@ -257,7 +264,7 @@ async def scan(
     else:
         line["status"] = PickingLineStatus.PARTIAL.value
         feedback = "partial"
-        message = f"{new_qty}/{required} unidades"
+        message = f"{_qty(new_qty)}/{_qty(required)} unidades"
 
     task["lines"][target_index] = line
     await db[Collections.PICKING_TASKS].update_one(

@@ -62,7 +62,8 @@ async def _pack_all(tenant_id, picking_task_id, user, barcode, qty):
     packing = await _packing_of(tenant_id, picking_task_id)
     packing_id = str(packing["_id"])
     await packing_service.start_task(tenant_id, packing_id, user)
-    await packing_service.scan(tenant_id, packing_id, user, barcode, qty, None)
+    _pkg = (await packing_service.create_package(tenant_id, packing_id, user, None))["package_id"]
+    await packing_service.scan(tenant_id, packing_id, user, barcode, qty, _pkg)
     await packing_service.complete(tenant_id, packing_id, user)
     return packing_id
 
