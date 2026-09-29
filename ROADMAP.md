@@ -384,6 +384,38 @@ contratos de datos, pero no se ha mirado en pantalla.
 
 ## Pendiente (funcional)
 
+- **QA funcional 2026-09-29: tres PRs abiertos, ninguno mergeado.** El dueño corrió la QA
+  de interfaz en Claude-in-Chrome contra DEV y entregó el handoff con 7 hallazgos ALTA,
+  11 MEDIA y ~20 BAJA. Se corrigieron **todos**, en tres PRs que salen los tres de
+  `origin/main` (no apilados):
+  - **PR #39 — ALTA (A1–A7).** Validación de referencias en los movimientos de inventario
+    (un `product_id` inexistente creaba saldos fantasma), cantidades enteras, motivo de
+    ajuste con *strip*, vencimiento pasado, edición de pedido que ya no borra líneas en
+    silencio, y **confirmación + idempotencia en el despacho** (con `erp_sync_enabled`
+    encendido un doble clic emitía dos guías reales, cada una con su folio).
+  - **PR #40 — MEDIA (M2–M11).** Packing cerrado deja de ser editable y con diferencias
+    queda en «Completado con diferencias»; códigos de ubicación en los movimientos;
+    Pedidos y Picking dejan de contradecirse; buscador que antepone el SKU exacto; lotes
+    vencidos no pickeables; el botón de cámara ya no desborda en móvil.
+  - **PR #41 — BAJA.** Textos unificados en **usted**, traducciones (`internal`,
+    `erp_storage`, estado de Defontana), stepper topado, filtro de estado en Packing.
+
+  **Pendiente de decidir / hacer:**
+  - **Mergear el PR #38 primero** (mensajes en español + transferencia): los otros tres
+    salen de `main` sin él. El chequeo de `from == to` se replicó con el mismo texto para
+    que no conflictúe.
+  - **Ninguna pantalla se verificó a ojo**: la extensión del navegador no acepta
+    `localhost`/`127.0.0.1` en la máquina Linux. Conviene mirar sobre todo el PR #41.
+  - **Limpiar DEV**: quedaron 8 movimientos con `product_id` inexistente
+    (`app/maintenance/limpiar_movimientos_huerfanos.py`, idempotente, dry-run por
+    defecto). **No se ha ejecutado**; contra el droplet el respaldo va antes.
+  - **Sigue abierta** la decisión sobre si "Finalizar packing" incompleto debe **bloquear**
+    el cierre. Los PRs no la tocan: solo agregan la confirmación y el estado que hace
+    visible la diferencia.
+  - **No son defectos, aunque la QA los marcó:** "Reservado 0" en pedidos listos para
+    despacho (el WMS nunca usa `quantity_reserved`: compromete stock moviéndolo de
+    ubicación, que es el diseño) y el SKU duplicado (ya respondía 409 en español).
+
 - **Endpoints reales de Defontana para crear producto / crear pedido.** La
   integración hoy sólo **lee** productos y pedidos desde Defontana; su API no
   expone (o no se ha confirmado) endpoints para **crear** un producto o un pedido.
