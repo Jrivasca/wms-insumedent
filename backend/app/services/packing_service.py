@@ -16,6 +16,13 @@ from app.services import inventory_service, order_service
 from app.services.order_service import _expected_barcodes
 
 
+def _qty(value: Any) -> Any:
+    """Cantidad para mostrar al operario: entero si no tiene decimales (``2`` en vez de ``2.0``)."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 def _new_public_token() -> str:
     """Unguessable capability token for a bulto's public QR page (128 bits)."""
     return secrets.token_urlsafe(16)
@@ -238,6 +245,28 @@ async def scan(
         }
 
     line = task["lines"][target_index]
+
+    # Un escaneo de packing SIEMPRE se guarda en un bulto. Sin bulto (o con un id que no existe) se
+    # rechaza y NO se aplica nada: de lo contrario la unidad quedaría empacada pero huérfana (sumada
+    # a quantity_packed sin ningún bulto que la contenga). El bulto es obligatorio, no opcional.
+    pkg = (
+        next((p for p in task.get("packages", []) if p.get("package_id") == package_id), None)
+        if package_id
+        else None
+    )
+    if pkg is None:
+        return {
+            "status": "rejected",
+            "feedback": "warning",
+            "message": (
+                "Seleccione o cree un bulto antes de escanear."
+                if not package_id
+                else "El bulto indicado no existe."
+            ),
+            "line": None,
+            "task": serialize(task),
+        }
+
     required = line.get("quantity_required", 0)
     already = line.get("quantity_packed", 0)
 
@@ -246,9 +275,9 @@ async def scan(
     if already + quantity > required:
         remaining = max(required - already, 0)
         if remaining <= 0:
-            message = f"Este producto ya está completo ({already}/{required}). No escanees de más."
+            message = f"Este producto ya está completo ({_qty(already)}/{_qty(required)})."
         else:
-            message = f"Excede lo pickeado: sólo faltan {remaining} de {required}."
+            message = f"Excede lo pickeado: sólo faltan {_qty(remaining)} de {_qty(required)}."
         return {
             "status": "rejected",
             "feedback": "warning",
@@ -264,16 +293,10 @@ async def scan(
         feedback, message = "complete", "Línea completa"
     else:
         line["status"] = PackingLineStatus.PARTIAL.value
-        feedback, message = "partial", f"{new_qty}/{required} unidades"
+        feedback, message = "partial", f"{_qty(new_qty)}/{_qty(required)} unidades"
 
-    # Register the unit into a package (only for accepted scans).
-    if package_id:
-        for pkg in task.get("packages", []):
-            if pkg.get("package_id") == package_id:
-                pkg.setdefault("items", []).append(
-                    {"sku": line.get("sku"), "quantity": quantity}
-                )
-                break
+    # Registrar la unidad en el bulto (ya validado arriba).
+    pkg.setdefault("items", []).append({"sku": line.get("sku"), "quantity": quantity})
 
     task["lines"][target_index] = line
     await db[Collections.PACKING_TASKS].update_one(

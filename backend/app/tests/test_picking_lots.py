@@ -125,7 +125,8 @@ async def test_el_lote_viaja_por_packing_hasta_la_guia_de_despacho():
     # Packing: escanear y cerrar -> pedido listo para despacho.
     pk = (await packing_service.list_tasks(s.tenant_id, admin))["items"][0]
     await packing_service.start_task(s.tenant_id, pk["id"], admin)
-    await packing_service.scan(s.tenant_id, pk["id"], admin, s.bc, 3, None)
+    _pkg = (await packing_service.create_package(s.tenant_id, pk["id"], admin, None))["package_id"]
+    await packing_service.scan(s.tenant_id, pk["id"], admin, s.bc, 3, _pkg)
     await packing_service.complete(s.tenant_id, pk["id"], admin)
 
     # Despacho: la línea de la guía lleva el lote (con su vencimiento) y la cantidad.

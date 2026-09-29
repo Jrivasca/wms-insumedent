@@ -24,6 +24,7 @@ import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
 import BackorderBadge from '../components/BackorderBadge';
 import Toast from '../components/Toast';
+import { fmtQty } from '../lib/format';
 import type { PickingLine, PickingTask } from '../types';
 
 export default function PickingTaskPage() {
@@ -98,6 +99,7 @@ export default function PickingTaskPage() {
   const currentLineId = currentLine?.line_id ?? null;
   useEffect(() => {
     let alive = true;
+    setQuantity(1); // Bug 7: "Cantidad por escaneo" vuelve a 1 al cambiar de línea.
     setSelectedLot(null);
     setCorrecting(false);
     setErpLots(null);
@@ -252,6 +254,12 @@ export default function PickingTaskPage() {
           ? (res.task as PickingTask)
           : await getPickingTask(id);
       setTask(refreshed);
+      // Bug 6: la "Línea actual" pasa a la línea que se escaneó (si aún queda por pickear), en vez
+      // de quedarse en la anterior. Si la línea se completó, currentLine cae a la próxima pendiente.
+      if (res.status === 'ok' && res.line && typeof res.line === 'object') {
+        const sku = (res.line as { sku?: string }).sku;
+        if (sku) setSelectedSku(sku);
+      }
       await refreshLots();
     } catch (err) {
       setFeedback('error');
@@ -347,8 +355,9 @@ export default function PickingTaskPage() {
       const t = await completePicking(id, allowPartial);
       setTask(t);
       setConfirmClose(false);
-      showMessage('Picking completado. Continúa en Packing.', 'success');
-      setTimeout(() => navigate('/my/packing'), 900);
+      showMessage('Picking completado. Sigue en Packing.', 'success');
+      // Delay para que el toast de confirmación se vea antes de redirigir a Packing asignado.
+      setTimeout(() => navigate('/my/packing'), 1400);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 409) {
@@ -437,13 +446,15 @@ export default function PickingTaskPage() {
 
           <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
             <span className="text-4xl font-bold tabular-nums text-white">
-              {currentLine.quantity_picked}
+              {fmtQty(currentLine.quantity_picked)}
               <span className="text-xl font-semibold text-graphite-400">
                 {' '}
-                / {currentLine.quantity_required}
+                / {fmtQty(currentLine.quantity_required)}
               </span>
             </span>
-            <span className="text-sm font-semibold text-amber-300">Faltan {remainingCurrent}</span>
+            <span className="text-sm font-semibold text-amber-300">
+              Faltan {fmtQty(remainingCurrent)}
+            </span>
           </div>
 
           {currentLine.barcode_expected?.length ? (
@@ -622,7 +633,7 @@ export default function PickingTaskPage() {
             disabled={busy || (!!lineLots?.manages_lots && !selectedLot)}
           >
             Confirmar sin escáner (+
-            {Math.min(quantity, remainingCurrent)})
+            {fmtQty(Math.min(quantity, remainingCurrent))})
           </button>
         </div>
       ) : (
@@ -631,8 +642,8 @@ export default function PickingTaskPage() {
         </div>
       )}
 
-      {/* Cantidad + escáner */}
-      {!notStarted && (
+      {/* Cantidad + escáner: se oculta cuando ya no queda línea por pickear (bug 9). */}
+      {!notStarted && currentLine && (
         <div className="card mb-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label className="label mb-0" htmlFor="qty">
@@ -726,7 +737,7 @@ export default function PickingTaskPage() {
                 </div>
                 <div className="shrink-0 text-right">
                   <div className="font-bold tabular-nums text-slate-900">
-                    {l.quantity_picked}/{l.quantity_required}
+                    {fmtQty(l.quantity_picked)}/{fmtQty(l.quantity_required)}
                   </div>
                   {(l.quantity_picked > 0 || missing) && !notStarted && (
                     <button
@@ -765,7 +776,7 @@ export default function PickingTaskPage() {
           </button>
           {isIncomplete && (
             <p className="text-center text-sm text-amber-800">
-              Faltan {missingUnits} unidad{missingUnits === 1 ? '' : 'es'} en{' '}
+              Faltan {fmtQty(missingUnits)} unidad{missingUnits === 1 ? '' : 'es'} en{' '}
               {shortLines.length} línea{shortLines.length === 1 ? '' : 's'}: el pedido quedará
               parcial.
             </p>
@@ -778,7 +789,7 @@ export default function PickingTaskPage() {
         tone="primary"
         title="¿Cerrar el picking incompleto?"
         message={
-          `Faltan ${missingUnits} unidad${missingUnits === 1 ? '' : 'es'} en ` +
+          `Faltan ${fmtQty(missingUnits)} unidad${missingUnits === 1 ? '' : 'es'} en ` +
           `${shortLines.length} línea${shortLines.length === 1 ? '' : 's'}. El pedido quedará ` +
           'parcial: sale con lo que hay y lo que falta vuelve como pendiente cuando llegue ' +
           'stock. La acción queda registrada a tu nombre.'

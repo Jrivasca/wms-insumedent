@@ -122,7 +122,8 @@ async def test_packing_reconciles_packed_quantity():
 
     packing = (await packing_service.list_tasks(tenant_id, picker))["items"][0]
     await packing_service.start_task(tenant_id, packing["id"], picker)
-    await packing_service.scan(tenant_id, packing["id"], picker, bc0, 5, None)
+    _pkg = (await packing_service.create_package(tenant_id, packing["id"], picker, None))["package_id"]
+    await packing_service.scan(tenant_id, packing["id"], picker, bc0, 5, _pkg)
     await packing_service.complete(tenant_id, packing["id"], picker)  # sin diferencias
 
     order = await order_service.get_order(tenant_id, order_id)

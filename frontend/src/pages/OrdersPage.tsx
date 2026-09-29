@@ -34,6 +34,7 @@ import ProgressBar from '../components/ProgressBar';
 import SearchInput from '../components/SearchInput';
 import StatusBadge from '../components/StatusBadge';
 import { statusLabel } from '../lib/status';
+import { fmtDate } from '../lib/format';
 import { ERP_CREATE_ENABLED, PDF_IMPORT_ENABLED } from '../config';
 import { can } from '../permissions';
 import { useAuth } from '../store/auth';
@@ -617,8 +618,8 @@ export default function OrdersPage() {
               </div>
 
               <div className="mb-3 text-xs text-slate-500">
-                {selected.order_date && <span>Fecha: {selected.order_date} </span>}
-                {selected.delivery_date && <span>· Entrega: {selected.delivery_date}</span>}
+                {selected.order_date && <span>Fecha: {fmtDate(selected.order_date)} </span>}
+                {selected.delivery_date && <span>· Entrega: {fmtDate(selected.delivery_date)}</span>}
                 {selected.erp_status && <span> · Defontana: {selected.erp_status}</span>}
               </div>
 
