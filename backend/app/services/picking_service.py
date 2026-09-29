@@ -160,7 +160,7 @@ async def scan(
         # Section 8.1: reject a code that does not match the expected product.
         return {
             "status": "rejected",
-            "message": f"El código '{code}' no corresponde a ningún producto del pedido",
+            "message": f"El código «{code}» no corresponde a ningún producto de este pedido.",
             "line": None,
             "task": serialize(task),
         }
@@ -205,7 +205,7 @@ async def scan(
             return {
                 "status": "rejected",
                 "feedback": "warning",
-                "message": "Este producto maneja lotes: elegí el lote de la lista antes de confirmar.",
+                "message": "Este producto maneja lotes: seleccione el lote de la lista antes de confirmar.",
                 "line": line,
                 "task": serialize(task),
             }
@@ -216,13 +216,24 @@ async def scan(
             None,
         ) or next((l for l in lots if l.get("lot_number") == lot_number), None)
         if balance is None:
+            # El lote puede no ser de este producto: la pantalla manda el lote de la línea
+            # enfocada aunque se escanee el código de otra línea del pedido. Decir "se quedó
+            # sin stock" en ese caso mandaba a revisar Defontana por un problema que no era.
+            nombre = line.get("name") or line.get("sku")
+            if any(l.get("lot_number") == lot_number for l in lots):
+                message = (
+                    f"El lote «{lot_number}» ya no tiene stock pickeable. "
+                    "Actualice los lotes desde Defontana o seleccione otro."
+                )
+            else:
+                message = (
+                    f"El lote «{lot_number}» no corresponde a «{nombre}». "
+                    "Seleccione un lote de la lista de este producto."
+                )
             return {
                 "status": "rejected",
                 "feedback": "warning",
-                "message": (
-                    f"El lote «{lot_number}» ya no tiene stock pickeable. "
-                    "Actualizá los lotes desde Defontana o elegí otro."
-                ),
+                "message": message,
                 "line": line,
                 "task": serialize(task),
             }

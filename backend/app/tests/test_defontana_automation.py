@@ -207,11 +207,15 @@ async def test_reception_is_sent_only_with_both_flags_and_uses_configured_values
     db = tenant_db(tenant_id)
     wh = await db[Collections.WAREHOUSES].insert_one({"name": "BODEGA CENTRAL", "erp_storage_code": "BODEGACENTRAL"})
     prod = await db[Collections.PRODUCTS].insert_one({"sku": "0004357", "name": "KIT DE FRESAS", "cost": 1500})
+    # La ubicación tiene que existir y ser de esta bodega: la recepción lo valida.
+    loc = await db[Collections.LOCATIONS].insert_one(
+        {"warehouse_id": str(wh.inserted_id), "code": "A-01", "type": "storage"})
 
     async def receive(lot=None):
         return await inventory_service.create_reception(
             tenant_id=tenant_id, product_id=str(prod.inserted_id), warehouse_id=str(wh.inserted_id),
-            location_id="loc-1", quantity=3, created_by="u1", reference="OC-77", lot_number=lot,
+            location_id=str(loc.inserted_id), quantity=3, created_by="u1", reference="OC-77",
+            lot_number=lot,
         )
 
     monkeypatch.setattr(settings, "erp_sync_enabled", True)
@@ -238,11 +242,13 @@ async def test_adjustment_also_travels_to_defontana_in_both_directions(monkeypat
     db = tenant_db(tenant_id)
     wh = await db[Collections.WAREHOUSES].insert_one({"name": "BODEGA CENTRAL", "erp_storage_code": "BODEGACENTRAL"})
     prod = await db[Collections.PRODUCTS].insert_one({"sku": "0004357", "name": "KIT DE FRESAS", "cost": 1500})
+    loc = await db[Collections.LOCATIONS].insert_one(
+        {"warehouse_id": str(wh.inserted_id), "code": "A-01", "type": "storage"})
 
     async def adjust(quantity, reason):
         await inventory_service.create_adjustment(
             tenant_id=tenant_id, product_id=str(prod.inserted_id), warehouse_id=str(wh.inserted_id),
-            location_id="loc-1", quantity=quantity, reason=reason, created_by="u1",
+            location_id=str(loc.inserted_id), quantity=quantity, reason=reason, created_by="u1",
         )
 
     monkeypatch.setattr(settings, "erp_sync_enabled", True)

@@ -38,3 +38,41 @@ def default_settings(monkeypatch):
         if field.is_required():
             continue
         monkeypatch.setattr(settings, name, field.get_default(call_default_factory=True))
+
+
+async def crear_referencias(
+    tenant_id: str,
+    *,
+    sku: str = "SKU1",
+    warehouse_code: str = "BOD1",
+    locations: tuple = ("A-01",),
+) -> dict:
+    """Crear producto, bodega y ubicaciones REALES y devolver sus ids.
+
+    Los movimientos de inventario validan que las tres referencias existan y calcen
+    (``inventory_service.assert_references_exist``), así que un test no puede seguir
+    inventando ids sueltos como ``"wh1"``: probaría un camino que la API ya no permite.
+    Devuelve ``{"product_id", "warehouse_id", "<código de ubicación>": id, ...}``.
+    """
+    from app.core.database import get_database
+    from app.models import Collections
+
+    db = get_database()
+    producto = await db[Collections.PRODUCTS].insert_one(
+        {"tenant_id": tenant_id, "sku": sku, "name": "Prod", "is_active": True}
+    )
+    bodega = await db[Collections.WAREHOUSES].insert_one(
+        {"tenant_id": tenant_id, "code": warehouse_code, "name": warehouse_code,
+         "is_active": True}
+    )
+    refs = {
+        "product_id": str(producto.inserted_id),
+        "warehouse_id": str(bodega.inserted_id),
+    }
+    for code in locations:
+        loc = await db[Collections.LOCATIONS].insert_one(
+            {"tenant_id": tenant_id, "warehouse_id": refs["warehouse_id"], "code": code,
+             "type": "storage", "is_active": True}
+        )
+        refs[code] = str(loc.inserted_id)
+    return refs

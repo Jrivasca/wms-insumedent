@@ -118,13 +118,26 @@ async def confirm_dispatch(
     guide_number: Optional[str] = None,
     package_ids: Optional[List[str]] = None,
     lines: Optional[List[Dict[str, Any]]] = None,
+    idempotency_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Confirmar un despacho (total o PARCIAL) para un pedido listo o parcialmente
     despachado, y encolar el job de sync. Un pedido puede tener VARIAS guías: se
     despacha ``package_ids`` (bultos), ``lines`` (cantidades por SKU) o —si ambos son
     None— todo el remanente. El pedido queda ``dispatched`` cuando no queda remanente,
-    o ``partially_dispatched`` si aún falta despachar."""
+    o ``partially_dispatched`` si aún falta despachar.
+
+    ``idempotency_key`` la genera la pantalla una vez por formulario abierto: si llega
+    repetida se devuelve la guía ya creada en vez de emitir otra. Con el envío al ERP
+    encendido cada guía consume un folio de Defontana que no se puede borrar, así que un
+    doble clic no puede costar dos folios."""
     db = tenant_db(tenant_id)
+
+    if idempotency_key:
+        previo = await db[Collections.DISPATCHES].find_one(
+            {"tenant_id": tenant_id, "idempotency_key": idempotency_key}
+        )
+        if previo:
+            return serialize(previo)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
@@ -175,10 +188,24 @@ async def confirm_dispatch(
                     lid = ol.get("line_id")
                     target[lid] = target.get(lid, 0) + int(it.get("quantity") or 0)
     elif lines:
+        # Antes las líneas inválidas se filtraban en silencio: una cantidad negativa o un SKU
+        # que no es del pedido desaparecían del payload y la guía salía por menos de lo que el
+        # operario creía haber indicado. Se rechaza la petición entera.
         for li in lines:
-            ol = line_by_sku.get(li.get("sku"))
-            qty = int(li.get("quantity") or 0)
-            if ol and qty > 0:
+            sku = li.get("sku")
+            ol = line_by_sku.get(sku)
+            if not ol:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"El producto {sku} no pertenece a este pedido.",
+                )
+            qty = li.get("quantity")
+            if not isinstance(qty, int) or isinstance(qty, bool) or qty < 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"La cantidad a despachar de {sku} debe ser un entero mayor o igual a 0.",
+                )
+            if qty:
                 lid = ol.get("line_id")
                 target[lid] = target.get(lid, 0) + qty
     else:
@@ -224,6 +251,10 @@ async def confirm_dispatch(
         "created_at": now,
         "updated_at": now,
     }
+    # El campo se agrega SOLO si hay clave: el índice único es ``sparse``, y un ``None``
+    # explícito sí cuenta como valor, de modo que la segunda guía sin clave chocaría.
+    if idempotency_key:
+        dispatch["idempotency_key"] = idempotency_key
     result = await db[Collections.DISPATCHES].insert_one(dispatch)
     dispatch["_id"] = result.inserted_id
     dispatch_id = str(dispatch["_id"])
