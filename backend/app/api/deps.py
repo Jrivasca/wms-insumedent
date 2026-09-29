@@ -46,7 +46,7 @@ class CurrentUser:
         if not self.can_access_warehouse(warehouse_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes acceso a esta bodega",
+                detail="No tiene acceso a esta bodega",
             )
 
 
@@ -56,20 +56,20 @@ async def get_current_user(
 ) -> CurrentUser:
     if credentials is None or not credentials.credentials:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing authentication token"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Falta el token de autenticación: vuelva a iniciar sesión"
         )
 
     payload = decode_access_token(credentials.credentials)
     if payload is None or "sub" not in payload:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Su sesión expiró o el token no es válido: vuelva a iniciar sesión"
         )
 
     db = get_database()
     user = await db[Collections.USERS].find_one({"_id": to_object_id(payload["sub"])})
     if user is None or not user.get("is_active", True):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="El usuario no existe o está desactivado"
         )
 
     data = serialize(user)
@@ -96,7 +96,7 @@ def require_roles(*roles: str):
         if user.role != "admin" and user.role not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions for this action",
+                detail="Su rol no tiene permiso para esta acción",
             )
         return user
 
@@ -106,6 +106,6 @@ def require_roles(*roles: str):
 async def require_supervisor(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not user.is_supervisor:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Supervisor role required"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Esta acción la debe autorizar un supervisor"
         )
     return user

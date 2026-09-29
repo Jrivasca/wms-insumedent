@@ -11,7 +11,7 @@ from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
-from app.models.packing import PackingLineStatus, PackingTaskStatus
+from app.models.packing import CLOSED_PACKING_STATUSES, PackingLineStatus, PackingTaskStatus
 from app.services import inventory_service, order_service
 from app.services.order_service import _expected_barcodes
 
@@ -328,6 +328,11 @@ async def create_package(
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
+    # Faltaba: una tarea ya cerrada seguía aceptando bultos nuevos, que es parte de por qué
+    # la tarea se veía "Completado" y editable a la vez.
+    if task["status"] in CLOSED_PACKING_STATUSES:
+        raise HTTPException(status_code=409, detail="La tarea de packing ya está cerrada")
+
     package_number = len(task.get("packages", [])) + 1
     package = {
         "package_id": f"PKG-{package_number}",
@@ -444,7 +449,12 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
         {"_id": task["_id"]},
         {
             "$set": {
-                "status": PackingTaskStatus.COMPLETED.value,
+                # Con diferencias el estado lo dice: antes quedaba como "Completado" a
+                # secas y la diferencia solo se veía entrando a la tarea.
+                "status": (
+                    PackingTaskStatus.COMPLETED_WITH_DIFFERENCES.value if differences
+                    else PackingTaskStatus.COMPLETED.value
+                ),
                 "completed_at": now,
                 "approved_by": user.id if differences else None,
                 "updated_at": now,

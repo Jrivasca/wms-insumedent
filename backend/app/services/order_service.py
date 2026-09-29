@@ -9,7 +9,7 @@ from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.location import NON_PICKABLE_LOCATION_TYPES
 from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
-from app.models.packing import PackingTaskStatus
+from app.models.packing import DONE_PACKING_STATUSES, PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
@@ -114,7 +114,51 @@ async def list_orders(
         db[Collections.ORDERS].find(query).sort("created_at", -1).skip(offset).limit(limit)
     )
     items = [serialize(o) for o in await cursor.to_list(length=limit)]
+    await _add_live_progress(db, tenant_id, items)
     return page(items, total, limit, offset)
+
+
+async def _add_live_progress(
+    db: Any, tenant_id: str, orders: List[Dict[str, Any]]
+) -> None:
+    """Agregar a cada línea lo pickeado/empacado de la tarea EN CURSO, como campo aparte.
+
+    ``picked_quantity`` y ``packed_quantity`` solo se reconcilian cuando la tarea se cierra,
+    así que mientras el operario pickea, Pedidos mostraba 0/20 y Picking 1/20 sobre el mismo
+    pedido. Esto no cambia lo guardado —el avance confirmado sigue siendo el de las tareas
+    cerradas, que es lo que manda para despachar— sino que expone además el avance en curso
+    para que las dos pantallas digan lo mismo.
+
+    Se resuelve de lectura (dos consultas por página), no en el camino del escaneo.
+    """
+    if not orders:
+        return
+    por_id = {o["id"]: o for o in orders}
+    abiertas = {
+        PickingTaskStatus.PENDING.value,
+        PickingTaskStatus.IN_PROGRESS.value,
+        PackingTaskStatus.PENDING.value,
+        PackingTaskStatus.IN_PROGRESS.value,
+    }
+    for coleccion, campo, destino in (
+        (Collections.PICKING_TASKS, "quantity_picked", "picked_quantity_live"),
+        (Collections.PACKING_TASKS, "quantity_packed", "packed_quantity_live"),
+    ):
+        async for tarea in db[coleccion].find(
+            {"tenant_id": tenant_id,
+             "order_id": {"$in": list(por_id)},
+             "status": {"$in": list(abiertas)}}
+        ):
+            order = por_id.get(tarea.get("order_id"))
+            if not order:
+                continue
+            por_linea = {
+                l.get("line_id"): (l.get(campo) or 0) for l in tarea.get("lines", [])
+            }
+            for ol in order.get("lines", []):
+                avance = por_linea.get(ol.get("line_id"))
+                if avance is not None:
+                    ol[destino] = avance
 
 
 async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
@@ -124,7 +168,9 @@ async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
     )
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return serialize(order)
+    data = serialize(order)
+    await _add_live_progress(db, tenant_id, [data])
+    return data
 
 
 async def create_order_from_lines(
@@ -365,7 +411,7 @@ _DONE_PICKING = (
     PickingTaskStatus.COMPLETED.value,
     PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
 )
-_DONE_PACKING = (PackingTaskStatus.COMPLETED.value,)
+_DONE_PACKING = DONE_PACKING_STATUSES
 
 
 async def _task_totals(

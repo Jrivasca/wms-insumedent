@@ -36,6 +36,8 @@ export interface PickLot {
   expiration_date: string | null;
   quantity_on_hand: number;
   quantity_available: number;
+  /** Lote ya vencido: se muestra pero no se puede pickear (el backend lo rechaza). */
+  expired?: boolean;
 }
 
 export interface LineLots {

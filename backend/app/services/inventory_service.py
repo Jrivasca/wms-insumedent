@@ -753,6 +753,7 @@ async def available_lots(
             {"tenant_id": tenant_id, "warehouse_id": warehouse_id}, {"code": 1}
         )
     }
+    ahora = now_utc()
     rows = [
         {
             "location_id": b.get("location_id"),
@@ -760,6 +761,9 @@ async def available_lots(
             "lot_number": b.get("lot_number"),
             "expiration_date": b.get("expiration_date"),
             "quantity_on_hand": b.get("quantity_on_hand") or 0,
+            # Un lote vencido NO se pickea, pero sí se muestra: sacarlo en silencio dejaba
+            # al operario con una lista vacía y sin saber por qué.
+            "expired": esta_vencido(b.get("expiration_date"), ahora),
         }
         async for b in db[Collections.INVENTORY_BALANCES].find(
             {
@@ -841,6 +845,18 @@ def _aware(dt):
     if dt is None:
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def esta_vencido(expiration: Optional[datetime], now: Optional[datetime] = None) -> bool:
+    """Si un lote ya venció. Única fuente de verdad para "vencido" en todo el módulo.
+
+    Se decide en Python a propósito: mongomock guarda las fechas con zona y Mongo real las
+    devuelve sin ella, así que compararlas dentro de una agregación pasa en el droplet y
+    revienta en los tests.
+    """
+    if expiration is None:
+        return False
+    return _aware(expiration) < (now or now_utc())
 
 
 async def check_expiring_stock(tenant_id: str, days: Optional[int] = None) -> int:
@@ -1145,10 +1161,25 @@ async def list_movements(
         str(p["_id"]): p
         async for p in db[Collections.PRODUCTS].find({"_id": {"$in": list(product_ids)}})
     }
+    # ORIGEN → DESTINO mostraba el ObjectId crudo, que no le dice nada a nadie en bodega.
+    # Se resuelve acá (una sola consulta por página) y no en el cliente, que tendría que
+    # pedir las ubicaciones de a una.
+    location_ids = {
+        oid
+        for m in movements
+        for oid in (to_object_id(m.get("from_location_id")), to_object_id(m.get("to_location_id")))
+        if oid
+    }
+    locations = {
+        str(loc["_id"]): loc
+        async for loc in db[Collections.LOCATIONS].find({"_id": {"$in": list(location_ids)}})
+    }
     result = []
     for m in movements:
         data = serialize(m)
         product = products.get(m.get("product_id"))
         data["sku"] = product.get("sku") if product else None
+        data["from_location_code"] = (locations.get(m.get("from_location_id")) or {}).get("code")
+        data["to_location_code"] = (locations.get(m.get("to_location_id")) or {}).get("code")
         result.append(data)
     return page(result, total, limit, offset)
