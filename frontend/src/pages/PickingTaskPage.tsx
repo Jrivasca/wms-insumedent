@@ -225,12 +225,21 @@ export default function PickingTaskPage() {
       setTimeout(() => setFeedback('idle'), 2200);
       return;
     }
+    // El lote elegido es el de la LÍNEA ENFOCADA. Si se escanea el código de otra línea del
+    // pedido, mandarlo igual hacía que el backend rechazara por "el lote se quedó sin stock"
+    // —un mensaje que manda a revisar Defontana por algo que no pasó—. Sin lote, el backend
+    // responde lo que corresponde: que hay que seleccionar el lote de ESE producto.
+    const esLineaEnfocada = (currentLine?.barcode_expected ?? []).some(
+      (c) => String(c).trim() === barcode.trim()
+    );
     try {
       const res = await scanPicking(id, {
         barcode,
         quantity: quantity || 1,
-        location_id: selectedLot?.location_id ?? currentLine?.suggested_location_id,
-        lot_number: selectedLot?.lot_number ?? undefined,
+        location_id: esLineaEnfocada
+          ? selectedLot?.location_id ?? currentLine?.suggested_location_id
+          : undefined,
+        lot_number: esLineaEnfocada ? selectedLot?.lot_number ?? undefined : undefined,
       });
 
       // Over-scan and wrong-code are both rejected by the backend; distinguish by feedback.
