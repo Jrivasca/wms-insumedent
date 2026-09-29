@@ -28,11 +28,11 @@ export default function InventoryAdjustmentPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) {
-      setError('Elige el producto a ajustar.');
+      setError('Seleccione el producto a ajustar.');
       return;
     }
     if (!locationId) {
-      setError('Elige la ubicación del stock que estás corrigiendo.');
+      setError('Seleccione la ubicación del stock que está corrigiendo.');
       return;
     }
     setBusy(true);

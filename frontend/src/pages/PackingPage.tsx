@@ -10,7 +10,18 @@ import Pager from '../components/Pager';
 import ProgressBar from '../components/ProgressBar';
 import SearchInput from '../components/SearchInput';
 import StatusBadge from '../components/StatusBadge';
+import { statusLabel } from '../lib/status';
 import type { PackingTask } from '../types';
+
+/** Estados de una tarea de packing. El valor interno no cambia, solo la etiqueta. */
+const STATUSES = [
+  'pending',
+  'in_progress',
+  'completed',
+  'completed_with_differences',
+  'observed',
+  'cancelled',
+];
 
 const PAGE = 50;
 
@@ -27,6 +38,7 @@ export default function PackingPage() {
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('');
   const [userNames, setUserNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,14 +81,15 @@ export default function PackingPage() {
   // El endpoint de packing no admite filtro de estado ni búsqueda: se filtra lo cargado.
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return tasks;
-    return tasks.filter((t) =>
-      [t.erp_order_number, t.order_id, t.assigned_to, assignedName(t.assigned_to), t.id]
+    return tasks.filter((t) => {
+      if (status && t.status !== status) return false;
+      if (!q) return true;
+      return [t.erp_order_number, t.order_id, t.assigned_to, assignedName(t.assigned_to), t.id]
         .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q))
-    );
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, query, userNames]);
+  }, [tasks, query, status, userNames]);
 
   const columns: Column<PackingTask>[] = [
     {
@@ -139,7 +152,25 @@ export default function PackingPage() {
         }
       />
 
-      <div className="mb-4 max-w-md">
+      <div className="mb-4 grid gap-2 sm:grid-cols-[14rem_1fr]">
+        <div>
+          <label className="label" htmlFor="packing-status">
+            Estado
+          </label>
+          <select
+            id="packing-status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="input"
+          >
+            <option value="">Todos los estados</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {statusLabel(s)}
+              </option>
+            ))}
+          </select>
+        </div>
         <SearchInput
           label="Buscar"
           value={query}

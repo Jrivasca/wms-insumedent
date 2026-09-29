@@ -363,7 +363,7 @@ export default function PackingTaskPage() {
               </span>
             </span>
             <span className="text-sm font-semibold text-amber-300">
-              Faltan {fmtQty(remainingCurrent)}
+              {remainingCurrent === 1 ? 'Falta' : 'Faltan'} {fmtQty(remainingCurrent)}
             </span>
           </div>
 
@@ -418,7 +418,7 @@ export default function PackingTaskPage() {
           {!activePackage && (
             <div className="flex items-start gap-2 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              Elige o crea un bulto antes de escanear.
+              Seleccione o cree un bulto antes de escanear.
             </div>
           )}
 
@@ -426,7 +426,11 @@ export default function PackingTaskPage() {
             onScan={handleScan}
             feedback={feedback}
             hint={
-              activePackage ? `Empacando en el bulto ${activeLabel}` : 'Escanea el producto a empacar'
+              // La etiqueta del bulto ya dice "Bulto 2": anteponer "el bulto" daba
+              // "Empacando en el bulto Bulto 2".
+              activePackage
+                ? `Empacando en ${activeLabel}`
+                : 'Escanee el producto a empacar'
             }
           />
         </div>
@@ -484,9 +488,9 @@ export default function PackingTaskPage() {
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               {supervisor
-                ? `Faltan ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
+                ? `${packDiffUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
                   'respecto a lo pickeado. Al finalizar, la diferencia queda aprobada a su nombre.'
-                : `Faltan ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
+                : `${packDiffUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
                   'respecto a lo pickeado. Al finalizar, la tarea quedará «Con observaciones» para ' +
                   'que un supervisor la apruebe.'}
             </p>

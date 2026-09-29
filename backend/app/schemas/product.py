@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.product import BarcodeType
 
@@ -17,8 +17,10 @@ class ProductCreate(BaseModel):
     is_service: bool = False
     # Optional extras created together with the product.
     barcode: Optional[str] = None
-    cost: Optional[float] = None
-    sale_price: Optional[float] = None
+    # Un precio negativo no existe y ensucia la valorización que viaja al ERP en los
+    # documentos de inventario (``price`` de cada línea).
+    cost: Optional[float] = Field(default=None, ge=0)
+    sale_price: Optional[float] = Field(default=None, ge=0)
 
 
 class BarcodeCreate(BaseModel):

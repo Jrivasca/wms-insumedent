@@ -92,7 +92,12 @@ export default function DispatchPage() {
 
   function openLabels(orderId: string) {
     const tid = taskByOrder[orderId];
-    if (tid) navigate(`/my/packing/${tid}/labels`);
+    // Se pasa el origen para que "Volver" de las etiquetas traiga de vuelta a Despachos
+    // y no al packing, que es de donde NO se venía.
+    if (tid)
+      navigate(`/my/packing/${tid}/labels`, {
+        state: { from: '/dispatch', fromLabel: 'Volver a Despachos' },
+      });
     else setNotice('No hay etiquetas de packing para este pedido.');
   }
 
@@ -119,7 +124,7 @@ export default function DispatchPage() {
           .map((l) => ({ sku: l.sku, quantity: parseInt(lineQtys[l.sku] || '0', 10) || 0 }))
           .filter((l) => l.quantity > 0);
         if (lines.length === 0) {
-          setError('Ingresa al menos una cantidad a despachar.');
+          setError('Ingrese al menos una cantidad a despachar.');
           setBusy(false);
           return;
         }
@@ -319,7 +324,7 @@ export default function DispatchPage() {
                         id={`guide-${o.id}`}
                         value={guide}
                         onChange={(e) => setGuide(e.target.value)}
-                        placeholder="Ingresa la guía"
+                        placeholder="Ingrese la guía"
                         className="input"
                       />
                       <p className="hint">Creada en Defontana (por ahora manual). Opcional.</p>

@@ -186,7 +186,7 @@ export default function OrderImportPage() {
   function handleCreate() {
     if (!lines) return;
     if (!folio.trim()) {
-      setError('Ingresa el N° de pedido (folio).');
+      setError('Ingrese el N° de pedido (folio).');
       return;
     }
     const included = lines.filter((l) => l.include);
@@ -462,7 +462,7 @@ export default function OrderImportPage() {
                                 aria-label={`Elegir producto para la línea ${l.item ?? idx + 1}`}
                               >
                                 <option value="" disabled>
-                                  Elige el producto correcto…
+                                  Seleccione el producto correcto…
                                 </option>
                                 {l.candidates.map((c) => (
                                   <option key={c.product_id} value={c.product_id}>

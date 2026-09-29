@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { getPackingTask } from '../api/packing';
 import { getOrder } from '../api/orders';
@@ -11,6 +11,11 @@ import type { Order, PackingTask } from '../types';
 export default function PackingLabelsPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  // Desde dónde se entró: a estas etiquetas se llega tanto desde el packing como desde
+  // Despachos, y "Volver al packing" mandaba a la pantalla equivocada en el segundo caso.
+  const { state } = useLocation() as { state?: { from?: string; fromLabel?: string } };
+  const volverA = state?.from ?? `/my/packing/${id}`;
+  const volverLabel = state?.fromLabel ?? 'Volver al packing';
   const [task, setTask] = useState<PackingTask | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,9 +52,9 @@ export default function PackingLabelsPage() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
-        <button onClick={() => navigate(`/my/packing/${id}`)} className="btn-ghost btn-sm -ml-2">
+        <button onClick={() => navigate(volverA)} className="btn-ghost btn-sm -ml-2">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Volver al packing
+          {volverLabel}
         </button>
         <button
           onClick={() => window.print()}
@@ -101,7 +106,7 @@ export default function PackingLabelsPage() {
                   <div className="mt-4 flex flex-col items-center justify-center">
                     <QrCode value={`${window.location.origin}/b/${pkg.public_token}`} size={260} />
                     <div className="mt-3 text-center text-base font-semibold">
-                      Escanea para ver el detalle del bulto
+                      Escanee para ver el detalle del bulto
                     </div>
                   </div>
                 ) : (

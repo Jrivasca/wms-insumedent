@@ -154,7 +154,7 @@ export default function UsersPage() {
         <button
           onClick={() => toggleActive(u)}
           disabled={isSelf}
-          title={isSelf ? 'No puedes desactivar tu propia cuenta' : undefined}
+          title={isSelf ? 'No puede desactivar su propia cuenta' : undefined}
           className="btn-secondary btn-sm whitespace-nowrap disabled:opacity-40"
         >
           {u.is_active === false ? (
@@ -201,7 +201,7 @@ export default function UsersPage() {
             value={u.role}
             onChange={(e) => changeRole(u, e.target.value)}
             disabled={isSelf}
-            title={isSelf ? 'No puedes cambiar tu propio rol' : undefined}
+            title={isSelf ? 'No puede cambiar su propio rol' : undefined}
             className="input max-w-[12rem] disabled:opacity-60"
             aria-label={`Rol de ${u.name}`}
           >

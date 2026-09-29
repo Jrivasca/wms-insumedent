@@ -153,7 +153,7 @@ export default function SettingsDefontanaPage() {
       setStatus(s);
       setForm(EMPTY_FORM);
       setEditing(false);
-      setNotice('Configuración guardada. Usa «Verificar conexión» para probarla.');
+      setNotice('Configuración guardada. Use «Verificar conexión» para probarla.');
     } catch (err) {
       setError(errorMessage(err));
     } finally {

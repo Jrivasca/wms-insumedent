@@ -31,11 +31,11 @@ export default function ReceptionPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) {
-      setError('Elige el producto que estás recibiendo.');
+      setError('Seleccione el producto que está recibiendo.');
       return;
     }
     if (!locationId) {
-      setError('Elige la ubicación donde queda la mercadería.');
+      setError('Seleccione la ubicación donde queda la mercadería.');
       return;
     }
     setBusy(true);
@@ -69,7 +69,7 @@ export default function ReceptionPage() {
     <div className="mx-auto max-w-xl">
       <PageHeader
         title="Recepción de mercadería"
-        subtitle="Ingresa stock a una ubicación y lo envía al ERP"
+        subtitle="Ingrese stock a una ubicación; el movimiento puede viajar al ERP"
       />
 
       {error && <ErrorBox message={error} />}
