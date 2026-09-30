@@ -106,7 +106,12 @@ export default function DispatchPage() {
 
   function openLabels(orderId: string) {
     const tid = taskByOrder[orderId];
-    if (tid) navigate(`/my/packing/${tid}/labels`);
+    // Se pasa el origen para que "Volver" de las etiquetas traiga de vuelta a Despachos
+    // y no al packing, que es de donde NO se venía.
+    if (tid)
+      navigate(`/my/packing/${tid}/labels`, {
+        state: { from: '/dispatch', fromLabel: 'Volver a Despachos' },
+      });
     else setNotice('No hay etiquetas de packing para este pedido.');
   }
 
@@ -249,7 +254,7 @@ export default function DispatchPage() {
 
   return (
     <div>
-      <PageHeader title="Despachos" subtitle="Confirma salidas y sigue las guías emitidas" />
+      <PageHeader title="Despachos" subtitle="Confirme salidas y siga las guías emitidas" />
 
       {notice && (
         <div className="mb-3 flex items-start gap-2 rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -372,7 +377,7 @@ export default function DispatchPage() {
                         id={`guide-${o.id}`}
                         value={guide}
                         onChange={(e) => setGuide(e.target.value)}
-                        placeholder="Ingresa la guía"
+                        placeholder="Ingrese la guía"
                         className="input"
                       />
                       <p className="hint">

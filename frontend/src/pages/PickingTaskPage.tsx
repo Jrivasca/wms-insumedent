@@ -110,7 +110,14 @@ export default function PickingTaskPage() {
       return;
     }
     getLineLots(id, currentLineId)
-      .then((r) => alive && setLineLots(r))
+      .then((r) => {
+        if (!alive) return;
+        setLineLots(r);
+        // Si hay un solo lote pickeable, preseleccionarlo: obligar a tocarlo no agrega
+        // ninguna verificación (no hay de dónde elegir) y sí un paso en el piso.
+        const unicos = r.lots.filter((l) => !l.expired);
+        if (r.manages_lots && unicos.length === 1) setSelectedLot(unicos[0]);
+      })
       .catch(() => alive && setLineLots(null));
     return () => {
       alive = false;
@@ -370,7 +377,7 @@ export default function PickingTaskPage() {
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 409) {
-        setError('Hay líneas pendientes. Puedes completar el picking de forma parcial.');
+        setError('Hay líneas pendientes. Puede completar el picking de forma parcial.');
       } else {
         setError(errorMessage(err));
       }
@@ -462,7 +469,7 @@ export default function PickingTaskPage() {
               </span>
             </span>
             <span className="text-sm font-semibold text-amber-300">
-              Faltan {fmtQty(remainingCurrent)}
+              {remainingCurrent === 1 ? 'Falta' : 'Faltan'} {fmtQty(remainingCurrent)}
             </span>
           </div>
 
@@ -685,8 +692,11 @@ export default function PickingTaskPage() {
               </span>
               <button
                 type="button"
-                onClick={() => setQuantity((q) => q + 1)}
-                className="btn-secondary h-touch w-touch text-xl"
+                // Tope en lo que falta: el stepper llegaba a 31 con 13 pendientes, y el
+                // escaneo lo rechazaba después. Mejor no dejar llegar ahí.
+                onClick={() => setQuantity((q) => Math.min(q + 1, Math.max(remainingCurrent, 1)))}
+                disabled={quantity >= Math.max(remainingCurrent, 1)}
+                className="btn-secondary h-touch w-touch text-xl disabled:opacity-40"
                 aria-label="Sumar uno"
               >
                 +
@@ -697,7 +707,7 @@ export default function PickingTaskPage() {
           <BarcodeScanner
             onScan={handleScan}
             feedback={feedback}
-            hint="Escanea el producto de la línea actual"
+            hint="Escanee el producto de la línea actual"
           />
 
           {currentLine && (
@@ -794,7 +804,8 @@ export default function PickingTaskPage() {
           </button>
           {isIncomplete && (
             <p className="text-center text-sm text-amber-800">
-              Faltan {fmtQty(missingUnits)} unidad{missingUnits === 1 ? '' : 'es'} en{' '}
+              {missingUnits === 1 ? 'Falta' : 'Faltan'} {fmtQty(missingUnits)} unidad
+              {missingUnits === 1 ? '' : 'es'} en{' '}
               {shortLines.length} línea{shortLines.length === 1 ? '' : 's'}: el pedido quedará
               parcial.
             </p>
@@ -807,10 +818,10 @@ export default function PickingTaskPage() {
         tone="primary"
         title="¿Cerrar el picking incompleto?"
         message={
-          `Faltan ${fmtQty(missingUnits)} unidad${missingUnits === 1 ? '' : 'es'} en ` +
+          `${missingUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(missingUnits)} unidad${missingUnits === 1 ? '' : 'es'} en ` +
           `${shortLines.length} línea${shortLines.length === 1 ? '' : 's'}. El pedido quedará ` +
           'parcial: sale con lo que hay y lo que falta vuelve como pendiente cuando llegue ' +
-          'stock. La acción queda registrada a tu nombre.'
+          'stock. La acción queda registrada a su nombre.'
         }
         confirmLabel="Cerrar parcial"
         cancelLabel="Seguir pickeando"

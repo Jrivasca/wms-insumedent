@@ -176,7 +176,7 @@ export default function DashboardPage() {
       {/* 1. Lo que necesita atención */}
       <section className="mb-6">
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          La operación necesita tu atención
+          La operación necesita su atención
         </h2>
         {attention.length === 0 ? (
           <div className="flex items-center gap-3 rounded-card border border-emerald-200 bg-emerald-50 p-4">

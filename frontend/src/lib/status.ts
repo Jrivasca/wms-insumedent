@@ -124,6 +124,52 @@ function key(status?: string | null): string {
   return (status ?? 'unknown').toString().trim().toLowerCase();
 }
 
+/** Tipos de código de barras y orígenes, en español (Productos los mostraba en inglés). */
+export const BARCODE_TYPE_LABELS: Record<string, string> = {
+  ean13: 'EAN-13',
+  internal: 'interno',
+  supplier: 'de proveedor',
+  unknown: 'sin clasificar',
+};
+
+export function barcodeTypeLabel(type?: string | null): string {
+  if (!type) return '';
+  return BARCODE_TYPE_LABELS[type.toLowerCase()] ?? type;
+}
+
+/** Tipos de bodega. `erp_storage` es la bodega que espeja una de Defontana. */
+export const WAREHOUSE_TYPE_LABELS: Record<string, string> = {
+  erp_storage: 'Bodega del ERP',
+  physical: 'Bodega física',
+  virtual: 'Bodega virtual',
+};
+
+export function warehouseTypeLabel(type?: string | null): string {
+  if (!type) return '';
+  return WAREHOUSE_TYPE_LABELS[type.toLowerCase()] ?? type;
+}
+
+/**
+ * Estado del pedido en Defontana: llega como "EEX (EN_DESPACHO_EN_FACTURACION)". Se
+ * traduce el código; si es uno que no conocemos, se muestra el original para no perder
+ * información (es lo que hay que citarle a Defontana si algo no cuadra).
+ */
+export const ERP_ORDER_STATUS_LABELS: Record<string, string> = {
+  EEX: 'En despacho / en facturación',
+  EAP: 'Aprobado',
+  EPE: 'Pendiente',
+  ECE: 'Cerrado',
+  EAN: 'Anulado',
+  ERE: 'Rechazado',
+};
+
+export function erpOrderStatusLabel(status?: string | null): string {
+  if (!status) return '';
+  const codigo = status.trim().split(/[\s(]/)[0].toUpperCase();
+  const etiqueta = ERP_ORDER_STATUS_LABELS[codigo];
+  return etiqueta ? `${etiqueta} (${codigo})` : status;
+}
+
 /** Etiqueta en español; si el estado es desconocido, se muestra el valor original. */
 export function statusLabel(status?: string | null): string {
   if (!status) return LABELS.unknown;

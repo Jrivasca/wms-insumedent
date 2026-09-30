@@ -207,7 +207,7 @@ export default function NotificationBell() {
               <p className="px-4 py-6 text-center text-sm text-slate-400">Cargando…</p>
             ) : items.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-slate-400">
-                No tienes notificaciones.
+                No tiene notificaciones.
               </p>
             ) : (
               <ul className="divide-y divide-slate-100">

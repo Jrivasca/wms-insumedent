@@ -130,7 +130,7 @@ export default function MyPickingTasksPage() {
           {tasks.length === 0 ? (
             completable.length === 0 && (
               <Empty
-                label="No tienes tareas de picking asignadas"
+                label="No tiene tareas de picking asignadas"
                 hint="Cuando te asignen un pedido, aparecerá acá."
               />
             )

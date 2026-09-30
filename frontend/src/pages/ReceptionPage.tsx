@@ -107,7 +107,7 @@ export default function ReceptionPage() {
     <div className="mx-auto max-w-xl">
       <PageHeader
         title="Recepción de mercadería"
-        subtitle="Ingresa stock a una ubicación y lo envía al ERP"
+        subtitle="Ingrese stock a una ubicación; el movimiento puede viajar al ERP"
       />
 
       {error && <ErrorBox message={error} />}

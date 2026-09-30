@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { createWarehouse, listWarehouses } from '../api/warehouses';
 import { errorMessage } from '../api/http';
+import { warehouseTypeLabel } from '../lib/status';
 import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
 import StatusBadge from '../components/StatusBadge';
@@ -72,7 +73,12 @@ export default function WarehousesPage() {
           <span className="text-xs text-amber-800">Sin código</span>
         ),
     },
-    { key: 'type', header: 'Tipo', secondary: true, render: (w) => w.type ?? '—' },
+    {
+      key: 'type',
+      header: 'Tipo',
+      secondary: true,
+      render: (w) => warehouseTypeLabel(w.type) || '—',
+    },
     {
       key: 'status',
       header: 'Estado',
@@ -183,7 +189,7 @@ export default function WarehousesPage() {
                     ) : (
                       <span className="text-amber-800">sin código</span>
                     )}
-                    {w.type && <> · {w.type}</>}
+                    {w.type && <> · {warehouseTypeLabel(w.type)}</>}
                   </p>
                 </div>
               )}

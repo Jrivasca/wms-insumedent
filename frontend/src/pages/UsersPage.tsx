@@ -219,7 +219,7 @@ export default function UsersPage() {
             value={u.role}
             onChange={(e) => changeRole(u, e.target.value)}
             disabled={isSelf}
-            title={isSelf ? 'No puedes cambiar tu propio rol' : undefined}
+            title={isSelf ? 'No puede cambiar su propio rol' : undefined}
             className="input max-w-[12rem] disabled:opacity-60"
             aria-label={`Rol de ${u.name}`}
           >
@@ -413,7 +413,7 @@ export default function UsersPage() {
             />
             {editFor.id === currentUser?.id && (
               <p className="mb-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Estás editando tu propia cuenta: si cambias el correo, la próxima vez deberás
+                Está editando su propia cuenta: si cambia el correo, la próxima vez deberá
                 iniciar sesión con el nuevo.
               </p>
             )}

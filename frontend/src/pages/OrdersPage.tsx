@@ -34,7 +34,7 @@ import Pager from '../components/Pager';
 import ProgressBar from '../components/ProgressBar';
 import SearchInput from '../components/SearchInput';
 import StatusBadge from '../components/StatusBadge';
-import { statusLabel } from '../lib/status';
+import { statusLabel, erpOrderStatusLabel } from '../lib/status';
 import { fmtDate } from '../lib/format';
 import { ERP_CREATE_ENABLED, PDF_IMPORT_ENABLED } from '../config';
 import { can } from '../permissions';
@@ -667,7 +667,9 @@ export default function OrdersPage() {
               <div className="mb-3 text-xs text-slate-500">
                 {selected.order_date && <span>Fecha: {fmtDate(selected.order_date)} </span>}
                 {selected.delivery_date && <span>· Entrega: {fmtDate(selected.delivery_date)}</span>}
-                {selected.erp_status && <span> · Defontana: {selected.erp_status}</span>}
+                {selected.erp_status && (
+                  <span> · Defontana: {erpOrderStatusLabel(selected.erp_status)}</span>
+                )}
               </div>
 
               {selected.erp_attention && (
@@ -819,7 +821,7 @@ export default function OrdersPage() {
             <div className="card">
               <Empty
                 label="Ningún pedido abierto"
-                hint="Elige un pedido de la lista para ver sus líneas y continuar el flujo."
+                hint="Seleccione un pedido de la lista para ver sus líneas y continuar el flujo."
               />
             </div>
           )}

@@ -218,10 +218,13 @@ async def _alert_stock_zero_if_depleted(
         sku = (product or {}).get("sku", "")
         name = (product or {}).get("name", sku) or sku
         wh_name = (warehouse or {}).get("name", "")
+        # La bodega va en el TÍTULO: el marcador es único por (producto, bodega), así que
+        # dos avisos del mismo producto son de bodegas distintas — pero con el título
+        # "Stock 0: SKU" a secas se leían como uno repetido.
         await notification_service.emit(
             tenant_id=tenant_id,
             notification_type=NotificationType.STOCK_ZERO.value,
-            title=f"Stock 0: {sku}".strip(),
+            title=(f"Stock 0: {sku} en {wh_name}" if wh_name else f"Stock 0: {sku}").strip(),
             body=f"{name} quedó sin stock" + (f" en {wh_name}" if wh_name else ""),
             entity_type="product",
             entity_id=product_id,
