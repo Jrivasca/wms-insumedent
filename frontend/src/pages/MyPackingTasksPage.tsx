@@ -47,7 +47,7 @@ export default function MyPackingTasksPage() {
         <LoadingRows rows={3} />
       ) : tasks.length === 0 ? (
         <Empty
-          label="No tienes tareas de packing asignadas"
+          label="No tiene tareas de packing asignadas"
           hint="Cuando un pedido termine su picking, aparecerá acá."
         />
       ) : (

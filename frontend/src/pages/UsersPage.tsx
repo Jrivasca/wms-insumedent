@@ -413,7 +413,7 @@ export default function UsersPage() {
             />
             {editFor.id === currentUser?.id && (
               <p className="mb-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Estás editando tu propia cuenta: si cambias el correo, la próxima vez deberás
+                Está editando su propia cuenta: si cambia el correo, la próxima vez deberá
                 iniciar sesión con el nuevo.
               </p>
             )}

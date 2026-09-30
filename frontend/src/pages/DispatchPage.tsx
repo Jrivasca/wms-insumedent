@@ -254,7 +254,7 @@ export default function DispatchPage() {
 
   return (
     <div>
-      <PageHeader title="Despachos" subtitle="Confirma salidas y sigue las guías emitidas" />
+      <PageHeader title="Despachos" subtitle="Confirme salidas y siga las guías emitidas" />
 
       {notice && (
         <div className="mb-3 flex items-start gap-2 rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">

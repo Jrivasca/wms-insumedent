@@ -104,7 +104,7 @@ export default function LabelsPage() {
   return (
     <div>
       <div className="print:hidden">
-        <PageHeader title="Etiquetas" subtitle="Imprime los códigos de barra de tus productos" />
+        <PageHeader title="Etiquetas" subtitle="Imprima los códigos de barra de sus productos" />
 
         {error && <ErrorBox message={error} onRetry={() => load(search)} />}
 
@@ -209,7 +209,7 @@ export default function LabelsPage() {
         {loading ? (
           <LoadingRows />
         ) : products.length === 0 ? (
-          <Empty label="No hay productos" hint="Busca por nombre o SKU para elegir qué imprimir." />
+          <Empty label="No hay productos" hint="Busque por nombre o SKU para elegir qué imprimir." />
         ) : (
           <>
             <div className="hidden lg:block">
