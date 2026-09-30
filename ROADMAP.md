@@ -410,9 +410,10 @@ contratos de datos, pero no se ha mirado en pantalla.
   **Pendiente de decidir / hacer:**
   - **Ninguna pantalla se verificó a ojo**: la extensión del navegador no acepta
     `localhost`/`127.0.0.1` en la máquina Linux. Conviene mirar sobre todo el PR #41.
-  - **Limpiar DEV**: quedaron 8 movimientos con `product_id` inexistente
-    (`app/maintenance/limpiar_movimientos_huerfanos.py`, idempotente, dry-run por
-    defecto). **No se ha ejecutado**; contra el droplet el respaldo va antes.
+  - **DEV limpio (2026-09-30)**: `app/maintenance/limpiar_movimientos_huerfanos.py --apply`
+    borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
+    (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
+    en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
   - **Sigue abierta** la decisión sobre si "Finalizar packing" incompleto debe **bloquear**
     el cierre. Los PRs no la tocan: solo agregan la confirmación y el estado que hace
     visible la diferencia.
