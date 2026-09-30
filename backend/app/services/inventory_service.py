@@ -95,7 +95,7 @@ async def change_location_stock(
     if new_on_hand < 0 and not (allow_negative or settings.allow_negative_stock):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Operation would produce negative stock",
+            detail="La operación dejaría el stock en negativo",
         )
 
     reserved = balance.get("quantity_reserved", 0) if balance else 0
@@ -366,7 +366,12 @@ async def create_transfer(
     serial_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     if quantity <= 0:
-        raise HTTPException(status_code=400, detail="Transfer quantity must be positive")
+        raise HTTPException(status_code=400, detail="La cantidad a transferir debe ser positiva")
+
+    # Sin esto una transferencia a la misma ubicación "pasa" pero registra dos movimientos
+    # espurios (-q y +q sobre el mismo saldo): ruido en la trazabilidad sin mover nada real.
+    if from_location_id == to_location_id:
+        raise HTTPException(status_code=400, detail="El origen y el destino no pueden ser iguales")
 
     # El vencimiento viaja con la mercadería: sin esto el saldo destino nace sin fecha y ese
     # stock deja de ordenarse por FEFO (y desaparece de la vista de vencimientos).

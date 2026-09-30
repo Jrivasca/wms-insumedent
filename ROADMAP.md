@@ -150,9 +150,10 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
   Si un envío al ERP agota sus reintentos, ahora avisa a los supervisores
   (notificación `sync_job_failed`, lleva a la Cola de Sincronización): antes quedaba
   descuadrado en silencio.
-- **Flujo 3 — Guía de despacho → `Dispatch/Save`** *(B.1: completo 2026-09-25 — estructura validada
-  por Defontana y cuentas contables cargadas y verificadas en QA; solo falta encender `erp_sync_enabled`
-  cuando se decida la puesta en marcha)*. **El método cambió de
+- **Flujo 3 — Guía de despacho → `Dispatch/Save`** *(B.1: **cerrado**. Estructura validada por
+  Defontana, cuentas contables verificadas en QA, `priceList` resuelto (`"1"`, PR #36), **emisión real
+  probada** (folio 3736, 2026-09-28) y **`erp_sync_enabled` ENCENDIDO en el droplet (2026-09-28)**: cada
+  despacho confirmado ya emite guía real y consume folio de QA que no se borra)*. **El método cambió de
   `Order/DispatchOrder` a `Dispatch/Save`** (Luis, 2026-09-23: soporta lote/serie). El payload lo arma
   `DefontanaMapper.build_dispatch_save` (ver el detalle en la sección de lote/vencimiento, más
   arriba); el worker manda `Dispatch/Save` detrás de `erp_sync_enabled`. Valores confirmados que se
@@ -178,11 +179,10 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     (MERCADERIAS) y de bodega **`4110101001`** (COSTOS DE VENTAS). Cliente (`1110401001`) y venta de
     línea (`1110801001`) son obligatorios en el payload pero no generan asiento propio en una guía.
 
-  **El envío ya está detrás de `erp_sync_enabled` (apagado).** Antes no lo estaba: confirmar un
-  despacho encolaba `Order/DispatchOrder` sin candado (no emitía guía solo porque el payload
-  incompleto fallaba). Ahora, con el flag apagado, el despacho queda **completo solo en el WMS** y
-  no toca el ERP; con el flag encendido arma el payload completo y emite. Cubierto por tests
-  (`test_flow` los dos caminos, `test_defontana_automation` la estructura del payload).
+  **El envío está detrás de `erp_sync_enabled`, ENCENDIDO en el droplet (2026-09-28).** O sea que
+  confirmar un despacho **emite guía real en QA** (consume folio, no se borra). Con el flag apagado
+  (como en local por defecto) el despacho queda **completo solo en el WMS** y no toca el ERP. Cubierto
+  por tests (`test_flow` los dos caminos, `test_defontana_automation` la estructura del payload).
   - **Elegir lote al pickear** *(Parte 1, hecha 2026-09-24)*. `Dispatch/Save` manda lote/serie por
     línea, pero hasta ahora picking era **ciego al lote**: el FEFO solo elegía **ubicación**
     (`order_service._suggested_location`), no un lote puntual, y el staging no guardaba el
@@ -209,18 +209,18 @@ hallazgos en `docs/entregables/Analisis-APIs-Defontana-a-contratar.md` (v3).
     WMS (Parte 2). `DispatchInfo` confirmado (`assets/dispatch/transaction = 1`);
     `IsTransferDocument` configurable (default `true` = no viaja al SII). El worker
     (`_handle_dispatch_order`) ahora manda `Dispatch/Save` (connector `dispatch_save`), detrás del
-    mismo candado `erp_sync_enabled` (apagado). `build_dispatch_order` (Order/DispatchOrder) queda
-    superado pero se conserva. Cubierto por `test_defontana_automation`. **Estructura validada por
-    Defontana (Luis, 2026-09-25):** casing (minúscula inicial), `attachedDocuments` (Nota de Pedido
-    802 obligatoria), `businessCenter` por cuenta, IVA en `saleTaxes`, `firstFeePaid` por condición de
-    pago, `documentType` = `GDVELECT`, `motive` = `VENTA` — todo aplicado. **Cuentas cargadas y
-    verificadas en QA** (`DEFONTANA_DISPATCH_*_ACCOUNT`, 2026-09-25). **Emisión real probada**
-    (2026-09-28, folio 3736, con lote, `IsTransferDocument=true` → sin SII). **`priceList`:** NO es el
+    mismo candado `erp_sync_enabled` (**encendido en el droplet desde 2026-09-28**).
+    `build_dispatch_order` (Order/DispatchOrder) queda superado pero se conserva. Cubierto por
+    `test_defontana_automation`. **Estructura validada por Defontana (Luis, 2026-09-25):** casing
+    (minúscula inicial), `attachedDocuments` (Nota de Pedido 802 obligatoria), `businessCenter` por
+    cuenta, IVA en `saleTaxes`, `firstFeePaid` por condición de pago, `documentType` = `GDVELECT`,
+    `motive` = `VENTA` — todo aplicado. **Cuentas cargadas y verificadas en QA**
+    (`DEFONTANA_DISPATCH_*_ACCOUNT`, 2026-09-25). **Emisión real probada** (2026-09-28, folio 3736, con
+    lote, `IsTransferDocument=true` → sin SII). **`priceList` resuelto:** NO es el
     `referenceNumberPricingID` (da "out of range"); es un código de `GetPriceList` (Ventas, no
-    contratado), va por config `DEFONTANA_DISPATCH_PRICE_LIST` — lo provee Insumedent (en QA sirvió
-    `"1"`). **Pendientes de valor (config, los pone Insumedent):** las cuentas de cliente/venta ya
-    tienen default; falta que Insumedent confirme el `priceList`. Luego, **encender `erp_sync_enabled`**
-    (una emisión real consume un folio de QA y no se puede borrar). Ejemplo en
+    contratado), va por config `DEFONTANA_DISPATCH_PRICE_LIST` — Insumedent eligió `"1"` (LISTA BASE),
+    que es el default (PR #36). **B.1 cerrado:** no queda nada por definir; con el flag encendido cada
+    despacho confirmado en el droplet emite guía real (consume folio de QA, no se borra). Ejemplo en
     `docs/entregables/Dispatch-Save-*.{json,md}`.
   - **Corregir/actualizar lotes** *(Parte 3, opción A — hecha 2026-09-24)*. Cuando el lote del
     saldo está mal ingresado, el operario lo corrige **en picking** para liberar el despacho:
@@ -413,6 +413,11 @@ contratos de datos, pero no se ha mirado en pantalla.
 
 ## Hecho (referencia rápida)
 
+- **QA funcional de backend (2026-09-29)**: se tradujeron al español ~40 mensajes de error que
+  aún salían en inglés (picking/packing, login, inventario, pedidos, usuarios, productos, sync);
+  y la **transferencia rechaza origen == destino** (antes "pasaba" registrando dos movimientos
+  espurios). Suite verde (199 tests). *Queda abierta una duda:* "Finalizar packing" con packing
+  incompleto deja la tarea «Con observaciones» — falta confirmar si es lo deseado o debe bloquear.
 - Catálogo dental real de INSUMEDENT en la demo (1251 productos con stock real, 17 categorías).
 - Flujo completo **picking → packing → despacho** clickeable, operable sin pistola lectora.
 - Escáner con **soporte móvil**: cámara para escanear + teclado en pantalla al tocar.

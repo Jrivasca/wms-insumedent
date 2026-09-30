@@ -56,9 +56,9 @@ async def retry(tenant_id: str, job_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(job_id), "tenant_id": tenant_id}
     )
     if not job:
-        raise HTTPException(status_code=404, detail="Sync job not found")
+        raise HTTPException(status_code=404, detail="Trabajo de sincronización no encontrado")
     if job["status"] == SyncJobStatus.PROCESSING.value:
-        raise HTTPException(status_code=409, detail="Job is currently processing")
+        raise HTTPException(status_code=409, detail="El trabajo se está procesando actualmente")
 
     now = now_utc()
     await db[Collections.SYNC_JOBS].update_one(
@@ -81,9 +81,9 @@ async def cancel(tenant_id: str, job_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(job_id), "tenant_id": tenant_id}
     )
     if not job:
-        raise HTTPException(status_code=404, detail="Sync job not found")
+        raise HTTPException(status_code=404, detail="Trabajo de sincronización no encontrado")
     if job["status"] in (SyncJobStatus.SUCCESS.value, SyncJobStatus.CANCELLED.value):
-        raise HTTPException(status_code=409, detail="Job cannot be cancelled")
+        raise HTTPException(status_code=409, detail="El trabajo no se puede cancelar")
 
     now = now_utc()
     await db[Collections.SYNC_JOBS].update_one(

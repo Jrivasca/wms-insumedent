@@ -105,13 +105,13 @@ async def create_location(
         {"_id": to_object_id(data.warehouse_id), "tenant_id": tenant_id}
     )
     if not warehouse:
-        raise HTTPException(status_code=404, detail="Warehouse not found")
+        raise HTTPException(status_code=404, detail="Bodega no encontrada")
 
     existing = await db[Collections.LOCATIONS].find_one(
         {"tenant_id": tenant_id, "warehouse_id": data.warehouse_id, "code": data.code}
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Location code already exists in warehouse")
+        raise HTTPException(status_code=409, detail="El código de ubicación ya existe en la bodega")
 
     now = now_utc()
     doc = {
@@ -145,7 +145,7 @@ async def update_location(
         {"_id": to_object_id(location_id), "tenant_id": tenant_id}
     )
     if not location:
-        raise HTTPException(status_code=404, detail="Location not found")
+        raise HTTPException(status_code=404, detail="Ubicación no encontrada")
 
     update: Dict[str, Any] = {"updated_at": now_utc(), "updated_by": actor}
     payload = data.model_dump(exclude_unset=True)
@@ -166,7 +166,7 @@ async def update_location(
             )
             if clash:
                 raise HTTPException(
-                    status_code=409, detail="Location code already exists in warehouse"
+                    status_code=409, detail="El código de ubicación ya existe en la bodega"
                 )
         update["code"] = new_code
 

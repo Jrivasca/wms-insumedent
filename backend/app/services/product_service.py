@@ -55,7 +55,7 @@ async def get_product(tenant_id: str, product_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(product_id), "tenant_id": tenant_id}
     )
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
     data = serialize(product)
     data["barcodes"] = await _barcodes_for(tenant_id, data["id"])
     return data
@@ -72,13 +72,13 @@ async def get_by_barcode(tenant_id: str, barcode: str) -> Dict[str, Any]:
             {"tenant_id": tenant_id, "sku": barcode}
         )
         if not product:
-            raise HTTPException(status_code=404, detail="No product for this barcode")
+            raise HTTPException(status_code=404, detail="No hay producto para ese código de barras")
     else:
         product = await db[Collections.PRODUCTS].find_one(
             {"_id": to_object_id(bc["product_id"]), "tenant_id": tenant_id}
         )
         if not product:
-            raise HTTPException(status_code=404, detail="Product not found for barcode")
+            raise HTTPException(status_code=404, detail="Producto no encontrado para el código de barras")
 
     data = serialize(product)
     data["barcodes"] = await _barcodes_for(tenant_id, data["id"])
@@ -94,13 +94,13 @@ async def add_barcode(
         {"_id": to_object_id(product_id), "tenant_id": tenant_id}
     )
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     existing = await db[Collections.BARCODES].find_one(
         {"tenant_id": tenant_id, "barcode": barcode}
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Barcode already exists for this tenant")
+        raise HTTPException(status_code=409, detail="El código de barras ya existe para esta empresa")
 
     now = now_utc()
     doc = {
