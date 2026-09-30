@@ -393,7 +393,8 @@ contratos de datos, pero no se ha mirado en pantalla.
 - **QA funcional 2026-09-29: PRs #38–#41 mergeados a `main` el 2026-09-30.** El dueño corrió la QA
   de interfaz en Claude-in-Chrome contra DEV y entregó el handoff con 7 hallazgos ALTA,
   11 MEDIA y ~20 BAJA. Se corrigieron **todos**, en tres PRs (más el #38 de mensajes en español y
-  transferencia); **aún no desplegados en el droplet**:
+  transferencia); **desplegados en el droplet el 2026-09-30** (`2091c99`, respaldo
+  `/root/wms-backups/wms-2026-09-30-1531.*`):
   - **PR #39 — ALTA (A1–A7).** Validación de referencias en los movimientos de inventario
     (un `product_id` inexistente creaba saldos fantasma), cantidades enteras, motivo de
     ajuste con *strip*, vencimiento pasado, edición de pedido que ya no borra líneas en
