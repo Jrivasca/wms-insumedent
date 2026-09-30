@@ -11,6 +11,9 @@ class MovementType(str, Enum):
     COUNT_ADJUSTMENT = "count_adjustment"
     # Ajuste que deja el WMS igual a Defontana. No viaja al ERP: ya tiene esas cantidades.
     RECONCILIATION = "reconciliation"
+    # Corrección de la IDENTIDAD del lote de un saldo (lote mal ingresado -> el correcto), sin
+    # cambiar la cantidad. No viaja al ERP: Defontana ya manda las cantidades y los lotes.
+    LOT_CORRECTION = "lot_correction"
 
 
 class ReferenceType(str, Enum):

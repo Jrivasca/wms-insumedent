@@ -79,6 +79,13 @@ async def ensure_indexes() -> None:
     await db.packing_tasks.create_index([("tenant_id", 1), ("assigned_to", 1)])
     await db.packing_tasks.create_index([("tenant_id", 1), ("picking_task_id", 1)])
     await db.dispatches.create_index([("tenant_id", 1), ("order_id", 1)])
+    # Idempotencia del despacho: con el envío al ERP encendido, un doble clic emitía DOS guías
+    # reales en Defontana, cada una con su folio y sin forma de borrarlas. El índice único es
+    # lo que cierra la carrera; el chequeo previo en el servicio solo evita el error feo.
+    # ``sparse``: las guías anteriores (y las que llegan sin clave) no tienen el campo.
+    await db.dispatches.create_index(
+        [("tenant_id", 1), ("idempotency_key", 1)], unique=True, sparse=True
+    )
 
     # The public QR page resolves a bulto by its capability token WITHOUT a tenant
     # (unauthenticated endpoint in routes/public.py: find_one({"packages.public_token": token})).

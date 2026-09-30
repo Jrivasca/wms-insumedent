@@ -26,11 +26,11 @@ export default function InventoryTransferPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) {
-      setError('Elige el producto que vas a mover.');
+      setError('Seleccione el producto que va a mover.');
       return;
     }
     if (!fromLocation || !toLocation) {
-      setError('Elige la ubicación de origen y la de destino.');
+      setError('Seleccione la ubicación de origen y la de destino.');
       return;
     }
     if (fromLocation === toLocation) {

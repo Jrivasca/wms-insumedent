@@ -7,7 +7,9 @@ class OrderLineInput(BaseModel):
     sku: str
     name: Optional[str] = None
     unit: str = "UN"
-    ordered_quantity: float = Field(gt=0)
+    # Entero: un pedido de 1.5 unidades no se puede pickear ni empacar, y la pantalla de
+    # edición lo dejaba pasar. Los pedidos que llegan del ERP no usan esta ruta.
+    ordered_quantity: int = Field(gt=0)
 
 
 class OrderCreate(BaseModel):

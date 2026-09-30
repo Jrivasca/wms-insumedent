@@ -114,6 +114,7 @@ async def create_reception(
         lot_number=payload.lot_number,
         serial_number=payload.serial_number,
         expiration_date=_aware(payload.expiration_date),
+        allow_expired=payload.allow_expired,
         sync_erp=payload.sync_erp,
     )
     await log_action(

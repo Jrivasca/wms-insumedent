@@ -197,16 +197,18 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
 
 - `DEFONTANA_MOCK=true` devuelve datos simulados, siempre marcados con `"mock": true`
   para que un éxito simulado no se confunda con uno real. **Mantén esa marca.**
-- **Hoy el WMS lee del ERP pero no le escribe**: `ERP_SYNC_ENABLED=false` y
-  `DEFONTANA_INVENTORY_SYNC_ENABLED` apagado. El **centro de negocio** (A.2) ya está confirmado
-  —`EMPNEGVTAVTA000`, probado por escritura contra `Inventory/Insert` el 2026-09-21— así que lo
-  que traba el envío de inventario es el corte de bodega, no A.2. Para las **guías** (B.1)
-  Defontana indicó (2026-09-23) usar **`Dispatch/Save`, no `Order/DispatchOrder`**, porque soporta
-  **lote y serie** (que sí manejamos). El `build_dispatch_order` actual (para `Order/DispatchOrder`)
-  **queda superado**: hay que rehacer el mapper para `Dispatch/Save` (spec en
-  `docs/entregables/Dispatch-Save-campos.md`). Sirve lo del **candado** (`erp_sync_enabled`) y que
-  `transactionType="1"`. No enciendas el envío hasta rehacerlo y confirmar el `Motive` con el
-  negocio. Ver B.1 en `ROADMAP.md`.
+- **Estado del envío al ERP (droplet, verificado 2026-09-29):** `ERP_SYNC_ENABLED=true`, o sea
+  **las guías de despacho SÍ emiten real** en QA. **Ojo: confirmar un despacho ahora crea una guía
+  real en Defontana (`Dispatch/Save`), consume folio y NO se puede borrar.** No es un ambiente
+  inocuo para "probar el botón". En cambio el **inventario aún NO viaja**:
+  `DEFONTANA_INVENTORY_SYNC_ENABLED` sigue en su default `false` (lo traba el corte de bodega, no A.2,
+  que está confirmado: `EMPNEGVTAVTA000`, probado contra `Inventory/Insert` el 2026-09-21).
+- Para las **guías** el método es **`Dispatch/Save`** (reemplazó a `Order/DispatchOrder`: soporta
+  lote/serie). Mapeo **completo, validado por Defontana y con emisión real probada** (folio 3736 en QA,
+  2026-09-28, con lote, `IsTransferDocument=true` → **sin SII**, mantener así). Cuentas por config
+  (`DEFONTANA_DISPATCH_*_ACCOUNT`) y **`priceList` por config** (`DEFONTANA_DISPATCH_PRICE_LIST`,
+  default `"1"` = LISTA BASE, elegido por Insumedent): **no** es el `referenceNumberPricingID` del
+  pedido (da "out of range"), es un código de `GetPriceList` (Ventas → Lista de Precios; válidos 1–4).
 - Las sincronizaciones automáticas están en un solo programador,
   **`app/workers/defontana_scheduler.py`** (corre en el worker), con la última corrida por
   empresa en `scheduler_runs`. Cada nivel tiene su flag; ver la tabla del `ROADMAP.md`.
@@ -309,7 +311,11 @@ del comando.
 **Encendido al 2026-09-20:** sincronización de pedidos (lun–vie 08:00–19:00) y de stock
 (03:30). Conciliación diaria **apagada** (ver Integración Defontana).
 
-## Estado documentado de la puesta en marcha (última actualización: 2026-09-22)
+**Encendido al 2026-09-28:** `ERP_SYNC_ENABLED=true` en el droplet → **las guías de despacho
+emiten real** (consumen folio de QA, no se borran). El inventario sigue sin viajar
+(`DEFONTANA_INVENTORY_SYNC_ENABLED` en default `false`). Conciliación sigue apagada.
+
+## Estado real de la puesta en marcha (2026-09-20)
 
 El flujo está construido y desplegado en dev, pero **la bodega todavía no opera con el WMS**.
 El procedimiento del corte está en `docs/entregables/Puesta-en-marcha-primera-vez.md`. Estos son
@@ -326,11 +332,15 @@ los pendientes documentados para el corte; verificar su estado actual en el ambi
 - **A.2, centro de negocio**: **confirmado (2026-09-21)** — `EMPNEGVTAVTA000` (VENTAS), verificado
   en el ERP web (Configuración → General → Centro de Negocios) y probado por escritura contra
   `Inventory/Insert`. Ya no bloquea; el envío de inventario sigue apagado por el corte, no por A.2.
-- **B.1, guía de despacho**: Defontana indicó (2026-09-23) usar **`Dispatch/Save`, no
-  `Order/DispatchOrder`** (soporta lote/serie). El mapper hay que **rehacerlo** para ese método;
-  spec en `docs/entregables/Dispatch-Save-campos.md`. Confirmado `transactionType="1"`; falta el
-  ejemplo de JSON de Luis (para un nº de pedido que hay que pasarle) y el `Motive` del negocio. El
-  envío sigue apagado (`erp_sync_enabled`), así que **ninguna guía viaja al ERP**.
+- **B.1, guía de despacho → `Dispatch/Save`**: **cerrado y en producción-dev.** Mapeo completo y
+  validado por Defontana (2026-09-25, Luis): casing (minúscula), `attachedDocuments` (Nota de Pedido 802
+  obligatoria), `businessCenter` por cuenta, IVA, `firstFeePaid` por condición de pago,
+  `documentType`=`GDVELECT`, `motive`=`VENTA` (PR #34, `build_dispatch_save`). Cuentas contables
+  verificadas en QA (`DEFONTANA_DISPATCH_*_ACCOUNT`; MERCADERIAS `1110801001` / COSTOS DE VENTAS
+  `4110101001`) y `priceList` resuelto (`DEFONTANA_DISPATCH_PRICE_LIST="1"`, PR #36). **Emisión real
+  probada** (folio 3736, 2026-09-28, con lote, sin SII) y **`erp_sync_enabled` ENCENDIDO en el droplet
+  (2026-09-28)**: desde ahora **cada despacho confirmado emite guía real y consume folio de QA que no se
+  puede borrar**. Ya no queda nada por definir aquí; lo que resta es la operación (corte de bodega).
 
 ## Intentado y descartado (no repetir)
 

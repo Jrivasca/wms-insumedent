@@ -249,7 +249,7 @@ export default function PutawayPage() {
           // Con un producto ya elegido el foco es de la ubicación y la cantidad: si el
           // escáner se lo queda, lo que se escribe en esos campos cae en la caja de escaneo.
           autoFocus={!selected}
-          hint="Escanea el producto o escribe SKU, nombre, lote o serie"
+          hint="Escanee el producto o escriba SKU, nombre, lote o serie"
         />
         {query && (
           <button onClick={() => setQuery('')} className="btn-ghost btn-sm mt-2">

@@ -13,5 +13,5 @@ async def seed(x_seed_token: str = Header(default="")):
     Requires header ``X-Seed-Token`` matching the ``SEED_TOKEN`` env var.
     """
     if x_seed_token != settings.seed_token:
-        raise HTTPException(status_code=403, detail="Invalid seed token")
+        raise HTTPException(status_code=403, detail="Token de seed inválido")
     return await run_seed()

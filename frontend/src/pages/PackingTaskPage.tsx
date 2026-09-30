@@ -10,12 +10,14 @@ import {
   startPacking,
 } from '../api/packing';
 import { errorMessage } from '../api/http';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { ErrorBox, Loading } from '../components/Async';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
 import Toast, { ToastTone } from '../components/Toast';
 import { isSupervisor, useAuth } from '../store/auth';
+import { fmtQty } from '../lib/format';
 import type { PackingLine, PackingTask } from '../types';
 
 export default function PackingTaskPage() {
@@ -39,6 +41,7 @@ export default function PackingTaskPage() {
   const [activePackage, setActivePackage] = useState<string | null>(null);
   const [packageLabel, setPackageLabel] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -65,6 +68,11 @@ export default function PackingTaskPage() {
     if (!task) return null;
     return task.lines.find((l) => l.quantity_packed < l.quantity_required) ?? null;
   }, [task]);
+
+  // "Cantidad por escaneo" vuelve a 1 al cambiar de bulto o de línea, para no arrastrar un valor.
+  useEffect(() => {
+    setQuantity(1);
+  }, [activePackage, currentLine?.sku]);
 
   const progress = useMemo(() => {
     if (!task) return { packed: 0, total: 0, lines: 0, done: 0 };
@@ -108,11 +116,18 @@ export default function PackingTaskPage() {
   async function handleScan(barcode: string) {
     setError(null);
     setMessage(null);
+    // Sin bulto no se escanea: se evita empacar unidades huérfanas (el backend también lo rechaza).
+    if (!activePackage) {
+      setFeedback('warning');
+      showMsg('Seleccione o cree un bulto antes de escanear.', 'warning');
+      setTimeout(() => setFeedback('idle'), 1500);
+      return;
+    }
     try {
       const res = await scanPacking(id, {
         barcode,
         quantity: quantity || 1,
-        package_id: activePackage ?? undefined,
+        package_id: activePackage,
       });
       let tone: 'success' | 'warning' | 'error';
       if (res.status === 'ok') tone = 'success';
@@ -187,7 +202,17 @@ export default function PackingTaskPage() {
     }
   }
 
+  /** Con diferencias se confirma primero, como en picking (ahí sí se pedía y acá no). */
+  function pedirFinalizar() {
+    if (hasPackDiff) {
+      setConfirmarCierre(true);
+      return;
+    }
+    handleComplete();
+  }
+
   async function handleComplete() {
+    setConfirmarCierre(false);
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -297,7 +322,8 @@ export default function PackingTaskPage() {
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              {p.label ?? p.package_id} ({p.items?.length ?? 0})
+              {p.label ?? p.package_id} ·{' '}
+              {fmtQty((p.items ?? []).reduce((a, it) => a + (it.quantity ?? 0), 0))} u
             </button>
           ))}
         </div>
@@ -342,13 +368,15 @@ export default function PackingTaskPage() {
 
           <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
             <span className="text-4xl font-bold tabular-nums text-white">
-              {currentLine.quantity_packed}
+              {fmtQty(currentLine.quantity_packed)}
               <span className="text-xl font-semibold text-graphite-400">
                 {' '}
-                / {currentLine.quantity_required}
+                / {fmtQty(currentLine.quantity_required)}
               </span>
             </span>
-            <span className="text-sm font-semibold text-amber-300">Faltan {remainingCurrent}</span>
+            <span className="text-sm font-semibold text-amber-300">
+              {remainingCurrent === 1 ? 'Falta' : 'Faltan'} {fmtQty(remainingCurrent)}
+            </span>
           </div>
 
           <button
@@ -356,7 +384,7 @@ export default function PackingTaskPage() {
             className="btn-xl mt-4 w-full bg-brand text-white hover:bg-brand-dark"
             disabled={busy}
           >
-            Confirmar línea completa sin escáner (+{remainingCurrent})
+            Confirmar línea completa sin escáner (+{fmtQty(remainingCurrent)})
           </button>
         </div>
       ) : (
@@ -365,8 +393,8 @@ export default function PackingTaskPage() {
         </div>
       )}
 
-      {/* Cantidad + escáner */}
-      {!notStarted && (
+      {/* Cantidad + escáner: se oculta cuando ya no queda línea por empacar. */}
+      {!notStarted && currentLine && (
         <div className="card mb-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label className="label mb-0" htmlFor="qty">
@@ -402,7 +430,7 @@ export default function PackingTaskPage() {
           {!activePackage && (
             <div className="flex items-start gap-2 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              Elige o crea un bulto antes de escanear.
+              Seleccione o cree un bulto antes de escanear.
             </div>
           )}
 
@@ -410,7 +438,11 @@ export default function PackingTaskPage() {
             onScan={handleScan}
             feedback={feedback}
             hint={
-              activePackage ? `Empacando en el bulto ${activeLabel}` : 'Escanea el producto a empacar'
+              // La etiqueta del bulto ya dice "Bulto 2": anteponer "el bulto" daba
+              // "Empacando en el bulto Bulto 2".
+              activePackage
+                ? `Empacando en ${activeLabel}`
+                : 'Escanee el producto a empacar'
             }
           />
         </div>
@@ -437,7 +469,7 @@ export default function PackingTaskPage() {
                 </div>
                 <div className="shrink-0 text-right">
                   <div className="font-bold tabular-nums text-slate-900">
-                    {l.quantity_packed}/{l.quantity_required}
+                    {fmtQty(l.quantity_packed)}/{fmtQty(l.quantity_required)}
                   </div>
                   {l.quantity_packed > 0 && !notStarted && (
                     <button
@@ -468,15 +500,15 @@ export default function PackingTaskPage() {
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               {supervisor
-                ? `Faltan ${packDiffUnits} unidad${packDiffUnits === 1 ? '' : 'es'} respecto a lo ` +
-                  'pickeado. Al finalizar, la diferencia queda aprobada a tu nombre.'
-                : `Faltan ${packDiffUnits} unidad${packDiffUnits === 1 ? '' : 'es'} respecto a lo ` +
-                  'pickeado. Al finalizar, la tarea quedará «Con observaciones» para que un ' +
-                  'supervisor la apruebe.'}
+                ? `${packDiffUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
+                  'respecto a lo pickeado. Al finalizar, la diferencia queda aprobada a su nombre.'
+                : `${packDiffUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
+                  'respecto a lo pickeado. Al finalizar, la tarea quedará «Con observaciones» para ' +
+                  'que un supervisor la apruebe.'}
             </p>
           )}
           <button
-            onClick={handleComplete}
+            onClick={pedirFinalizar}
             className={`btn-xl w-full text-white ${
               hasPackDiff ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'
             }`}
@@ -486,6 +518,24 @@ export default function PackingTaskPage() {
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmarCierre}
+        tone="primary"
+        title="¿Finalizar el packing con diferencias?"
+        message={
+          `Faltan ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} respecto a lo ` +
+          'pickeado. ' +
+          (supervisor
+            ? 'La tarea quedará «Completado con diferencias» y la diferencia queda aprobada a su nombre.'
+            : 'La tarea quedará «Con observaciones» hasta que un supervisor la revise y la apruebe.')
+        }
+        confirmLabel="Finalizar igual"
+        cancelLabel="Seguir empacando"
+        busy={busy}
+        onConfirm={handleComplete}
+        onCancel={() => setConfirmarCierre(false)}
+      />
     </div>
   );
 }

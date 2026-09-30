@@ -132,7 +132,9 @@ export default function InventoryPage() {
     },
     {
       key: 'putaway',
-      header: '',
+      // La columna de acciones iba sin encabezado: en la tabla se leía como una columna
+      // rota, y el lector de pantalla anunciaba una celda de cabecera vacía.
+      header: 'Acciones',
       render: (b) =>
         b.quantity_available > 0 ? (
           <Link
@@ -181,7 +183,8 @@ export default function InventoryPage() {
       secondary: true,
       render: (m) => (
         <span className="code">
-          {m.from_location_id ?? '—'} → {m.to_location_id ?? '—'}
+          {m.from_location_code ?? (m.from_location_id ? '(sin código)' : '—')} →{' '}
+          {m.to_location_code ?? (m.to_location_id ? '(sin código)' : '—')}
         </span>
       ),
     },

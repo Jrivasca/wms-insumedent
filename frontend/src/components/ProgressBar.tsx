@@ -1,3 +1,5 @@
+import { fmtQty } from '../lib/format';
+
 /** Avance de una tarea o pedido: barra + conteo, sin depender solo del color. */
 export default function ProgressBar({
   value,
@@ -30,7 +32,7 @@ export default function ProgressBar({
       </div>
       {!compact && (
         <p className="mt-1 text-xs tabular-nums text-slate-500">
-          {value}/{safeTotal} {unit ?? ''} · {percent}%
+          {fmtQty(value)}/{fmtQty(safeTotal)} {unit ?? ''} · {percent}%
         </p>
       )}
     </div>

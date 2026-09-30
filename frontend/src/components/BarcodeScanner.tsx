@@ -34,13 +34,6 @@ const FEEDBACK_BORDER: Record<ScanFeedback, string> = {
   warning: 'border-amber-500 ring-2 ring-amber-400',
 };
 
-const FEEDBACK_BANNER: Record<ScanFeedback, string> = {
-  idle: '',
-  success: 'bg-emerald-500 text-white',
-  error: 'bg-red-500 text-white',
-  warning: 'bg-amber-500 text-white',
-};
-
 /** Short WebAudio beep. */
 function beep(success = true) {
   try {
@@ -108,10 +101,25 @@ export default function BarcodeScanner({
   // iOS won't open the keyboard from a programmatic focus, and re-focusing
   // blocks the tap-to-type gesture.
   const refocus = useCallback(() => {
-    if (autoFocus && !cameraOn && !isTouchDevice) {
-      // small timeout so it survives blur events
-      setTimeout(() => inputRef.current?.focus(), 0);
-    }
+    if (!autoFocus || cameraOn || isTouchDevice) return;
+    // small timeout so it survives blur events; el foco ya se movió al evaluar activeElement.
+    setTimeout(() => {
+      const active = document.activeElement as HTMLElement | null;
+      // No robar el foco si el usuario está escribiendo en otro campo (ej. la etiqueta del bulto),
+      // en un textarea/select, en un elemento editable o dentro de un modal/diálogo.
+      if (
+        active &&
+        active !== inputRef.current &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          active.isContentEditable ||
+          active.closest('[role="dialog"],[aria-modal="true"]'))
+      ) {
+        return;
+      }
+      inputRef.current?.focus();
+    }, 0);
   }, [autoFocus, cameraOn, isTouchDevice]);
 
   useEffect(() => {
@@ -189,16 +197,11 @@ export default function BarcodeScanner({
     }
   }
 
+  // El feedback del escaneo se muestra sin alterar el layout: color del borde del input
+  // (``FEEDBACK_BORDER``) + el Toast overlay de la página. Antes había un banner inline que
+  // aparecía/desaparecía y empujaba los botones de abajo, provocando clics accidentales.
   return (
     <div className="space-y-2">
-      {feedback !== 'idle' && (
-        <div className={`rounded-md px-3 py-2 text-center text-sm font-semibold ${FEEDBACK_BANNER[feedback]}`}>
-          {feedback === 'success' && 'Código correcto'}
-          {feedback === 'error' && 'Código incorrecto'}
-          {feedback === 'warning' && 'Atención'}
-        </div>
-      )}
-
       {hint && <p className="text-sm text-slate-500">{hint}</p>}
 
       <div className="flex gap-2">
@@ -212,13 +215,16 @@ export default function BarcodeScanner({
           inputMode="text"
           enterKeyHint="done"
           placeholder={isTouchDevice ? 'Toque aquí para escribir el código' : 'Escanee o ingrese código…'}
-          className={`flex-1 rounded-md border bg-white px-3 py-3 text-base outline-none ${FEEDBACK_BORDER[feedback]}`}
+          // ``min-w-0``: un <input> trae un ancho intrínseco propio y ``flex-1`` no lo deja
+          // encogerse por debajo de él, así que a 390 px el botón «Cámara» se salía del
+          // contenedor y la página ganaba scroll horizontal.
+          className={`min-w-0 flex-1 rounded-md border bg-white px-3 py-3 text-base outline-none ${FEEDBACK_BORDER[feedback]}`}
           aria-label="Entrada de código de barras"
         />
         <button
           type="button"
           onClick={() => setCameraOn((v) => !v)}
-          className={`btn ${cameraOn ? 'btn-danger' : 'btn-secondary'} whitespace-nowrap`}
+          className={`btn shrink-0 ${cameraOn ? 'btn-danger' : 'btn-secondary'} whitespace-nowrap`}
         >
           {cameraOn ? 'Apagar cámara' : '📷 Cámara'}
         </button>

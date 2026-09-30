@@ -10,6 +10,7 @@ import {
   type CatalogImportReport,
 } from '../api/products';
 import { errorMessage } from '../api/http';
+import { barcodeTypeLabel } from '../lib/status';
 import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
 import { Field } from '../components/Form';
@@ -183,7 +184,7 @@ export default function ProductsPage() {
             {p.barcodes.map((b, i) => (
               <span key={i} className="badge bg-slate-100 font-mono text-slate-700">
                 {b.barcode}
-                {b.type ? ` (${b.type})` : ''}
+                {b.type ? ` (${barcodeTypeLabel(b.type)})` : ''}
               </span>
             ))}
           </div>
@@ -348,7 +349,7 @@ export default function ProductsPage() {
           value={barcodeSearch}
           onChange={setBarcodeSearch}
           onSubmit={handleBarcodeLookup}
-          placeholder="Escanea o escribe el código…"
+          placeholder="Escanee o escriba el código…"
         />
       </div>
 

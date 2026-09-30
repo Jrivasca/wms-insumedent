@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -30,10 +31,13 @@ async def list_products(
 ) -> Dict[str, Any]:
     db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
-    if search:
+    termino = (search or "").strip()
+    if termino:
+        escapado = re.escape(termino)
         query["$or"] = [
-            {"sku": {"$regex": search, "$options": "i"}},
-            {"name": {"$regex": search, "$options": "i"}},
+            {"sku": {"$regex": escapado, "$options": "i"}},
+            {"name": {"$regex": escapado, "$options": "i"}},
+            {"barcode": {"$regex": f"^{escapado}", "$options": "i"}},
         ]
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
@@ -41,8 +45,44 @@ async def list_products(
     cursor = (
         db[Collections.PRODUCTS].find(query).sort("name", 1).skip(offset).limit(limit)
     )
+    encontrados = await cursor.to_list(length=limit)
+
+    if termino and offset == 0:
+        # Reordenar la página no basta: con un límite chico (el buscador del formulario pide
+        # 8) el SKU exacto puede quedar FUERA de ella, ordenada por nombre. Se busca aparte
+        # y se antepone. Solo en la primera página: en las siguientes ya se vio.
+        exacto = await db[Collections.PRODUCTS].find_one(
+            {"tenant_id": tenant_id,
+             "$or": [{"sku": termino}, {"barcode": termino}]}
+        )
+        if exacto and all(p["_id"] != exacto["_id"] for p in encontrados):
+            encontrados.insert(0, exacto)
+            encontrados = encontrados[:limit]
+
+    if termino:
+        # El buscador del formulario pide pocas filas y las ordenaba SOLO por nombre: al
+        # teclear el SKU exacto (p. ej. ANES014) el producto correcto quedaba fuera de la
+        # primera página. Se reordena por relevancia: SKU exacto, luego SKU que empieza
+        # por el término, luego el resto, y dentro de cada grupo por nombre.
+        bajo = termino.lower()
+
+        def relevancia(prod: Dict[str, Any]) -> tuple:
+            sku = (prod.get("sku") or "").lower()
+            nombre = (prod.get("name") or "").lower()
+            if sku == bajo:
+                grupo = 0
+            elif sku.startswith(bajo):
+                grupo = 1
+            elif nombre.startswith(bajo):
+                grupo = 2
+            else:
+                grupo = 3
+            return (grupo, nombre)
+
+        encontrados.sort(key=relevancia)
+
     result = []
-    for p in await cursor.to_list(length=limit):
+    for p in encontrados:
         data = serialize(p)
         data["barcodes"] = await _barcodes_for(tenant_id, data["id"])
         result.append(data)
@@ -55,7 +95,7 @@ async def get_product(tenant_id: str, product_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(product_id), "tenant_id": tenant_id}
     )
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
     data = serialize(product)
     data["barcodes"] = await _barcodes_for(tenant_id, data["id"])
     return data
@@ -72,13 +112,13 @@ async def get_by_barcode(tenant_id: str, barcode: str) -> Dict[str, Any]:
             {"tenant_id": tenant_id, "sku": barcode}
         )
         if not product:
-            raise HTTPException(status_code=404, detail="No product for this barcode")
+            raise HTTPException(status_code=404, detail="No hay producto para ese código de barras")
     else:
         product = await db[Collections.PRODUCTS].find_one(
             {"_id": to_object_id(bc["product_id"]), "tenant_id": tenant_id}
         )
         if not product:
-            raise HTTPException(status_code=404, detail="Product not found for barcode")
+            raise HTTPException(status_code=404, detail="Producto no encontrado para el código de barras")
 
     data = serialize(product)
     data["barcodes"] = await _barcodes_for(tenant_id, data["id"])
@@ -94,13 +134,13 @@ async def add_barcode(
         {"_id": to_object_id(product_id), "tenant_id": tenant_id}
     )
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     existing = await db[Collections.BARCODES].find_one(
         {"tenant_id": tenant_id, "barcode": barcode}
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Barcode already exists for this tenant")
+        raise HTTPException(status_code=409, detail="El código de barras ya existe para esta empresa")
 
     now = now_utc()
     doc = {

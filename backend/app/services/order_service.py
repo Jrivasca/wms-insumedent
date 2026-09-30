@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -8,7 +9,7 @@ from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.location import NON_PICKABLE_LOCATION_TYPES
 from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
-from app.models.packing import PackingTaskStatus
+from app.models.packing import DONE_PACKING_STATUSES, PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
@@ -113,7 +114,51 @@ async def list_orders(
         db[Collections.ORDERS].find(query).sort("created_at", -1).skip(offset).limit(limit)
     )
     items = [serialize(o) for o in await cursor.to_list(length=limit)]
+    await _add_live_progress(db, tenant_id, items)
     return page(items, total, limit, offset)
+
+
+async def _add_live_progress(
+    db: Any, tenant_id: str, orders: List[Dict[str, Any]]
+) -> None:
+    """Agregar a cada línea lo pickeado/empacado de la tarea EN CURSO, como campo aparte.
+
+    ``picked_quantity`` y ``packed_quantity`` solo se reconcilian cuando la tarea se cierra,
+    así que mientras el operario pickea, Pedidos mostraba 0/20 y Picking 1/20 sobre el mismo
+    pedido. Esto no cambia lo guardado —el avance confirmado sigue siendo el de las tareas
+    cerradas, que es lo que manda para despachar— sino que expone además el avance en curso
+    para que las dos pantallas digan lo mismo.
+
+    Se resuelve de lectura (dos consultas por página), no en el camino del escaneo.
+    """
+    if not orders:
+        return
+    por_id = {o["id"]: o for o in orders}
+    abiertas = {
+        PickingTaskStatus.PENDING.value,
+        PickingTaskStatus.IN_PROGRESS.value,
+        PackingTaskStatus.PENDING.value,
+        PackingTaskStatus.IN_PROGRESS.value,
+    }
+    for coleccion, campo, destino in (
+        (Collections.PICKING_TASKS, "quantity_picked", "picked_quantity_live"),
+        (Collections.PACKING_TASKS, "quantity_packed", "packed_quantity_live"),
+    ):
+        async for tarea in db[coleccion].find(
+            {"tenant_id": tenant_id,
+             "order_id": {"$in": list(por_id)},
+             "status": {"$in": list(abiertas)}}
+        ):
+            order = por_id.get(tarea.get("order_id"))
+            if not order:
+                continue
+            por_linea = {
+                l.get("line_id"): (l.get(campo) or 0) for l in tarea.get("lines", [])
+            }
+            for ol in order.get("lines", []):
+                avance = por_linea.get(ol.get("line_id"))
+                if avance is not None:
+                    ol[destino] = avance
 
 
 async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
@@ -122,8 +167,10 @@ async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    return serialize(order)
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    data = serialize(order)
+    await _add_live_progress(db, tenant_id, [data])
+    return data
 
 
 async def create_order_from_lines(
@@ -148,7 +195,7 @@ async def create_order_from_lines(
         {"tenant_id": tenant_id, "erp_order_number": erp_order_number}
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Order number already exists")
+        raise HTTPException(status_code=409, detail="El número de pedido ya existe")
 
     built = []
     for idx, line in enumerate(lines, start=1):
@@ -268,7 +315,7 @@ async def create_picking_task(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
     # Only an order that has not yet been picked can generate a (new) picking task.
     # Once it reaches picked/packing/…/dispatched the flow has moved on, so a second
@@ -300,7 +347,7 @@ async def create_picking_task(
 
     warehouse_id = order.get("warehouse_id") or await _default_warehouse_id(tenant_id)
     if not warehouse_id:
-        raise HTTPException(status_code=400, detail="No warehouse available for picking")
+        raise HTTPException(status_code=400, detail="No hay bodega disponible para picking")
 
     lines = [
         await _picking_line(tenant_id, line, warehouse_id, line.get("ordered_quantity", 0))
@@ -364,7 +411,7 @@ _DONE_PICKING = (
     PickingTaskStatus.COMPLETED.value,
     PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
 )
-_DONE_PACKING = (PackingTaskStatus.COMPLETED.value,)
+_DONE_PACKING = DONE_PACKING_STATUSES
 
 
 async def _task_totals(
@@ -385,6 +432,40 @@ async def _task_totals(
     return totals
 
 
+def _fefo_key(expiration):
+    """Orden FEFO: primero el que vence antes; los sin fecha, al final."""
+    return (expiration is None, expiration or datetime.max)
+
+
+async def _picked_lots_by_line(
+    db, tenant_id: str, order_id: str
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Desglose de lote por línea de lo pickeado del pedido: agrupa los scans de todas las
+    tareas de picking cerradas por (lote, vencimiento) y suma cantidades, ordenado FEFO. Es
+    la fuente para poblar los lotes de la guía (``BatchInfo`` de ``Dispatch/Save``): el lote
+    lo eligió el operario al pickear (Parte 1) y acá viaja hasta el pedido."""
+    by_line: Dict[str, Dict[Any, Dict[str, Any]]] = {}
+    async for task in db[Collections.PICKING_TASKS].find(
+        {"tenant_id": tenant_id, "order_id": order_id, "status": {"$in": list(_DONE_PICKING)}}
+    ):
+        for line in task.get("lines", []):
+            groups = by_line.setdefault(line.get("line_id"), {})
+            for s in line.get("scans", []):
+                qty = s.get("quantity", 0) or 0
+                if qty <= 0 or not s.get("lot_number"):
+                    continue
+                exp = s.get("expiration_date")
+                g = groups.setdefault(
+                    (s.get("lot_number"), exp),
+                    {"lot_number": s.get("lot_number"), "expiration_date": exp, "quantity": 0.0},
+                )
+                g["quantity"] += qty
+    return {
+        line_id: sorted(groups.values(), key=lambda g: _fefo_key(g["expiration_date"]))
+        for line_id, groups in by_line.items()
+    }
+
+
 async def reconcile_order_from_picking(
     tenant_id: str, order_id: str, picking_task: Dict[str, Any]
 ) -> None:
@@ -400,12 +481,15 @@ async def reconcile_order_from_picking(
     picked_by_line = await _task_totals(
         db, tenant_id, Collections.PICKING_TASKS, order_id, _DONE_PICKING, "quantity_picked"
     )
+    lots_by_line = await _picked_lots_by_line(db, tenant_id, order_id)
     lines = order.get("lines", [])
     for ol in lines:
         picked = picked_by_line.get(ol.get("line_id"))
         if picked is None:
             continue
         ol["picked_quantity"] = picked
+        # Desglose de lote de lo pickeado (para la guía). Solo para líneas con lote elegido.
+        ol["picked_lots"] = lots_by_line.get(ol.get("line_id"), [])
         ol["status"] = _line_status_for(picked, ol.get("ordered_quantity", 0),
                                         OrderLineStatus.PICKED.value)
     await db[Collections.ORDERS].update_one(
@@ -463,6 +547,10 @@ async def reset_order_reconciliation(
         if stage == "picking":
             ol["picked_quantity"] = 0
             ol["dispatched_quantity"] = 0
+            # El desglose de lote se re-deriva al recompletar el picking; limpiarlo para no
+            # dejar lotes fantasma de la corrida anterior.
+            ol["picked_lots"] = []
+            ol["dispatched_lots"] = []
             ol["status"] = OrderLineStatus.PENDING.value
         else:  # packing: el pickeado se mantiene, se re-deriva el estado
             ol["status"] = _line_status_for(ol.get("picked_quantity", 0),
@@ -546,7 +634,7 @@ async def create_backorder_picking_task(
         or await _default_warehouse_id(tenant_id)
     )
     if not warehouse_id:
-        raise HTTPException(status_code=400, detail="No warehouse available for picking")
+        raise HTTPException(status_code=400, detail="No hay bodega disponible para picking")
 
     lines = []
     for line in order.get("lines", []):

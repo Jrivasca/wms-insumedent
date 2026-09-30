@@ -10,6 +10,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
 import Pager from '../components/Pager';
 import StatusBadge from '../components/StatusBadge';
+import { errorDeCantidad, unidadesEnteras } from '../lib/cantidades';
+import { useBanderasErp } from '../lib/erp';
 import { can } from '../permissions';
 import { useAuth } from '../store/auth';
 import type { Dispatch, Order, OrderLine } from '../types';
@@ -30,9 +32,18 @@ function totalRemaining(o: Order): number {
   return (o.lines ?? []).reduce((s, l) => s + Math.max(0, lineRemaining(l)), 0);
 }
 
+/** Clave de idempotencia: una por formulario abierto, para que un doble clic (o un reintento
+ *  tras un error de red) no emita DOS guías reales en Defontana. */
+function nuevaClave(): string {
+  return typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `d-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function DispatchPage() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const { despachoViajaAlErp } = useBanderasErp();
   const canRevert = can(currentUser?.role); // admin / supervisor
   const [dispatches, setDispatches] = useState<Dispatch[]>([]);
   const [dispOffset, setDispOffset] = useState(0);
@@ -54,6 +65,9 @@ export default function DispatchPage() {
   const [splitMode, setSplitMode] = useState(false);
   const [lineQtys, setLineQtys] = useState<Record<string, string>>({});
   const [toCancel, setToCancel] = useState<Dispatch | null>(null);
+  // Pedido cuyo despacho está esperando confirmación, y la clave que se enviará con él.
+  const [aDespachar, setADespachar] = useState<Order | null>(null);
+  const [claveDespacho, setClaveDespacho] = useState('');
 
   const carrierValue = carrierChoice === 'Otro' ? carrierOther.trim() : carrierChoice;
 
@@ -92,16 +106,23 @@ export default function DispatchPage() {
 
   function openLabels(orderId: string) {
     const tid = taskByOrder[orderId];
-    if (tid) navigate(`/my/packing/${tid}/labels`);
+    // Se pasa el origen para que "Volver" de las etiquetas traiga de vuelta a Despachos
+    // y no al packing, que es de donde NO se venía.
+    if (tid)
+      navigate(`/my/packing/${tid}/labels`, {
+        state: { from: '/dispatch', fromLabel: 'Volver a Despachos' },
+      });
     else setNotice('No hay etiquetas de packing para este pedido.');
   }
 
   function openConfirm(o: Order) {
     setActiveOrder(o.id);
     setSplitMode(false);
+    // Por defecto se despacha lo EMPACADO pendiente de cada línea, no lo pedido.
     const init: Record<string, string> = {};
     for (const l of remainingLines(o)) init[l.sku] = String(l.remaining);
     setLineQtys(init);
+    setClaveDespacho(nuevaClave());
     setGuide('');
     setCarrierChoice('Bluexpress');
     setCarrierOther('');
@@ -115,29 +136,50 @@ export default function DispatchPage() {
     try {
       let lines: { sku: string; quantity: number }[] | undefined;
       if (splitMode) {
+        // Las líneas en 0 sí se omiten (son "esta no va en esta guía"); las inválidas no
+        // llegan hasta acá porque el botón queda deshabilitado.
         lines = remainingLines(o)
-          .map((l) => ({ sku: l.sku, quantity: parseInt(lineQtys[l.sku] || '0', 10) || 0 }))
+          .map((l) => ({ sku: l.sku, quantity: unidadesEnteras(lineQtys[l.sku] ?? '') ?? 0 }))
           .filter((l) => l.quantity > 0);
-        if (lines.length === 0) {
-          setError('Ingresa al menos una cantidad a despachar.');
-          setBusy(false);
-          return;
-        }
       }
       await dispatchOrder(o.id, {
         guide_number: guide.trim() || undefined,
         carrier: carrierValue || undefined,
         tracking_number: tracking.trim() || undefined,
         lines,
+        idempotency_key: claveDespacho,
       });
       setNotice(splitMode ? 'Despacho parcial confirmado' : 'Despacho confirmado');
       setActiveOrder(null);
+      setADespachar(null);
       load(dispOffset);
     } catch (err) {
       setError(errorMessage(err));
+      setADespachar(null);
     } finally {
       setBusy(false);
     }
+  }
+
+  /** Errores por línea del despacho parcial: 0 ≤ cantidad ≤ empacado − despachado. */
+  function erroresDeLineas(o: Order): Record<string, string> {
+    const errores: Record<string, string> = {};
+    if (!splitMode) return errores;
+    for (const l of remainingLines(o)) {
+      const texto = lineQtys[l.sku] ?? '';
+      if (texto.trim() === '' || texto.trim() === '0') continue; // 0 = no va en esta guía
+      const problema = errorDeCantidad(texto, { maximo: l.remaining });
+      if (problema) errores[l.sku] = problema;
+    }
+    return errores;
+  }
+
+  function totalIndicado(o: Order): number {
+    if (!splitMode) return totalRemaining(o);
+    return remainingLines(o).reduce(
+      (s, l) => s + Math.max(0, unidadesEnteras(lineQtys[l.sku] ?? '') ?? 0),
+      0
+    );
   }
 
   async function handleCancelGuide() {
@@ -212,7 +254,7 @@ export default function DispatchPage() {
 
   return (
     <div>
-      <PageHeader title="Despachos" subtitle="Confirma salidas y sigue las guías emitidas" />
+      <PageHeader title="Despachos" subtitle="Confirme salidas y siga las guías emitidas" />
 
       {notice && (
         <div className="mb-3 flex items-start gap-2 rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -287,26 +329,42 @@ export default function DispatchPage() {
 
                   {splitMode && (
                     <div className="space-y-2 rounded-card border border-slate-200 p-3">
-                      {remainingLines(o).map((l) => (
-                        <div key={l.sku} className="flex flex-wrap items-center gap-2">
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm text-slate-700">{l.name}</span>
-                            <span className="code">{l.sku}</span>
-                          </span>
-                          <span className="text-xs text-slate-500">quedan {l.remaining}</span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={l.remaining}
-                            value={lineQtys[l.sku] ?? ''}
-                            onChange={(e) =>
-                              setLineQtys((s) => ({ ...s, [l.sku]: e.target.value }))
-                            }
-                            className="input input-lg w-24"
-                            aria-label={`Cantidad a despachar de ${l.sku}`}
-                          />
-                        </div>
-                      ))}
+                      {remainingLines(o).map((l) => {
+                        const errorLinea = erroresDeLineas(o)[l.sku];
+                        return (
+                          <div key={l.sku} className="flex flex-wrap items-center gap-2">
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm text-slate-700">
+                                {l.name}
+                              </span>
+                              <span className="code">{l.sku}</span>
+                              {errorLinea && (
+                                <span className="block text-xs text-red-700">{errorLinea}</span>
+                              )}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              empacado por despachar: {l.remaining}
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={l.remaining}
+                              inputMode="numeric"
+                              value={lineQtys[l.sku] ?? ''}
+                              onChange={(e) =>
+                                setLineQtys((s) => ({ ...s, [l.sku]: e.target.value }))
+                              }
+                              className={
+                                errorLinea
+                                  ? 'input input-lg w-24 border-red-400 focus:ring-red-400'
+                                  : 'input input-lg w-24'
+                              }
+                              aria-invalid={errorLinea ? true : undefined}
+                              aria-label={`Cantidad a despachar de ${l.sku}`}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -319,10 +377,14 @@ export default function DispatchPage() {
                         id={`guide-${o.id}`}
                         value={guide}
                         onChange={(e) => setGuide(e.target.value)}
-                        placeholder="Ingresa la guía"
+                        placeholder="Ingrese la guía"
                         className="input"
                       />
-                      <p className="hint">Creada en Defontana (por ahora manual). Opcional.</p>
+                      <p className="hint">
+                        {despachoViajaAlErp
+                          ? 'Opcional: la guía la emite Defontana al confirmar y su folio llega solo. Complete este campo únicamente si la guía ya existe en el ERP.'
+                          : 'Opcional: el envío al ERP está apagado, así que la guía se crea a mano en Defontana.'}
+                      </p>
                     </div>
                     <div>
                       <label className="label" htmlFor={`carrier-${o.id}`}>
@@ -363,9 +425,13 @@ export default function DispatchPage() {
 
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => confirmDispatch(o)}
+                      onClick={() => setADespachar(o)}
                       className="btn-success"
-                      disabled={busy}
+                      disabled={
+                        busy ||
+                        Object.keys(erroresDeLineas(o)).length > 0 ||
+                        totalIndicado(o) <= 0
+                      }
                     >
                       <Truck className="h-4 w-4" aria-hidden="true" />
                       {busy ? 'Despachando…' : splitMode ? 'Despachar lo indicado' : 'Despachar'}
@@ -452,13 +518,39 @@ export default function DispatchPage() {
       )}
 
       <ConfirmDialog
+        open={aDespachar !== null}
+        tone={despachoViajaAlErp ? 'danger' : 'primary'}
+        title="¿Confirmar el despacho?"
+        message={
+          aDespachar
+            ? [
+                `Salen ${totalIndicado(aDespachar)} `,
+                totalIndicado(aDespachar) === 1 ? 'unidad' : 'unidades',
+                ` del pedido ${aDespachar.erp_order_number}. `,
+                despachoViajaAlErp
+                  ? 'Se emitirá una guía de despacho en Defontana: consume un folio y no se puede borrar.'
+                  : 'El envío al ERP está apagado: el despacho queda solo en el WMS y la guía se emite a mano en Defontana.',
+              ].join('')
+            : ''
+        }
+        confirmLabel={despachoViajaAlErp ? 'Emitir guía y despachar' : 'Despachar'}
+        cancelLabel="Volver"
+        busy={busy}
+        onConfirm={() => aDespachar && confirmDispatch(aDespachar)}
+        onCancel={() => setADespachar(null)}
+      />
+
+      <ConfirmDialog
         open={toCancel !== null}
         title="¿Anular esta guía?"
         message={
           toCancel
             ? `Se revierte el inventario que salió con la guía ${
                 toCancel.guide_number ?? 'sin número'
-              } del pedido ${orderNumber(toCancel.order_id)}, y el pedido se recalcula: vuelve a quedar con ítems por despachar.`
+              } del pedido ${orderNumber(toCancel.order_id)}, y el pedido se recalcula: vuelve a quedar con ítems por despachar.` +
+              (despachoViajaAlErp
+                ? ' La guía emitida en Defontana NO se anula desde acá: el folio ya se consumió y hay que resolverlo en el ERP.'
+                : '')
             : ''
         }
         confirmLabel="Anular guía"

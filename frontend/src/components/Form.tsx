@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { listProducts } from '../api/products';
 import type { Product } from '../types';
 
@@ -9,6 +9,9 @@ export function Field({
   type = 'text',
   required,
   placeholder,
+  error,
+  hint,
+  inputMode,
 }: {
   label: string;
   value: string;
@@ -16,18 +19,39 @@ export function Field({
   type?: string;
   required?: boolean;
   placeholder?: string;
+  /** Error de validación de ESTE campo: se muestra bajo el input y lo marca en rojo. */
+  error?: string | null;
+  hint?: string;
+  inputMode?: 'numeric' | 'decimal' | 'text';
 }) {
+  // ``useId`` para asociar label e input: sin ``htmlFor`` el lector de pantalla no sabe
+  // cuál es cuál, y tocar la etiqueta no enfoca el campo.
+  const id = useId();
+  const errorId = `${id}-error`;
   return (
     <div>
-      <label className="label">{label}</label>
+      <label className="label" htmlFor={id}>
+        {label}
+      </label>
       <input
+        id={id}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="input"
+        className={error ? 'input border-red-400 focus:ring-red-400' : 'input'}
         required={required}
         placeholder={placeholder}
+        inputMode={inputMode}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
       />
+      {error ? (
+        <p id={errorId} className="hint text-red-700">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="hint">{hint}</p>
+      )}
     </div>
   );
 }
@@ -80,7 +104,9 @@ export function ProductPicker({
     }
     setSearching(true);
     try {
-      setResults((await listProducts(q.trim(), 8, 0)).items);
+      // 20 y no 8: con 8 filas ordenadas por nombre, un catálogo grande escondía el
+      // producto buscado. El backend ya antepone la coincidencia exacta de SKU.
+      setResults((await listProducts(q.trim(), 20, 0)).items);
     } catch {
       setResults([]);
     } finally {

@@ -172,7 +172,10 @@ async def test_stock_zero_alert_dedupe_and_rearm():
         {"tenant_id": a, "sku": "SKU1", "name": "Producto 1"}
     )
     pid = str(product.inserted_id)
-    loc = "loc-1"
+    # Ubicación real: los movimientos validan que exista y sea de esta bodega.
+    loc = str((await db[Collections.LOCATIONS].insert_one(
+        {"tenant_id": a, "warehouse_id": wh, "code": "A-01", "type": "storage"}
+    )).inserted_id)
 
     # Seed 4 units, then adjust down to 0 -> one stock-zero alert.
     await inventory_service.create_reception(

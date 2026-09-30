@@ -33,6 +33,19 @@ async def _connection(tenant_id: str) -> Dict[str, Any]:
     return await db[Collections.ERP_CONNECTIONS].find_one({"tenant_id": tenant_id, "erp": ERP})
 
 
+def _erp_write_flags() -> Dict[str, bool]:
+    """Qué se ESCRIBE hoy al ERP. La pantalla lo necesita para advertir antes de confirmar:
+    con ``erp_sync_enabled`` encendido, un despacho emite una guía real en Defontana que
+    consume folio y no se puede borrar. Son banderas de configuración, no credenciales.
+    """
+    return {
+        "erp_sync_enabled": settings.erp_sync_enabled,
+        "erp_inventory_sync_enabled": (
+            settings.erp_sync_enabled and settings.defontana_inventory_sync_enabled
+        ),
+    }
+
+
 async def get_status(tenant_id: str, include_credentials: bool = False) -> Dict[str, Any]:
     """Estado de la conexión. ``include_credentials`` (solo supervisores) agrega los
     identificadores guardados; las contraseñas nunca salen, solo si existen."""
@@ -48,6 +61,7 @@ async def get_status(tenant_id: str, include_credentials: bool = False) -> Dict[
             "last_stock_sync_at": None,
             "last_lots_sync_at": None,
             "orders_auto_sync": _orders_auto_sync(None),
+            **_erp_write_flags(),
         }
     data = serialize(conn)
     result = {
@@ -62,6 +76,7 @@ async def get_status(tenant_id: str, include_credentials: bool = False) -> Dict[
         "last_stock_sync_at": data.get("last_stock_sync_at"),
         "last_lots_sync_at": data.get("last_lots_sync_at"),
         "orders_auto_sync": _orders_auto_sync(data),
+        **_erp_write_flags(),
     }
     if include_credentials:
         result["credentials"] = {
@@ -172,6 +187,11 @@ async def check(tenant_id: str) -> Dict[str, Any]:
 async def run_sync_products(tenant_id: str, actor: str) -> Dict[str, Any]:
     summary = await product_sync.sync_products(tenant_id, actor)
     return {"status": "ok", "type": "sync_products", "summary": summary}
+
+
+async def run_sync_batches(tenant_id: str, actor: str) -> Dict[str, Any]:
+    summary = await product_sync.sync_batches(tenant_id, actor)
+    return {"status": "ok", "type": "sync_batches", "summary": summary}
 
 
 async def run_sync_stock(tenant_id: str, actor: str) -> Dict[str, Any]:

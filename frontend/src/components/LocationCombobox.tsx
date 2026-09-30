@@ -189,7 +189,7 @@ export default function LocationCombobox({
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
         className="input input-lg pl-9 pr-9 disabled:bg-slate-100 disabled:text-slate-400"
-        placeholder={waiting ? 'Elige primero la bodega' : placeholder}
+        placeholder={waiting ? 'Seleccione primero la bodega' : placeholder}
       />
       {query ? (
         <button

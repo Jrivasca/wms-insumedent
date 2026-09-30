@@ -37,7 +37,7 @@ async def get_dispatch(tenant_id: str, dispatch_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(dispatch_id), "tenant_id": tenant_id}
     )
     if not doc:
-        raise HTTPException(status_code=404, detail="Dispatch not found")
+        raise HTTPException(status_code=404, detail="Despacho no encontrado")
     return serialize(doc)
 
 
@@ -57,6 +57,41 @@ def _remaining_by_line(order_lines: List[Dict[str, Any]]) -> Dict[str, int]:
         ol.get("line_id"): max(0, (ol.get("packed_quantity", 0) or 0) - (ol.get("dispatched_quantity", 0) or 0))
         for ol in order_lines
     }
+
+
+def _lot_key(lot: Dict[str, Any]):
+    return (lot.get("lot_number"), lot.get("expiration_date"))
+
+
+def _allocate_lots(
+    picked_lots: List[Dict[str, Any]],
+    already_dispatched: List[Dict[str, Any]],
+    quantity: float,
+) -> List[Dict[str, Any]]:
+    """Reparte ``quantity`` entre los lotes pickeados de la línea, en orden FEFO (el que
+    vence antes primero), restando lo que otras guías del mismo pedido ya despacharon de cada
+    lote. Devuelve ``[{lot_number, expiration_date, quantity}]`` para poblar el lote de la
+    línea de la guía (``BatchInfo`` de ``Dispatch/Save``). Si la línea no maneja lote
+    (``picked_lots`` vacío) devuelve ``[]``: la guía va sin desglose de lote, como antes."""
+    consumed: Dict[Any, float] = {}
+    for d in already_dispatched or []:
+        consumed[_lot_key(d)] = consumed.get(_lot_key(d), 0) + (d.get("quantity", 0) or 0)
+    out: List[Dict[str, Any]] = []
+    need = quantity
+    for lot in picked_lots or []:
+        if need <= 0:
+            break
+        avail = (lot.get("quantity", 0) or 0) - consumed.get(_lot_key(lot), 0)
+        if avail <= 0:
+            continue
+        take = min(avail, need)
+        out.append({
+            "lot_number": lot.get("lot_number"),
+            "expiration_date": lot.get("expiration_date"),
+            "quantity": take,
+        })
+        need -= take
+    return out
 
 
 async def _active_packing_task(tenant_id: str, order_id: str) -> Optional[Dict[str, Any]]:
@@ -83,25 +118,38 @@ async def confirm_dispatch(
     guide_number: Optional[str] = None,
     package_ids: Optional[List[str]] = None,
     lines: Optional[List[Dict[str, Any]]] = None,
+    idempotency_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Confirmar un despacho (total o PARCIAL) para un pedido listo o parcialmente
     despachado, y encolar el job de sync. Un pedido puede tener VARIAS guías: se
     despacha ``package_ids`` (bultos), ``lines`` (cantidades por SKU) o —si ambos son
     None— todo el remanente. El pedido queda ``dispatched`` cuando no queda remanente,
-    o ``partially_dispatched`` si aún falta despachar."""
+    o ``partially_dispatched`` si aún falta despachar.
+
+    ``idempotency_key`` la genera la pantalla una vez por formulario abierto: si llega
+    repetida se devuelve la guía ya creada en vez de emitir otra. Con el envío al ERP
+    encendido cada guía consume un folio de Defontana que no se puede borrar, así que un
+    doble clic no puede costar dos folios."""
     db = tenant_db(tenant_id)
+
+    if idempotency_key:
+        previo = await db[Collections.DISPATCHES].find_one(
+            {"tenant_id": tenant_id, "idempotency_key": idempotency_key}
+        )
+        if previo:
+            return serialize(previo)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
     if order.get("status") not in (
         OrderStatus.READY_TO_DISPATCH.value,
         OrderStatus.PARTIALLY_DISPATCHED.value,
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Order must be ready_to_dispatch or partially_dispatched to confirm dispatch",
+            detail="El pedido debe estar listo para despacho o parcialmente despachado para confirmar el despacho",
         )
 
     order_lines = order.get("lines", [])
@@ -140,10 +188,24 @@ async def confirm_dispatch(
                     lid = ol.get("line_id")
                     target[lid] = target.get(lid, 0) + int(it.get("quantity") or 0)
     elif lines:
+        # Antes las líneas inválidas se filtraban en silencio: una cantidad negativa o un SKU
+        # que no es del pedido desaparecían del payload y la guía salía por menos de lo que el
+        # operario creía haber indicado. Se rechaza la petición entera.
         for li in lines:
-            ol = line_by_sku.get(li.get("sku"))
-            qty = int(li.get("quantity") or 0)
-            if ol and qty > 0:
+            sku = li.get("sku")
+            ol = line_by_sku.get(sku)
+            if not ol:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"El producto {sku} no pertenece a este pedido.",
+                )
+            qty = li.get("quantity")
+            if not isinstance(qty, int) or isinstance(qty, bool) or qty < 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"La cantidad a despachar de {sku} debe ser un entero mayor o igual a 0.",
+                )
+            if qty:
                 lid = ol.get("line_id")
                 target[lid] = target.get(lid, 0) + qty
     else:
@@ -173,7 +235,12 @@ async def confirm_dispatch(
         "warehouse_id": warehouse_id,
         "lines": [
             {"line_id": lid, "product_id": line_by_id[lid].get("product_id"),
-             "sku": line_by_id[lid].get("sku"), "quantity": q}
+             "sku": line_by_id[lid].get("sku"), "quantity": q,
+             "lots": _allocate_lots(
+                 line_by_id[lid].get("picked_lots", []),
+                 line_by_id[lid].get("dispatched_lots", []),
+                 q,
+             )}
             for lid, q in target.items()
         ],
         "package_ids": used_packages,
@@ -184,6 +251,10 @@ async def confirm_dispatch(
         "created_at": now,
         "updated_at": now,
     }
+    # El campo se agrega SOLO si hay clave: el índice único es ``sparse``, y un ``None``
+    # explícito sí cuenta como valor, de modo que la segunda guía sin clave chocaría.
+    if idempotency_key:
+        dispatch["idempotency_key"] = idempotency_key
     result = await db[Collections.DISPATCHES].insert_one(dispatch)
     dispatch["_id"] = result.inserted_id
     dispatch_id = str(dispatch["_id"])
@@ -206,11 +277,16 @@ async def confirm_dispatch(
                 created_by=user.id,
             )
 
-    # Acumular lo despachado en el pedido.
+    # Acumular lo despachado en el pedido (cantidad y desglose de lote, para que una segunda
+    # guía del mismo pedido consuma los lotes que quedan sin repetir los ya despachados).
+    lots_by_line = {dl["line_id"]: dl.get("lots", []) for dl in dispatch["lines"]}
     for ol in order_lines:
         inc = target.get(ol.get("line_id"), 0)
         if inc:
             ol["dispatched_quantity"] = (ol.get("dispatched_quantity", 0) or 0) + inc
+            new_lots = lots_by_line.get(ol.get("line_id"), [])
+            if new_lots:
+                ol["dispatched_lots"] = (ol.get("dispatched_lots", []) or []) + new_lots
 
     # Estampar la guía en los bultos incluidos.
     if used_packages and packing_task:
@@ -292,6 +368,22 @@ async def _revert_dispatch_effects(
             ol["dispatched_quantity"] = max(
                 0, (ol.get("dispatched_quantity", 0) or 0) - int(dl.get("quantity") or 0)
             )
+            # Soltar los lotes que esta guía había despachado, para que una nueva guía los
+            # vuelva a asignar FEFO (empareja por lote+vencimiento+cantidad).
+            if dl.get("lots"):
+                pend = [dict(x) for x in dl["lots"]]
+                kept = []
+                for cur in ol.get("dispatched_lots", []) or []:
+                    match = next(
+                        (p for p in pend if _lot_key(p) == _lot_key(cur)
+                         and (p.get("quantity", 0) or 0) == (cur.get("quantity", 0) or 0)),
+                        None,
+                    )
+                    if match:
+                        pend.remove(match)
+                    else:
+                        kept.append(cur)
+                ol["dispatched_lots"] = kept
     # Liberar los bultos de esta guía en la tarea de packing que los tenga: con un pendiente
     # (A.7) hay más de una, y la guía anulada puede ser la de la tarea anterior.
     db = tenant_db(tenant_id)

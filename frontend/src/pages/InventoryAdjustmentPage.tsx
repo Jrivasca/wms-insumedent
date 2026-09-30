@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { CheckCheck } from 'lucide-react';
-import { createAdjustment } from '../api/inventory';
+import { createAdjustment, listBalances } from '../api/inventory';
 import { listWarehouses } from '../api/warehouses';
 import { errorMessage } from '../api/http';
 import { ErrorBox, PageHeader } from '../components/Async';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { Field, ProductPicker, SelectField } from '../components/Form';
 import LocationCombobox from '../components/LocationCombobox';
+import { errorDeCantidadDeAjuste } from '../lib/cantidades';
+import { useBanderasErp } from '../lib/erp';
 import type { Product, Warehouse } from '../types';
 
 export default function InventoryAdjustmentPage() {
+  const { inventarioViajaAlErp } = useBanderasErp();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [product, setProduct] = useState<Product | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
@@ -20,21 +24,66 @@ export default function InventoryAdjustmentPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmando, setConfirmando] = useState(false);
+  // Saldo actual de la ubicación: la confirmación tiene que decir "de cuánto a cuánto".
+  const [saldoActual, setSaldoActual] = useState<number | null>(null);
 
   useEffect(() => {
     listWarehouses().then(setWarehouses).catch(() => undefined);
   }, []);
 
-  async function submit(e: React.FormEvent) {
+  useEffect(() => {
+    if (!product || !warehouseId || !locationId) {
+      setSaldoActual(null);
+      return;
+    }
+    let vigente = true;
+    listBalances({
+      product_id: product.id,
+      warehouse_id: warehouseId,
+      location_id: locationId,
+      positive_only: false,
+      limit: 200,
+    })
+      .then((p) => {
+        if (!vigente) return;
+        // El saldo se parte por lote y serie: para el aviso interesa el total de la ubicación.
+        setSaldoActual(p.items.reduce((s, b) => s + (b.quantity_on_hand ?? 0), 0));
+      })
+      .catch(() => {
+        if (vigente) setSaldoActual(null);
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [product, warehouseId, locationId]);
+
+  function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) {
-      setError('Elige el producto a ajustar.');
+      setError('Seleccione el producto a ajustar.');
       return;
     }
     if (!locationId) {
-      setError('Elige la ubicación del stock que estás corrigiendo.');
+      setError('Seleccione la ubicación del stock que está corrigiendo.');
       return;
     }
+    const problema = errorDeCantidadDeAjuste(quantity);
+    if (problema) {
+      setError(problema);
+      return;
+    }
+    if (!reason.trim()) {
+      setError('Escriba el motivo del ajuste: queda en la trazabilidad.');
+      return;
+    }
+    // Un ajuste cambia el stock sin pasar por el flujo del pedido: se confirma antes.
+    setError(null);
+    setConfirmando(true);
+  }
+
+  async function registrar() {
+    if (!product) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -53,14 +102,31 @@ export default function InventoryAdjustmentPage() {
       setReason('');
       setLot('');
       setSerial('');
+      setSaldoActual(null);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
+      setConfirmando(false);
     }
   }
 
   const qty = Number(quantity);
+  const errorCantidad = quantity === '' ? null : errorDeCantidadDeAjuste(quantity);
+  const saldoNuevo = saldoActual !== null ? saldoActual + qty : null;
+  const mensajeConfirmacion = [
+    `${product?.sku ?? ''}: `,
+    saldoActual !== null && saldoNuevo !== null
+      ? `el saldo de esta ubicación pasa de ${saldoActual} a ${saldoNuevo} unidades. `
+      : `${qty > 0 ? 'Se agregan' : 'Se descuentan'} ${Math.abs(qty)} unidades. `,
+    saldoNuevo !== null && saldoNuevo < 0
+      ? 'El backend lo va a rechazar: el saldo no puede quedar negativo. '
+      : '',
+    `Motivo: «${reason.trim()}». `,
+    inventarioViajaAlErp
+      ? 'Se enviará además un documento de ajuste a Defontana.'
+      : 'No se envía nada al ERP: el ajuste queda solo en el WMS.',
+  ].join('');
 
   return (
     <div className="mx-auto max-w-xl">
@@ -100,16 +166,19 @@ export default function InventoryAdjustmentPage() {
           <Field
             label="Cantidad"
             type="number"
+            inputMode="numeric"
             value={quantity}
             onChange={setQuantity}
             placeholder="Ej: 5 agrega · -5 descuenta"
+            error={errorCantidad}
             required
           />
-          {quantity !== '' && !Number.isNaN(qty) && qty !== 0 && (
+          {quantity !== '' && errorCantidad === null && (
             <p className={`hint ${qty > 0 ? 'text-emerald-700' : 'text-amber-800'}`}>
               {qty > 0
                 ? `Se agregarán ${qty} unidades al stock de esta ubicación.`
                 : `Se descontarán ${Math.abs(qty)} unidades del stock de esta ubicación.`}
+              {saldoActual !== null && ` Saldo actual: ${saldoActual} → ${saldoNuevo}.`}
             </p>
           )}
         </div>
@@ -124,10 +193,25 @@ export default function InventoryAdjustmentPage() {
           <Field label="Lote (opc.)" value={lot} onChange={setLot} />
           <Field label="Serie (opc.)" value={serial} onChange={setSerial} />
         </div>
-        <button type="submit" className="btn-success btn-xl w-full" disabled={busy}>
+        <button
+          type="submit"
+          className="btn-success btn-xl w-full"
+          disabled={busy || errorCantidad !== null || quantity === ''}
+        >
           {busy ? 'Registrando…' : 'Registrar ajuste'}
         </button>
       </form>
+
+      <ConfirmDialog
+        open={confirmando}
+        title="¿Registrar este ajuste?"
+        message={mensajeConfirmacion}
+        confirmLabel="Registrar ajuste"
+        cancelLabel="Volver"
+        busy={busy}
+        onConfirm={registrar}
+        onCancel={() => setConfirmando(false)}
+      />
     </div>
   );
 }
