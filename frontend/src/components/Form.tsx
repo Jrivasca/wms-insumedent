@@ -104,7 +104,9 @@ export function ProductPicker({
     }
     setSearching(true);
     try {
-      setResults((await listProducts(q.trim(), 8, 0)).items);
+      // 20 y no 8: con 8 filas ordenadas por nombre, un catálogo grande escondía el
+      // producto buscado. El backend ya antepone la coincidencia exacta de SKU.
+      setResults((await listProducts(q.trim(), 20, 0)).items);
     } catch {
       setResults([]);
     } finally {

@@ -99,9 +99,12 @@ function PartialPill({ order }: { order: Order }) {
       </span>
     );
   }
-  // Todavía en preparación: cuánto falta = lo pedido menos lo ya pickeado.
+  // Todavía en preparación: cuánto falta = lo pedido menos lo ya pickeado (contando la
+  // tarea en curso, para no contradecir a la pantalla de Picking).
   const pending = order.lines.reduce(
-    (a, l) => a + Math.max(0, l.ordered_quantity - (l.picked_quantity ?? 0)),
+    (a, l) =>
+      a +
+      Math.max(0, l.ordered_quantity - Math.max(l.picked_quantity ?? 0, l.picked_quantity_live ?? 0)),
     0,
   );
   return (
@@ -125,9 +128,16 @@ function ErpChangedPill({ order }: { order: Order }) {
 }
 
 function orderProgress(o: Order): { picked: number; required: number } {
+  // `picked_quantity` solo se actualiza cuando la tarea de picking se cierra, así que
+  // mientras el operario pickea, Pedidos mostraba 0/20 y Picking 1/20 del mismo pedido. El
+  // backend manda además el avance de la tarea EN CURSO: se usa el mayor de los dos, que es
+  // siempre el que refleja la realidad de la bodega.
   return {
     required: o.lines.reduce((a, l) => a + l.ordered_quantity, 0),
-    picked: o.lines.reduce((a, l) => a + (l.picked_quantity ?? 0), 0),
+    picked: o.lines.reduce(
+      (a, l) => a + Math.max(l.picked_quantity ?? 0, l.picked_quantity_live ?? 0),
+      0,
+    ),
   };
 }
 

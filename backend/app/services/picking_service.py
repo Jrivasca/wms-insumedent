@@ -237,6 +237,22 @@ async def scan(
                 "line": line,
                 "task": serialize(task),
             }
+        # Un lote vencido no sale a despacho. Antes aparecía como "Disponible" y se podía
+        # pickear igual: la vista de vencimientos avisaba, pero nada lo impedía.
+        if balance.get("expired"):
+            vence = balance.get("expiration_date")
+            fecha = vence.date().isoformat() if vence else "—"
+            return {
+                "status": "rejected",
+                "feedback": "warning",
+                "message": (
+                    f"El lote «{lot_number}» está vencido ({fecha}) y no se puede despachar. "
+                    "Seleccione otro lote o avise a un supervisor para darlo de baja."
+                ),
+                "line": line,
+                "task": serialize(task),
+            }
+
         scan_lot = lot_number
         scan_expiration = balance.get("expiration_date")
         location_id = balance["location_id"]

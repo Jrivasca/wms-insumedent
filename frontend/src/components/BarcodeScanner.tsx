@@ -215,13 +215,16 @@ export default function BarcodeScanner({
           inputMode="text"
           enterKeyHint="done"
           placeholder={isTouchDevice ? 'Toque aquí para escribir el código' : 'Escanee o ingrese código…'}
-          className={`flex-1 rounded-md border bg-white px-3 py-3 text-base outline-none ${FEEDBACK_BORDER[feedback]}`}
+          // ``min-w-0``: un <input> trae un ancho intrínseco propio y ``flex-1`` no lo deja
+          // encogerse por debajo de él, así que a 390 px el botón «Cámara» se salía del
+          // contenedor y la página ganaba scroll horizontal.
+          className={`min-w-0 flex-1 rounded-md border bg-white px-3 py-3 text-base outline-none ${FEEDBACK_BORDER[feedback]}`}
           aria-label="Entrada de código de barras"
         />
         <button
           type="button"
           onClick={() => setCameraOn((v) => !v)}
-          className={`btn ${cameraOn ? 'btn-danger' : 'btn-secondary'} whitespace-nowrap`}
+          className={`btn shrink-0 ${cameraOn ? 'btn-danger' : 'btn-secondary'} whitespace-nowrap`}
         >
           {cameraOn ? 'Apagar cámara' : '📷 Cámara'}
         </button>
