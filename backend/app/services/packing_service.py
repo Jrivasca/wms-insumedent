@@ -11,7 +11,7 @@ from app.core.utils import now_utc, page, serialize, to_object_id
 from app.models import Collections
 from app.models.inventory import MovementType, ReferenceType
 from app.models.order import OrderStatus
-from app.models.packing import PackingLineStatus, PackingTaskStatus
+from app.models.packing import CLOSED_PACKING_STATUSES, PackingLineStatus, PackingTaskStatus
 from app.services import inventory_service, order_service
 from app.services.order_service import _expected_barcodes
 
@@ -54,7 +54,7 @@ async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(task_id), "tenant_id": tenant_id}
     )
     if not task:
-        raise HTTPException(status_code=404, detail="Packing task not found")
+        raise HTTPException(status_code=404, detail="Tarea de packing no encontrada")
     return task
 
 
@@ -63,7 +63,7 @@ def _assert_can_operate(task: Dict[str, Any], user: CurrentUser) -> None:
     if not user.is_supervisor and task.get("assigned_to") != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Packing task is not assigned to you",
+            detail="La tarea de packing no está asignada a usted",
         )
 
 
@@ -187,7 +187,7 @@ async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[st
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Packing can only start after picking is completed",
+            detail="El packing solo puede iniciar cuando el picking está completo",
         )
 
     now = now_utc()
@@ -221,7 +221,7 @@ async def scan(
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
     if task["status"] in (PackingTaskStatus.COMPLETED.value, PackingTaskStatus.CANCELLED.value):
-        raise HTTPException(status_code=409, detail="Packing task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de packing ya está cerrada")
 
     now = now_utc()
     if task["status"] == PackingTaskStatus.PENDING.value:
@@ -328,6 +328,11 @@ async def create_package(
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
 
+    # Faltaba: una tarea ya cerrada seguía aceptando bultos nuevos, que es parte de por qué
+    # la tarea se veía "Completado" y editable a la vez.
+    if task["status"] in CLOSED_PACKING_STATUSES:
+        raise HTTPException(status_code=409, detail="La tarea de packing ya está cerrada")
+
     package_number = len(task.get("packages", [])) + 1
     package = {
         "package_id": f"PKG-{package_number}",
@@ -358,7 +363,7 @@ async def reset_line(
         PackingTaskStatus.COMPLETED.value,
         PackingTaskStatus.CANCELLED.value,
     ):
-        raise HTTPException(status_code=409, detail="Packing task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de packing ya está cerrada")
 
     found = False
     for line in task["lines"]:
@@ -395,7 +400,7 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
     _assert_can_operate(task, user)
 
     if task["status"] == PackingTaskStatus.COMPLETED.value:
-        raise HTTPException(status_code=409, detail="Packing task is already completed")
+        raise HTTPException(status_code=409, detail="La tarea de packing ya está completada")
 
     differences = any(
         line.get("quantity_packed", 0) != line.get("quantity_required", 0)
@@ -444,7 +449,12 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
         {"_id": task["_id"]},
         {
             "$set": {
-                "status": PackingTaskStatus.COMPLETED.value,
+                # Con diferencias el estado lo dice: antes quedaba como "Completado" a
+                # secas y la diferencia solo se veía entrando a la tarea.
+                "status": (
+                    PackingTaskStatus.COMPLETED_WITH_DIFFERENCES.value if differences
+                    else PackingTaskStatus.COMPLETED.value
+                ),
                 "completed_at": now,
                 "approved_by": user.id if differences else None,
                 "updated_at": now,

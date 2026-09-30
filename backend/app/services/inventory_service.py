@@ -56,6 +56,66 @@ async def get_balance_doc(
     )
 
 
+async def assert_references_exist(
+    *,
+    tenant_id: str,
+    product_id: str,
+    warehouse_id: str,
+    location_ids: List[str],
+) -> None:
+    """Verificar que producto, bodega y ubicaciones existan, estén activos y calcen entre sí.
+
+    Sin esto un ``product_id`` inexistente creaba saldos y movimientos fantasma: el stock
+    quedaba colgado de un producto que no existe, invisible en Inventario (se muestra por SKU)
+    e imposible de pickear o conciliar. Falla en 404 porque el recurso referido no existe,
+    no porque el cuerpo esté mal formado.
+    """
+    db = tenant_db(tenant_id)
+
+    product = await db[Collections.PRODUCTS].find_one(
+        {"_id": to_object_id(product_id), "tenant_id": tenant_id}
+    )
+    if not product:
+        raise HTTPException(status_code=404, detail="El producto indicado no existe")
+    if product.get("is_active") is False:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"El producto {product.get('sku')} está desactivado",
+        )
+
+    warehouse = await db[Collections.WAREHOUSES].find_one(
+        {"_id": to_object_id(warehouse_id), "tenant_id": tenant_id}
+    )
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="La bodega indicada no existe")
+    if warehouse.get("is_active") is False:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"La bodega {warehouse.get('code') or warehouse.get('name')} está desactivada",
+        )
+
+    for location_id in location_ids:
+        location = await db[Collections.LOCATIONS].find_one(
+            {"_id": to_object_id(location_id), "tenant_id": tenant_id}
+        )
+        if not location:
+            raise HTTPException(status_code=404, detail="La ubicación indicada no existe")
+        if location.get("is_active") is False:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"La ubicación {location.get('code')} está desactivada",
+            )
+        # La ubicación de otra bodega movería stock entre bodegas por la puerta de atrás.
+        if location.get("warehouse_id") != warehouse_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"La ubicación {location.get('code')} no pertenece a la bodega "
+                    f"{warehouse.get('code') or warehouse.get('name')}"
+                ),
+            )
+
+
 async def change_location_stock(
     *,
     tenant_id: str,
@@ -95,7 +155,7 @@ async def change_location_stock(
     if new_on_hand < 0 and not (allow_negative or settings.allow_negative_stock):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Operation would produce negative stock",
+            detail="La operación dejaría el stock en negativo",
         )
 
     reserved = balance.get("quantity_reserved", 0) if balance else 0
@@ -311,7 +371,16 @@ async def create_adjustment(
 
     Cambia la cantidad total de la bodega, así que también viaja a Defontana como documento
     de ajuste (de entrada o de salida según el signo); si no, el ERP y el WMS se descuadran.
+
+    El saldo resultante no puede quedar negativo: lo impone ``change_location_stock`` salvo
+    que ``ALLOW_NEGATIVE_STOCK`` esté encendido.
     """
+    await assert_references_exist(
+        tenant_id=tenant_id,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        location_ids=[location_id],
+    )
     balance = await change_location_stock(
         tenant_id=tenant_id,
         product_id=product_id,
@@ -369,7 +438,19 @@ async def create_transfer(
     serial_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     if quantity <= 0:
-        raise HTTPException(status_code=400, detail="Transfer quantity must be positive")
+        raise HTTPException(status_code=400, detail="La cantidad a transferir debe ser positiva")
+
+    # Sin esto una transferencia a la misma ubicación "pasa" pero registra dos movimientos
+    # espurios (-q y +q sobre el mismo saldo): ruido en la trazabilidad sin mover nada real.
+    if from_location_id == to_location_id:
+        raise HTTPException(status_code=400, detail="El origen y el destino no pueden ser iguales")
+
+    await assert_references_exist(
+        tenant_id=tenant_id,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        location_ids=[from_location_id, to_location_id],
+    )
 
     # El vencimiento viaja con la mercadería: sin esto el saldo destino nace sin fecha y ese
     # stock deja de ordenarse por FEFO (y desaparece de la vista de vencimientos).
@@ -533,6 +614,7 @@ async def create_reception(
     lot_number: Optional[str] = None,
     serial_number: Optional[str] = None,
     expiration_date: Optional[datetime] = None,
+    allow_expired: bool = False,
     sync_erp: bool = True,
 ) -> Dict[str, Any]:
     """Receive inbound stock into a location (entrada de mercadería).
@@ -543,6 +625,28 @@ async def create_reception(
     """
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="La cantidad debe ser positiva")
+
+    await assert_references_exist(
+        tenant_id=tenant_id,
+        product_id=product_id,
+        warehouse_id=warehouse_id,
+        location_ids=[location_id],
+    )
+
+    # Un vencimiento ya pasado casi siempre es un error de tipeo (2020 por 2026) y contamina
+    # el FEFO y las alertas. Se deja pasar solo si el operario lo confirmó en la pantalla.
+    if expiration_date is not None and not allow_expired:
+        vencimiento = expiration_date
+        if vencimiento.tzinfo is None:
+            vencimiento = vencimiento.replace(tzinfo=timezone.utc)
+        if vencimiento < now_utc():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"El vencimiento {vencimiento.date().isoformat()} ya pasó. "
+                    "Revise la fecha o confirme que la mercadería entra vencida."
+                ),
+            )
 
     balance = await change_location_stock(
         tenant_id=tenant_id,
@@ -756,6 +860,7 @@ async def available_lots(
             {"tenant_id": tenant_id, "warehouse_id": warehouse_id}, {"code": 1}
         )
     }
+    ahora = now_utc()
     rows = [
         {
             "location_id": b.get("location_id"),
@@ -763,6 +868,9 @@ async def available_lots(
             "lot_number": b.get("lot_number"),
             "expiration_date": b.get("expiration_date"),
             "quantity_on_hand": b.get("quantity_on_hand") or 0,
+            # Un lote vencido NO se pickea, pero sí se muestra: sacarlo en silencio dejaba
+            # al operario con una lista vacía y sin saber por qué.
+            "expired": esta_vencido(b.get("expiration_date"), ahora),
         }
         async for b in db[Collections.INVENTORY_BALANCES].find(
             {
@@ -844,6 +952,18 @@ def _aware(dt):
     if dt is None:
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def esta_vencido(expiration: Optional[datetime], now: Optional[datetime] = None) -> bool:
+    """Si un lote ya venció. Única fuente de verdad para "vencido" en todo el módulo.
+
+    Se decide en Python a propósito: mongomock guarda las fechas con zona y Mongo real las
+    devuelve sin ella, así que compararlas dentro de una agregación pasa en el droplet y
+    revienta en los tests.
+    """
+    if expiration is None:
+        return False
+    return _aware(expiration) < (now or now_utc())
 
 
 async def check_expiring_stock(tenant_id: str, days: Optional[int] = None) -> int:
@@ -1148,10 +1268,25 @@ async def list_movements(
         str(p["_id"]): p
         async for p in db[Collections.PRODUCTS].find({"_id": {"$in": list(product_ids)}})
     }
+    # ORIGEN → DESTINO mostraba el ObjectId crudo, que no le dice nada a nadie en bodega.
+    # Se resuelve acá (una sola consulta por página) y no en el cliente, que tendría que
+    # pedir las ubicaciones de a una.
+    location_ids = {
+        oid
+        for m in movements
+        for oid in (to_object_id(m.get("from_location_id")), to_object_id(m.get("to_location_id")))
+        if oid
+    }
+    locations = {
+        str(loc["_id"]): loc
+        async for loc in db[Collections.LOCATIONS].find({"_id": {"$in": list(location_ids)}})
+    }
     result = []
     for m in movements:
         data = serialize(m)
         product = products.get(m.get("product_id"))
         data["sku"] = product.get("sku") if product else None
+        data["from_location_code"] = (locations.get(m.get("from_location_id")) or {}).get("code")
+        data["to_location_code"] = (locations.get(m.get("to_location_id")) or {}).get("code")
         result.append(data)
     return page(result, total, limit, offset)

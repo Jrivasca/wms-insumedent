@@ -25,6 +25,7 @@ import { cancelDispatch } from '../api/dispatch';
 import { listPickingTasks } from '../api/picking';
 import { listPackingTasks } from '../api/packing';
 import { errorMessage } from '../api/http';
+import { errorDeCantidad } from '../lib/cantidades';
 import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
@@ -98,9 +99,12 @@ function PartialPill({ order }: { order: Order }) {
       </span>
     );
   }
-  // Todavía en preparación: cuánto falta = lo pedido menos lo ya pickeado.
+  // Todavía en preparación: cuánto falta = lo pedido menos lo ya pickeado (contando la
+  // tarea en curso, para no contradecir a la pantalla de Picking).
   const pending = order.lines.reduce(
-    (a, l) => a + Math.max(0, l.ordered_quantity - (l.picked_quantity ?? 0)),
+    (a, l) =>
+      a +
+      Math.max(0, l.ordered_quantity - Math.max(l.picked_quantity ?? 0, l.picked_quantity_live ?? 0)),
     0,
   );
   return (
@@ -124,9 +128,16 @@ function ErpChangedPill({ order }: { order: Order }) {
 }
 
 function orderProgress(o: Order): { picked: number; required: number } {
+  // `picked_quantity` solo se actualiza cuando la tarea de picking se cierra, así que
+  // mientras el operario pickea, Pedidos mostraba 0/20 y Picking 1/20 del mismo pedido. El
+  // backend manda además el avance de la tarea EN CURSO: se usa el mayor de los dos, que es
+  // siempre el que refleja la realidad de la bodega.
   return {
     required: o.lines.reduce((a, l) => a + l.ordered_quantity, 0),
-    picked: o.lines.reduce((a, l) => a + (l.picked_quantity ?? 0), 0),
+    picked: o.lines.reduce(
+      (a, l) => a + Math.max(l.picked_quantity ?? 0, l.picked_quantity_live ?? 0),
+      0,
+    ),
   };
 }
 
@@ -289,11 +300,37 @@ export default function OrdersPage() {
     setEditLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
 
+  /**
+   * Errores por línea, por índice. Antes las líneas con cantidad vacía, 0 o negativa se
+   * FILTRABAN del payload: el pedido se guardaba con menos líneas y nadie avisaba. Una
+   * línea se borra con el basurero, nunca por escribir mal una cantidad.
+   */
+  function erroresDeLineas(ls: { product: Product | null; qty: string }[]): Record<number, string> {
+    const errores: Record<number, string> = {};
+    ls.forEach((l, i) => {
+      if (!l.product) errores[i] = 'Seleccione el producto de esta línea.';
+      else {
+        const problema = errorDeCantidad(l.qty);
+        if (problema) errores[i] = problema;
+      }
+    });
+    return errores;
+  }
+
+  const erroresEdicion = erroresDeLineas(editLines);
+  const erroresCreacion = erroresDeLineas(orderLines);
+
   async function handleSaveEdit() {
     if (!editOrder) return;
-    const lines = editLines
-      .filter((l) => l.product && Number(l.qty) > 0)
-      .map((l) => ({ sku: l.product!.sku, name: l.product!.name, ordered_quantity: Number(l.qty) }));
+    if (Object.keys(erroresEdicion).length > 0) {
+      setError('Corrija las líneas marcadas antes de guardar. Para quitar una línea, use el basurero.');
+      return;
+    }
+    const lines = editLines.map((l) => ({
+      sku: l.product!.sku,
+      name: l.product!.name,
+      ordered_quantity: Number(l.qty),
+    }));
     if (lines.length === 0) {
       setError('El pedido debe tener al menos una línea con producto y cantidad.');
       return;
@@ -317,11 +354,21 @@ export default function OrdersPage() {
 
   async function handleCreateOrder(e: React.FormEvent) {
     e.preventDefault();
-    const lines = orderLines
-      .filter((l) => l.product && Number(l.qty) > 0)
-      .map((l) => ({ sku: l.product!.sku, name: l.product!.name, ordered_quantity: Number(l.qty) }));
-    if (!orderNum.trim() || lines.length === 0) {
-      setError('Ingrese el N° de pedido y al menos una línea con producto y cantidad.');
+    if (!orderNum.trim()) {
+      setError('Ingrese el N° de pedido.');
+      return;
+    }
+    if (Object.keys(erroresCreacion).length > 0) {
+      setError('Corrija las líneas marcadas: cada una necesita producto y una cantidad entera mayor que 0.');
+      return;
+    }
+    const lines = orderLines.map((l) => ({
+      sku: l.product!.sku,
+      name: l.product!.name,
+      ordered_quantity: Number(l.qty),
+    }));
+    if (lines.length === 0) {
+      setError('El pedido necesita al menos una línea.');
       return;
     }
     setCreating(true);
@@ -809,32 +856,44 @@ export default function OrdersPage() {
             <div className="mt-3 space-y-2">
               <label className="label">Líneas</label>
               {editLines.map((l, i) => (
-                <div key={i} className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <ProductPicker
-                      value={l.product}
-                      onChange={(p) => setEditLine(i, { product: p })}
-                    />
+                <div key={i}>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <ProductPicker
+                        value={l.product}
+                        onChange={(p) => setEditLine(i, { product: p })}
+                      />
+                    </div>
+                    <div className="w-24">
+                      <label className="label" htmlFor={`edit-qty-${i}`}>
+                        Cantidad
+                      </label>
+                      <input
+                        id={`edit-qty-${i}`}
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={l.qty}
+                        onChange={(e) => setEditLine(i, { qty: e.target.value })}
+                        className={
+                          erroresEdicion[i] ? 'input border-red-400 focus:ring-red-400' : 'input'
+                        }
+                        aria-invalid={erroresEdicion[i] ? true : undefined}
+                      />
+                    </div>
+                    {editLines.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setEditLines((ls) => ls.filter((_, idx) => idx !== i))}
+                        className="btn-ghost mb-0.5 text-red-600 hover:bg-red-50"
+                        aria-label={`Quitar línea ${i + 1}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
-                  <div className="w-24">
-                    <label className="label">Cantidad</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={l.qty}
-                      onChange={(e) => setEditLine(i, { qty: e.target.value })}
-                      className="input"
-                    />
-                  </div>
-                  {editLines.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setEditLines((ls) => ls.filter((_, idx) => idx !== i))}
-                      className="btn-ghost mb-0.5 text-red-600 hover:bg-red-50"
-                      aria-label={`Quitar línea ${i + 1}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  {erroresEdicion[i] && (
+                    <p className="-mt-1 text-xs text-red-700">{erroresEdicion[i]}</p>
                   )}
                 </div>
               ))}

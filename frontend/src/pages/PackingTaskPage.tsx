@@ -10,6 +10,7 @@ import {
   startPacking,
 } from '../api/packing';
 import { errorMessage } from '../api/http';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { ErrorBox, Loading } from '../components/Async';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ProgressBar from '../components/ProgressBar';
@@ -40,6 +41,7 @@ export default function PackingTaskPage() {
   const [activePackage, setActivePackage] = useState<string | null>(null);
   const [packageLabel, setPackageLabel] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -200,7 +202,17 @@ export default function PackingTaskPage() {
     }
   }
 
+  /** Con diferencias se confirma primero, como en picking (ahí sí se pedía y acá no). */
+  function pedirFinalizar() {
+    if (hasPackDiff) {
+      setConfirmarCierre(true);
+      return;
+    }
+    handleComplete();
+  }
+
   async function handleComplete() {
+    setConfirmarCierre(false);
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -496,7 +508,7 @@ export default function PackingTaskPage() {
             </p>
           )}
           <button
-            onClick={handleComplete}
+            onClick={pedirFinalizar}
             className={`btn-xl w-full text-white ${
               hasPackDiff ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'
             }`}
@@ -506,6 +518,24 @@ export default function PackingTaskPage() {
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmarCierre}
+        tone="primary"
+        title="¿Finalizar el packing con diferencias?"
+        message={
+          `Faltan ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} respecto a lo ` +
+          'pickeado. ' +
+          (supervisor
+            ? 'La tarea quedará «Completado con diferencias» y la diferencia queda aprobada a su nombre.'
+            : 'La tarea quedará «Con observaciones» hasta que un supervisor la revise y la apruebe.')
+        }
+        confirmLabel="Finalizar igual"
+        cancelLabel="Seguir empacando"
+        busy={busy}
+        onConfirm={handleComplete}
+        onCancel={() => setConfirmarCierre(false)}
+      />
     </div>
   );
 }

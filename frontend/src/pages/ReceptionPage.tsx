@@ -5,13 +5,17 @@ import { createReception } from '../api/inventory';
 import { listWarehouses } from '../api/warehouses';
 import { errorMessage } from '../api/http';
 import { ErrorBox, PageHeader } from '../components/Async';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { Field, ProductPicker, SelectField } from '../components/Form';
 import LocationCombobox from '../components/LocationCombobox';
 import EanBarcode from '../components/EanBarcode';
+import { errorDeCantidad } from '../lib/cantidades';
+import { useBanderasErp } from '../lib/erp';
 import type { Product, Warehouse } from '../types';
 
 export default function ReceptionPage() {
   const navigate = useNavigate();
+  const { inventarioViajaAlErp } = useBanderasErp();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [product, setProduct] = useState<Product | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
@@ -23,12 +27,20 @@ export default function ReceptionPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ qty: number; syncJob?: string | null } | null>(null);
+  // Recibir mercadería ya vencida casi siempre es un error de tipeo en la fecha; el
+  // backend la rechaza salvo que el operario lo confirme en este diálogo.
+  const [confirmando, setConfirmando] = useState(false);
 
   useEffect(() => {
     listWarehouses().then(setWarehouses).catch(() => undefined);
   }, []);
 
-  async function submit(e: React.FormEvent) {
+  const errorCantidad = quantity === '' ? null : errorDeCantidad(quantity);
+  // Fechas en local: `new Date('2020-01-01')` es UTC y en Chile cae un día antes.
+  const vencida =
+    expiration !== '' && new Date(`${expiration}T23:59:59`).getTime() < Date.now();
+
+  function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!product) {
       setError('Seleccione el producto que está recibiendo.');
@@ -38,6 +50,18 @@ export default function ReceptionPage() {
       setError('Seleccione la ubicación donde queda la mercadería.');
       return;
     }
+    const problema = errorDeCantidad(quantity);
+    if (problema) {
+      setError(problema);
+      return;
+    }
+    // La recepción suma stock y puede viajar al ERP: se confirma antes de escribir.
+    setError(null);
+    setConfirmando(true);
+  }
+
+  async function registrar() {
+    if (!product) return;
     setBusy(true);
     setError(null);
     setDone(null);
@@ -50,20 +74,34 @@ export default function ReceptionPage() {
         reference: reference.trim() || undefined,
         lot_number: lot.trim() || undefined,
         expiration_date: expiration || undefined,
+        allow_expired: vencida || undefined,
       });
       setDone({ qty: Number(quantity), syncJob: res.sync_job_id });
       setQuantity('');
       setReference('');
       setLot('');
       setExpiration('');
+      setConfirmando(false);
     } catch (err) {
       setError(errorMessage(err));
+      setConfirmando(false);
     } finally {
       setBusy(false);
     }
   }
 
   const barcode = product?.barcodes?.[0]?.barcode;
+  const mensajeConfirmacion = [
+    `Ingresa ${quantity} ${Number(quantity) === 1 ? 'unidad' : 'unidades'} de ${product?.sku ?? ''}`,
+    lot.trim() ? ` (lote ${lot.trim()})` : '',
+    '. ',
+    vencida
+      ? `Atención: el vencimiento ${expiration} ya pasó, así que la mercadería entra vencida. `
+      : '',
+    inventarioViajaAlErp
+      ? 'Se enviará además una entrada de inventario a Defontana.'
+      : 'No se envía nada al ERP: el movimiento queda solo en el WMS.',
+  ].join('');
 
   return (
     <div className="mx-auto max-w-xl">
@@ -119,7 +157,16 @@ export default function ReceptionPage() {
           warehouseId={warehouseId}
           requireWarehouse
         />
-        <Field label="Cantidad" type="number" value={quantity} onChange={setQuantity} required />
+        <Field
+          label="Cantidad"
+          type="number"
+          inputMode="numeric"
+          value={quantity}
+          onChange={setQuantity}
+          error={errorCantidad}
+          hint="Unidades enteras."
+          required
+        />
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="Lote (opc.)" value={lot} onChange={setLot} placeholder="Ej: L-2026-07" />
           <Field
@@ -127,6 +174,7 @@ export default function ReceptionPage() {
             type="date"
             value={expiration}
             onChange={setExpiration}
+            error={vencida ? 'Esta fecha ya pasó: revísela antes de continuar.' : null}
           />
         </div>
         <Field
@@ -135,10 +183,26 @@ export default function ReceptionPage() {
           onChange={setReference}
           placeholder="Ej: OC-12345"
         />
-        <button type="submit" className="btn-success btn-xl w-full" disabled={busy}>
+        <button
+          type="submit"
+          className="btn-success btn-xl w-full"
+          disabled={busy || errorCantidad !== null || quantity === ''}
+        >
           {busy ? 'Registrando…' : 'Registrar recepción'}
         </button>
       </form>
+
+      <ConfirmDialog
+        open={confirmando}
+        tone={vencida ? 'danger' : 'primary'}
+        title="¿Registrar esta recepción?"
+        message={mensajeConfirmacion}
+        confirmLabel={vencida ? 'Recibir igual' : 'Registrar'}
+        cancelLabel="Volver"
+        busy={busy}
+        onConfirm={registrar}
+        onCancel={() => setConfirmando(false)}
+      />
     </div>
   );
 }

@@ -183,7 +183,8 @@ export default function InventoryPage() {
       secondary: true,
       render: (m) => (
         <span className="code">
-          {m.from_location_id ?? '—'} → {m.to_location_id ?? '—'}
+          {m.from_location_code ?? (m.from_location_id ? '(sin código)' : '—')} →{' '}
+          {m.to_location_code ?? (m.to_location_id ? '(sin código)' : '—')}
         </span>
       ),
     },

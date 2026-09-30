@@ -33,7 +33,7 @@ async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(task_id), "tenant_id": tenant_id}
     )
     if not task:
-        raise HTTPException(status_code=404, detail="Picking task not found")
+        raise HTTPException(status_code=404, detail="Tarea de picking no encontrada")
     return task
 
 
@@ -42,7 +42,7 @@ def _assert_can_operate(task: Dict[str, Any], user: CurrentUser) -> None:
     if not user.is_supervisor and task.get("assigned_to") != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Picking task is not assigned to you",
+            detail="La tarea de picking no está asignada a usted",
         )
 
 
@@ -100,7 +100,7 @@ async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[st
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
         PickingTaskStatus.CANCELLED.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está cerrada")
 
     now = now_utc()
     await db[Collections.PICKING_TASKS].update_one(
@@ -140,7 +140,7 @@ async def scan(
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
         PickingTaskStatus.CANCELLED.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está cerrada")
 
     now = now_utc()
     # Auto-start on first scan to keep the floor flow fast.
@@ -160,7 +160,7 @@ async def scan(
         # Section 8.1: reject a code that does not match the expected product.
         return {
             "status": "rejected",
-            "message": f"El código '{code}' no corresponde a ningún producto del pedido",
+            "message": f"El código «{code}» no corresponde a ningún producto de este pedido.",
             "line": None,
             "task": serialize(task),
         }
@@ -205,7 +205,7 @@ async def scan(
             return {
                 "status": "rejected",
                 "feedback": "warning",
-                "message": "Este producto maneja lotes: elegí el lote de la lista antes de confirmar.",
+                "message": "Este producto maneja lotes: seleccione el lote de la lista antes de confirmar.",
                 "line": line,
                 "task": serialize(task),
             }
@@ -216,16 +216,43 @@ async def scan(
             None,
         ) or next((l for l in lots if l.get("lot_number") == lot_number), None)
         if balance is None:
+            # El lote puede no ser de este producto: la pantalla manda el lote de la línea
+            # enfocada aunque se escanee el código de otra línea del pedido. Decir "se quedó
+            # sin stock" en ese caso mandaba a revisar Defontana por un problema que no era.
+            nombre = line.get("name") or line.get("sku")
+            if any(l.get("lot_number") == lot_number for l in lots):
+                message = (
+                    f"El lote «{lot_number}» ya no tiene stock pickeable. "
+                    "Actualice los lotes desde Defontana o seleccione otro."
+                )
+            else:
+                message = (
+                    f"El lote «{lot_number}» no corresponde a «{nombre}». "
+                    "Seleccione un lote de la lista de este producto."
+                )
+            return {
+                "status": "rejected",
+                "feedback": "warning",
+                "message": message,
+                "line": line,
+                "task": serialize(task),
+            }
+        # Un lote vencido no sale a despacho. Antes aparecía como "Disponible" y se podía
+        # pickear igual: la vista de vencimientos avisaba, pero nada lo impedía.
+        if balance.get("expired"):
+            vence = balance.get("expiration_date")
+            fecha = vence.date().isoformat() if vence else "—"
             return {
                 "status": "rejected",
                 "feedback": "warning",
                 "message": (
-                    f"El lote «{lot_number}» ya no tiene stock pickeable. "
-                    "Actualizá los lotes desde Defontana o elegí otro."
+                    f"El lote «{lot_number}» está vencido ({fecha}) y no se puede despachar. "
+                    "Seleccione otro lote o avise a un supervisor para darlo de baja."
                 ),
                 "line": line,
                 "task": serialize(task),
             }
+
         scan_lot = lot_number
         scan_expiration = balance.get("expiration_date")
         location_id = balance["location_id"]
@@ -427,7 +454,7 @@ async def reset_line(
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
         PickingTaskStatus.CANCELLED.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está cerrada")
 
     found = False
     for line in task["lines"]:
@@ -460,7 +487,7 @@ async def complete(
         PickingTaskStatus.COMPLETED.value,
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already completed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está completada")
 
     pending = [
         l

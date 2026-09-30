@@ -3,6 +3,7 @@ import { Ban, Check, CheckCheck, Pencil, Plus, X } from 'lucide-react';
 import { createUser, listUsers, updateUser } from '../api/users';
 import { errorMessage } from '../api/http';
 import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
+import ConfirmDialog from '../components/ConfirmDialog';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
 import { Field, SelectField } from '../components/Form';
 import StatusBadge from '../components/StatusBadge';
@@ -27,6 +28,11 @@ export default function UsersPage() {
 
   const [resetFor, setResetFor] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
+
+  // Desactivar corta el acceso de una persona: se confirma antes. Activar no se confirma
+  // (no le quita nada a nadie).
+  const [aDesactivar, setADesactivar] = useState<User | null>(null);
+  const [desactivando, setDesactivando] = useState(false);
 
   // editar nombre / correo
   const [editFor, setEditFor] = useState<User | null>(null);
@@ -84,15 +90,27 @@ export default function UsersPage() {
     }
   }
 
-  async function toggleActive(u: User) {
+  function toggleActive(u: User) {
+    if (u.is_active === false) {
+      aplicarEstado(u);
+      return;
+    }
+    setADesactivar(u);
+  }
+
+  async function aplicarEstado(u: User) {
     setError(null);
     setNotice(null);
+    setDesactivando(true);
     try {
       await updateUser(u.id, { is_active: u.is_active === false });
       setNotice(`${u.email} ${u.is_active === false ? 'activado' : 'desactivado'}`);
+      setADesactivar(null);
       load();
     } catch (err) {
       setError(errorMessage(err));
+    } finally {
+      setDesactivando(false);
     }
   }
 
@@ -457,6 +475,21 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={aDesactivar !== null}
+        title="¿Desactivar este usuario?"
+        message={
+          aDesactivar
+            ? `${aDesactivar.name || aDesactivar.email} no podrá iniciar sesión. Sus tareas asignadas y su historial se conservan, y puede volver a activarlo cuando quiera.`
+            : ''
+        }
+        confirmLabel="Desactivar"
+        cancelLabel="Volver"
+        busy={desactivando}
+        onConfirm={() => aDesactivar && aplicarEstado(aDesactivar)}
+        onCancel={() => setADesactivar(null)}
+      />
     </div>
   );
 }

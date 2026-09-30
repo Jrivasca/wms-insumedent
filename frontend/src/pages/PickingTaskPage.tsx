@@ -232,12 +232,21 @@ export default function PickingTaskPage() {
       setTimeout(() => setFeedback('idle'), 2200);
       return;
     }
+    // El lote elegido es el de la LÍNEA ENFOCADA. Si se escanea el código de otra línea del
+    // pedido, mandarlo igual hacía que el backend rechazara por "el lote se quedó sin stock"
+    // —un mensaje que manda a revisar Defontana por algo que no pasó—. Sin lote, el backend
+    // responde lo que corresponde: que hay que seleccionar el lote de ESE producto.
+    const esLineaEnfocada = (currentLine?.barcode_expected ?? []).some(
+      (c) => String(c).trim() === barcode.trim()
+    );
     try {
       const res = await scanPicking(id, {
         barcode,
         quantity: quantity || 1,
-        location_id: selectedLot?.location_id ?? currentLine?.suggested_location_id,
-        lot_number: selectedLot?.lot_number ?? undefined,
+        location_id: esLineaEnfocada
+          ? selectedLot?.location_id ?? currentLine?.suggested_location_id
+          : undefined,
+        lot_number: esLineaEnfocada ? selectedLot?.lot_number ?? undefined : undefined,
       });
 
       // Over-scan and wrong-code are both rejected by the backend; distinguish by feedback.
@@ -496,21 +505,30 @@ export default function PickingTaskPage() {
                       <button
                         key={`${lot.location_id}-${lot.lot_number}`}
                         type="button"
+                        // Un lote vencido se muestra —para que se entienda por qué no está
+                        // disponible— pero no se puede elegir.
+                        disabled={lot.expired}
                         onClick={() => setSelectedLot(lot)}
                         className={`flex w-full items-center justify-between rounded-card border px-3 py-2 text-left transition ${
-                          active
-                            ? 'border-brand bg-brand/20 text-white'
-                            : 'border-graphite-600 bg-graphite-800 text-graphite-200 hover:border-graphite-400'
+                          lot.expired
+                            ? 'cursor-not-allowed border-red-900 bg-graphite-900 text-graphite-500'
+                            : active
+                              ? 'border-brand bg-brand/20 text-white'
+                              : 'border-graphite-600 bg-graphite-800 text-graphite-200 hover:border-graphite-400'
                         }`}
                       >
                         <span className="min-w-0">
                           <span className="block text-sm tracking-tight text-graphite-100">
                             <span className="text-graphite-400">Lote </span>
                             <span className="font-mono">{lot.lot_number}</span>
-                            {lineLots.lots.length === 1 && (
-                              <span className="text-xs font-normal text-graphite-500">
-                                {' '}· único disponible
-                              </span>
+                            {lot.expired ? (
+                              <span className="text-xs font-semibold text-red-400"> · VENCIDO</span>
+                            ) : (
+                              lineLots.lots.filter((l) => !l.expired).length === 1 && (
+                                <span className="text-xs font-normal text-graphite-500">
+                                  {' '}· único disponible
+                                </span>
+                              )
                             )}
                           </span>
                           <span className="block text-xs text-graphite-400">
@@ -522,7 +540,7 @@ export default function PickingTaskPage() {
                           </span>
                         </span>
                         <span className="ml-2 shrink-0 text-sm font-semibold tabular-nums">
-                          {lot.quantity_available} disp.
+                          {lot.expired ? 'no despachable' : `${lot.quantity_available} disp.`}
                         </span>
                       </button>
                     );

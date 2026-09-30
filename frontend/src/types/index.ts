@@ -160,6 +160,9 @@ export interface InventoryMovement {
   sku: string;
   from_location_id?: string;
   to_location_id?: string;
+  /** Código legible de la ubicación, resuelto por el backend (el id no le dice nada a nadie). */
+  from_location_code?: string | null;
+  to_location_code?: string | null;
   quantity: number;
   reason?: string;
   created_by?: string;
@@ -187,8 +190,12 @@ export interface OrderLine {
   name: string;
   unit?: string;
   ordered_quantity: number;
+  /** Avance CONFIRMADO: solo se actualiza cuando la tarea se cierra. */
   picked_quantity: number;
   packed_quantity: number;
+  /** Avance de la tarea EN CURSO, si hay una abierta. Lo agrega el backend de lectura. */
+  picked_quantity_live?: number;
+  packed_quantity_live?: number;
   dispatched_quantity?: number;
   status?: string;
 }
@@ -500,6 +507,10 @@ export interface DefontanaStatus {
     last_error?: string | null;
   };
   mock?: boolean;
+  /** Si las guías de despacho se emiten de verdad en Defontana (consumen folio). */
+  erp_sync_enabled?: boolean;
+  /** Si los movimientos de inventario viajan al ERP (necesita las dos banderas). */
+  erp_inventory_sync_enabled?: boolean;
   last_check_at?: string;
   last_error?: string;
 }
