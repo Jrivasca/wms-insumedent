@@ -155,7 +155,7 @@ async def change_location_stock(
     if new_on_hand < 0 and not (allow_negative or settings.allow_negative_stock):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Operation would produce negative stock",
+            detail="La operación dejaría el stock en negativo",
         )
 
     reserved = balance.get("quantity_reserved", 0) if balance else 0

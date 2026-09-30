@@ -56,7 +56,7 @@ async def create_order(
         {"tenant_id": user.tenant_id, "erp_order_number": payload.erp_order_number}
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Order number already exists")
+        raise HTTPException(status_code=409, detail="El número de pedido ya existe")
 
     lines = []
     for idx, line in enumerate(payload.lines, start=1):

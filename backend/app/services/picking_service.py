@@ -33,7 +33,7 @@ async def _load_task(tenant_id: str, task_id: str) -> Dict[str, Any]:
         {"_id": to_object_id(task_id), "tenant_id": tenant_id}
     )
     if not task:
-        raise HTTPException(status_code=404, detail="Picking task not found")
+        raise HTTPException(status_code=404, detail="Tarea de picking no encontrada")
     return task
 
 
@@ -42,7 +42,7 @@ def _assert_can_operate(task: Dict[str, Any], user: CurrentUser) -> None:
     if not user.is_supervisor and task.get("assigned_to") != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Picking task is not assigned to you",
+            detail="La tarea de picking no está asignada a usted",
         )
 
 
@@ -100,7 +100,7 @@ async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[st
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
         PickingTaskStatus.CANCELLED.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está cerrada")
 
     now = now_utc()
     await db[Collections.PICKING_TASKS].update_one(
@@ -140,7 +140,7 @@ async def scan(
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
         PickingTaskStatus.CANCELLED.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está cerrada")
 
     now = now_utc()
     # Auto-start on first scan to keep the floor flow fast.
@@ -438,7 +438,7 @@ async def reset_line(
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
         PickingTaskStatus.CANCELLED.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already closed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está cerrada")
 
     found = False
     for line in task["lines"]:
@@ -471,7 +471,7 @@ async def complete(
         PickingTaskStatus.COMPLETED.value,
         PickingTaskStatus.COMPLETED_WITH_DIFFERENCES.value,
     ):
-        raise HTTPException(status_code=409, detail="Picking task is already completed")
+        raise HTTPException(status_code=409, detail="La tarea de picking ya está completada")
 
     pending = [
         l
