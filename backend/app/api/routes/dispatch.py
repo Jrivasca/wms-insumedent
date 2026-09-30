@@ -21,6 +21,7 @@ async def dispatch_order(
         guide_number=payload.guide_number,
         package_ids=payload.package_ids,
         lines=[l.model_dump() for l in payload.lines] if payload.lines else None,
+        idempotency_key=payload.idempotency_key,
     )
     await log_action(
         tenant_id=user.tenant_id,

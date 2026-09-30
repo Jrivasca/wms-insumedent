@@ -507,6 +507,10 @@ export interface DefontanaStatus {
     last_error?: string | null;
   };
   mock?: boolean;
+  /** Si las guías de despacho se emiten de verdad en Defontana (consumen folio). */
+  erp_sync_enabled?: boolean;
+  /** Si los movimientos de inventario viajan al ERP (necesita las dos banderas). */
+  erp_inventory_sync_enabled?: boolean;
   last_check_at?: string;
   last_error?: string;
 }

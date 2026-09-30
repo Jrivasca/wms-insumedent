@@ -29,6 +29,8 @@ export async function dispatchOrder(
     // Despacho dividido (opcional): cantidades por SKU o bultos específicos.
     lines?: { sku: string; quantity: number }[];
     package_ids?: string[];
+    /** Una por formulario abierto: un doble clic no puede emitir dos guías reales. */
+    idempotency_key?: string;
   }
 ): Promise<Dispatch> {
   const { data } = await http.post<Dispatch>(`/orders/${orderId}/dispatch`, payload);

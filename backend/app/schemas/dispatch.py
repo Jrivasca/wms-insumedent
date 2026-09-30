@@ -1,13 +1,15 @@
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DispatchLineInput(BaseModel):
     """Una línea a despachar en esta guía (split por cantidad)."""
 
     sku: str
-    quantity: int
+    # Entero y no negativo. El tope (lo empacado menos lo ya despachado) lo valida el
+    # servicio, que es el único que conoce el pedido.
+    quantity: int = Field(ge=0)
 
 
 class DispatchRequest(BaseModel):
@@ -20,3 +22,6 @@ class DispatchRequest(BaseModel):
     # (packed - dispatched) del pedido, como antes.
     package_ids: Optional[List[str]] = None  # despachar bultos específicos en esta guía
     lines: Optional[List[DispatchLineInput]] = None  # o cantidades por SKU
+    # Clave de idempotencia (la genera la pantalla por formulario abierto): un doble clic no
+    # puede emitir dos guías reales en Defontana, cada una con su folio y sin vuelta atrás.
+    idempotency_key: Optional[str] = None

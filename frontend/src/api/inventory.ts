@@ -40,6 +40,8 @@ export async function createReception(payload: {
   lot_number?: string;
   serial_number?: string;
   expiration_date?: string;
+  /** Confirmación explícita para recibir mercadería ya vencida. */
+  allow_expired?: boolean;
   sync_erp?: boolean;
 }): Promise<{ balance: InventoryBalance | null; movement: InventoryMovement; sync_job_id?: string | null }> {
   const { data } = await http.post('/inventory/receptions', payload);
