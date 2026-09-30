@@ -32,7 +32,9 @@ Relacionado: backlog sección 0, aislamiento por tenant (`app/core/tenant_db.py`
 - Pruebas: `backend/app/tests/test_notifications.py` (fan-out, aislamiento tenant/usuario, feed/lectura,
   stock-0 con dedup y re-arm).
 
-El resto de este documento es el diseño original (incluye la Fase 2 Web Push, aún pendiente).
+El resto de este documento conserva el diseño original, incluidas tareas de la Fase 2 que
+ya se implementaron. Para el estado vigente prevalece el resumen anterior; la entrega push
+depende de configurar las claves VAPID en cada ambiente.
 
 ## 1. Objetivo
 

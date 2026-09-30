@@ -74,10 +74,9 @@ Crea:
 
 Luego inicia sesión en http://localhost:5173 con el usuario admin.
 
-## Despliegue en producción (DigitalOcean)
+## Instalación en DigitalOcean
 
-Para instalar en un droplet de DigitalOcean (accesible por IP/HTTP y listo para
-activar HTTPS con dominio después) hay un stack de producción aparte:
+Para una instalación nueva en un droplet de DigitalOcean hay un stack de despliegue aparte:
 `docker-compose.prod.yml` (Caddy como reverse proxy + frontend estático),
 `.env.production.example` y el script idempotente `deploy/deploy.sh`.
 
@@ -86,8 +85,9 @@ activar HTTPS con dominio después) hay un stack de producción aparte:
 sudo ./deploy/deploy.sh
 ```
 
-El paso a paso completo (crear droplet, traer el código, operación, backups y
-activar HTTPS con dominio) está en **[DEPLOY.md](DEPLOY.md)**.
+El paso a paso genérico está en **[DEPLOY.md](DEPLOY.md)**. El servidor existente
+`wms-dev.selarix.cl` es un ambiente de desarrollo, no producción; su procedimiento real de
+despliegue y respaldo está en [CLAUDE.md](CLAUDE.md#despliegue-cómo-se-hace-de-verdad).
 
 ## Integración Defontana: modo mock y modo real
 
@@ -116,15 +116,17 @@ Endpoints Defontana implementados inicialmente: `auth`, `auth/emailLogin`,
 
 - **Picking:** una tarea se asigna a un usuario; el operario debe escanear antes de
   confirmar cantidad; un código que no corresponde al producto esperado se rechaza;
-  se puede marcar faltante con motivo obligatorio; no se cierra con líneas pendientes
-  salvo que un supervisor autorice picking parcial. Cada escaneo queda registrado con
+  se puede marcar faltante con motivo obligatorio. Cerrar con líneas pendientes requiere
+  confirmar `allow_partial`, pero actualmente no exige rol supervisor (decisión pendiente).
+  Cada escaneo queda registrado con
   usuario, fecha y dispositivo.
 - **Packing:** solo inicia con el picking cerrado; se re-escanea; si hay diferencia
   con el picking la tarea queda `observed` y solo un supervisor la aprueba; al cerrar,
   el pedido queda `ready_to_dispatch`.
-- **Despacho:** solo se confirma si el pedido está `ready_to_dispatch`; crea un
-  `sync_job` tipo `dispatch_order` que el worker envía a Defontana; no se permite
-  doble despacho.
+- **Despacho:** solo se confirma si el pedido está `ready_to_dispatch`; no se permite
+  doble despacho. Con `ERP_SYNC_ENABLED=false` se completa solo en el WMS; con el flag
+  encendido se encola `dispatch_order` para emitir la guía en Defontana. La emisión real
+  sigue apagada mientras se confirman dos valores del payload.
 - **Inventario:** toda modificación de stock crea un movimiento en
   `inventory_movements` (nunca se actualiza stock sin movimiento); sin stock negativo
   salvo configuración explícita (`ALLOW_NEGATIVE_STOCK`); los ajustes los aprueba un
@@ -173,9 +175,8 @@ Ver `.env.example`. Las más relevantes:
 | `DEFONTANA_ENV` / `*_BASE_URL` | entorno y URLs de Defontana |
 | `CORS_ORIGINS` | orígenes permitidos (coma-separados) |
 
-## Nota
+## Estado del proyecto
 
-Esta es una **primera base funcional del WMS**: simple pero extensible. El backend
-expone Swagger en `/docs`, el frontend es una PWA responsiva con modo supervisor y
-modo operario optimizado para móvil/pistola, y la integración Defontana queda lista
-en modo mock y modo real.
+El flujo de bodega está construido y el servidor existente es un ambiente de desarrollo.
+El corte operativo de bodega y el envío real de guías a Defontana siguen pendientes.
+El estado detallado y fechado está en [ROADMAP.md](ROADMAP.md).

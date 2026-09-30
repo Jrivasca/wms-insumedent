@@ -3,6 +3,15 @@
 > Origen: nota de voz (WhatsApp) del cliente. Interpretación y aterrizaje técnico sobre el WMS actual (`wms-insumedent`).
 > Fecha: 2026-07-09
 
+**Estado posterior de este levantamiento:** la alerta por recepción que permite retomar
+pedidos parciales está implementada (`replenishment_alert_service`, notificación
+`receipt_unblocks_order` y acción para preparar el faltante). Avisa cuando hay stock
+pickeable suficiente para cubrir una línea completa; no avisa por cobertura parcial.
+El feed de notificaciones y Web Push están implementados, aunque Web Push requiere claves
+VAPID configuradas en el ambiente. El match probabilístico con porcentaje y memoria de
+alias sigue pendiente. Las secciones siguientes conservan el requerimiento original de
+2026-07-09; expresiones como «hoy no existe» describen esa fecha.
+
 ---
 
 ## 1. Qué existe hoy (base sobre la que se construye)

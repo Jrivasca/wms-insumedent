@@ -10,6 +10,13 @@ las APIs que se decide no contratar.
 | **Sistema** | WMS Insumedent — FastAPI · MongoDB · React, con capa de conectores ERP |
 | **Fuentes** | Swagger de pruebas `replapi.defontana.com`, Swagger productivo `api.defontana.com`, Wiki "API REST INTEGRACIÓN v1.0.0 – LIVE", y el conector implementado en `backend/app/integrations/defontana/` |
 
+**Cómo leer este documento:** las secciones v1 y v2 conservan el análisis histórico de
+contratación y contienen hipótesis que fueron corregidas después. Para el estado vigente de
+la integración, usar la actualización v3 y sus «Pendientes», junto con `ROADMAP.md`.
+En particular, `Inventory/Insert` usa `POST` en el conector, las APIs contratadas son
+Pedidos, Inventario y Guías de Despacho, y el mapeo de `Order/DispatchOrder` ya existe,
+pero su envío sigue apagado hasta confirmar dos valores del payload.
+
 ---
 
 ## Actualización v3 (2026-09-15) — contratación confirmada y prueba con credenciales reales
@@ -101,7 +108,19 @@ Comportamientos de la API verificados en esa prueba:
   el campo, no el código ni `success`. Es la misma idea que `GetDocumentByExternalDocumentID`,
   que avisa con HTTP 200 y `success: false`: la API no es uniforme en cómo dice "no existe".
 
-**`Order/DispatchOrder` — mapeo construido, dos valores por confirmar (B.1, 2026-09-22).** El
+**Guía de despacho — cambia a `Dispatch/Save` (B.1, actualizado 2026-09-23).** Defontana
+(Luis López) indicó usar **`api/Dispatch/Save`, no `Order/DispatchOrder`**, porque `Dispatch/Save`
+permite enviar **lote y serie por línea** (y mueve el estado del pedido), y Insumedent maneja
+lotes/vencimientos. La descripción oficial de campos de Luis quedó en
+`docs/entregables/Dispatch-Save-campos.md`. Sirve de lo de abajo: el candado por flag, los valores
+de `dispatchInfo` (`assetsType="1"`, `dispatchType="1"`, `isTransferDispatch=false`) y —ahora
+confirmado por la spec de `Dispatch/Save`— **`transactionType="1"` = "Venta del Giro"**. El `motive`
+del egreso lo define Insumedent (`VENTA`/`SALIDA`, no `COMPRA`). Falta el ejemplo de JSON que Luis
+arma para un pedido puntual, y rehacer el mapper (`Dispatch/Save` es un payload mucho más grande).
+Lo que sigue documenta el análisis previo, hecho para `Order/DispatchOrder`.
+
+**`Order/DispatchOrder` — mapeo construido, dos valores por confirmar (B.1, 2026-09-22 — superado
+por `Dispatch/Save`).** El
 esquema del request (`Api.Defontana.Models.Order.DispatchOrderInput`, OpenAPI 3) se sacó del
 swagger de pruebas (`/swagger/v1/swagger.json`, que **solo carga desde una IP en whitelist** —la
 del droplet—, no desde cualquier lado). Sus objetos: `dispatchInfo` {`assetsType`, `dispatchType`,
@@ -168,10 +187,12 @@ candidatos para las recepciones del WMS:
 1. ~~**Decisiones del cliente (Insumedent):** tipo de documento, motivo y centro de negocio de
    los movimientos de inventario.~~ *(resueltas: A.1 el 2026-09-19, A.2 el 2026-09-21 —
    `EMPNEGVTAVTA000`.)*
-2. **Guía con `Order/DispatchOrder`** *(mapeo construido; ver «Escrituras»)*: quedan por
-   confirmar solo dos valores — `dispatchInfo.transactionType` (no aparece en las guías) y
-   `originStorageInfo.motive` (observado `COMPRA`, sospechoso). Se confirman con una emisión de
-   prueba —que consume folio y no se borra— o preguntando a Defontana.
+2. **Guía con `Dispatch/Save`** *(cambio de método, 2026-09-23; spec en
+   `Dispatch-Save-campos.md`)*: Defontana indicó usar `Dispatch/Save` (soporta lote/serie), no
+   `Order/DispatchOrder`. `transactionType="1"` (Venta del Giro) quedó confirmado. Falta: el
+   **ejemplo de JSON** que Luis arma para un nº de pedido puntual, el **`Motive`** del egreso
+   (decisión de Insumedent: `VENTA`/`SALIDA`), las **cuentas contables** de los asientos, y
+   **rehacer el mapper** para el nuevo payload.
 3. **Usuario de API en producción:** qué proceso emite hoy guías con `INTEGRACION` allá (en
    pruebas ya está aclarado), para que el WMS use uno propio y no le invalide el token.
 4. **Reemplazo de productos** en un pedido ya aprobado (ver `Modelo-de-stock-con-Defontana.md`):

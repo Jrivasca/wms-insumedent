@@ -3,7 +3,7 @@
 Procedimiento recomendado para el corte (*cutover*): pasar de "el WMS es una prueba" a "bodega
 trabaja con el WMS", con Defontana como fuente de verdad de las cantidades.
 
-La idea de fondo: **la conciliación deja todo el stock en `SIN-UBICAR`, que no es pickeable**, y
+La idea de fondo: **la conciliación deja el stock que agrega al WMS en `SIN-UBICAR`, que no es pickeable**, y
 bodega lo va guardando en estantes con **Ubicar stock**. El picking se reactiva a medida que hay
 stock en ubicaciones pickeables, no de golpe.
 
@@ -76,9 +76,13 @@ docker exec -i wms_mongo mongorestore --archive --gzip --dryRun < ./antes-corte-
 ```
 
 Sin respaldo validado, no se aplica nada. Después, aplicar la conciliación: las diferencias
-chicas se aplican solas y **las grandes quedan para revisión humana**, una por una.
+chicas se aplican solas y **las grandes quedan para revisión humana**. La pantalla Stock ERP vs WMS
+permite aprobarlas individualmente, por selección o en bloque. Revisar el alcance de la
+aprobación antes de usar «Aprobar N para revisión»: aplica todas las filas que esperan revisión
+en la vista previa vigente. Las 282 filas citadas en la bitácora corresponden a la corrida del
+2026-09-19; consultar el número actual antes del corte.
 
-## 7. Todo queda en SIN-UBICAR
+## 7. El stock agregado queda en SIN-UBICAR
 
 Es lo esperado. Ese stock **no se ofrece al picking**: sirve para que los totales cuadren con
 Defontana, pero bodega todavía no sabe dónde está físicamente.

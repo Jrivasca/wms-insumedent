@@ -186,8 +186,9 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
   `get_database()` directo salvo en los casos ya exceptuados y documentados ahí
   (login, `get_current_user`, poll global del worker, `seed.py`).
 - **Picking/packing**: se escanea antes de confirmar; un código que no corresponde se
-  rechaza; no se cierra con líneas pendientes sin autorización de supervisor; una
-  diferencia en packing deja la tarea `observed` hasta que un supervisor la apruebe.
+  rechaza. El cierre con líneas pendientes requiere `allow_partial`; el backend todavía no
+  exige rol supervisor para ese cierre (decisión abierta en `ROADMAP.md`). Una diferencia
+  en packing deja la tarea `observed` hasta que un supervisor la apruebe.
 - **Despacho**: solo desde `ready_to_dispatch`, y nunca dos veces sobre lo mismo.
 - **Secretos**: las credenciales de Defontana van cifradas (Fernet) y **nunca** se
   exponen al frontend ni se escriben en logs o auditoría.
@@ -317,16 +318,17 @@ emiten real** (consumen folio de QA, no se borran). El inventario sigue sin viaj
 ## Estado real de la puesta en marcha (2026-09-20)
 
 El flujo está construido y desplegado en dev, pero **la bodega todavía no opera con el WMS**.
-El procedimiento del corte está en `docs/entregables/Puesta-en-marcha-primera-vez.md`. Lo que
-falta depende de terceros, no de código:
+El procedimiento del corte está en `docs/entregables/Puesta-en-marcha-primera-vez.md`. Estos son
+los pendientes documentados para el corte; verificar su estado actual en el ambiente antes de actuar:
 
-- **181 productos que Defontana tiene y el WMS no**
+- **181 productos que Defontana tenía y el WMS no en la comparación del 2026-09-19**
   (`docs/entregables/Productos-Defontana-no-en-WMS-2026-09-19.csv`). Quedan **bloqueados en la
   conciliación**: su stock no entra, así que no se puede ubicar ni pickear. **Es el primer
   paso.** Tres tienen stock en camino (102152 CARISTOP 720, DNITTRESM y DNITTRESS, 500 c/u).
-- **282 filas de conciliación esperando aprobación humana** (más del 95 % del volumen).
-  Aprobarlas una por una es inviable: probablemente haga falta una **aprobación en bloque**
-  antes del corte.
+- **282 filas de conciliación quedaron para revisión en la corrida del 2026-09-19** (más del
+  95 % del volumen de esa corrida). La **aprobación en bloque o por selección ya está
+  implementada** (2026-09-21); antes del corte hay que consultar de nuevo la vista previa y
+  decidir cuáles aprobar. Las cifras anteriores no son un conteo en vivo.
 - **A.2, centro de negocio**: **confirmado (2026-09-21)** — `EMPNEGVTAVTA000` (VENTAS), verificado
   en el ERP web (Configuración → General → Centro de Negocios) y probado por escritura contra
   `Inventory/Insert`. Ya no bloquea; el envío de inventario sigue apagado por el corte, no por A.2.
