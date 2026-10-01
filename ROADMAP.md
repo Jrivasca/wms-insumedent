@@ -414,9 +414,13 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
-  - **Sigue abierta** la decisión sobre si "Finalizar packing" incompleto debe **bloquear**
-    el cierre. Los PRs no la tocan: solo agregan la confirmación y el estado que hace
-    visible la diferencia.
+  - **Decidido (2026-10-01): un packing con faltantes queda pendiente.** «Finalizar packing»
+    con faltantes respecto a lo pickeado deja la tarea «Con observaciones» **para todos**,
+    también supervisor y admin (antes ellos la cerraban en el acto con el mismo botón). Cerrarla
+    igual es un botón aparte, **«Cerrar con faltantes»**, solo de supervisor o administrador
+    (`force_close` en `POST /packing/tasks/{id}/complete`; un operario recibe 403). Queda
+    «Completado con diferencias» con `approved_by` y `force_close` en la auditoría. Cubierto por
+    `test_packing_cierre.py`.
   - **No son defectos, aunque la QA los marcó:** "Reservado 0" en pedidos listos para
     despacho (el WMS nunca usa `quantity_reserved`: compromete stock moviéndolo de
     ubicación, que es el diseño) y el SKU duplicado (ya respondía 409 en español).
@@ -444,8 +448,8 @@ contratos de datos, pero no se ha mirado en pantalla.
 - **QA funcional de backend (2026-09-29)**: se tradujeron al español ~40 mensajes de error que
   aún salían en inglés (picking/packing, login, inventario, pedidos, usuarios, productos, sync);
   y la **transferencia rechaza origen == destino** (antes "pasaba" registrando dos movimientos
-  espurios). Suite verde (199 tests). *Queda abierta una duda:* "Finalizar packing" con packing
-  incompleto deja la tarea «Con observaciones» — falta confirmar si es lo deseado o debe bloquear.
+  espurios). Suite verde (199 tests). *Duda resuelta el 2026-10-01:* el packing incompleto
+  queda pendiente y solo supervisor/admin lo cierra con «Cerrar con faltantes».
 - Catálogo dental real de INSUMEDENT en la demo (1251 productos con stock real, 17 categorías).
 - Flujo completo **picking → packing → despacho** clickeable, operable sin pistola lectora.
 - Escáner con **soporte móvil**: cámara para escanear + teclado en pantalla al tocar.

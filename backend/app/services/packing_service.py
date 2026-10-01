@@ -394,7 +394,16 @@ async def reset_line(
     return serialize(await _load_task(tenant_id, task_id))
 
 
-async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
+async def complete(
+    tenant_id: str, task_id: str, user: CurrentUser, force_close: bool = False
+) -> Dict[str, Any]:
+    """Cierra el packing y deja el pedido listo para despacho.
+
+    Con faltantes respecto a lo pickeado la tarea queda pendiente («Con observaciones»), sea
+    quien sea el que finaliza: antes un supervisor la cerraba en el acto con el mismo botón,
+    y un faltante se aprobaba sin que nadie lo decidiera. Cerrar así es una acción aparte
+    (``force_close``) y solo de supervisor o administrador.
+    """
     db = tenant_db(tenant_id)
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
@@ -407,9 +416,14 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
         for line in task["lines"]
     )
 
+    if force_close and not user.is_supervisor:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un supervisor o administrador puede cerrar un packing con faltantes",
+        )
+
     now = now_utc()
-    # Section 8.2: differences require supervisor approval; otherwise -> observed.
-    if differences and not user.is_supervisor:
+    if differences and not force_close:
         await db[Collections.PACKING_TASKS].update_one(
             {"_id": task["_id"]},
             {
@@ -422,7 +436,10 @@ async def complete(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
         )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Packing differs from picking. Supervisor approval required (task marked observed).",
+            detail=(
+                "El empaque no coincide con lo pickeado. La tarea quedó «Con observaciones» "
+                "hasta que un supervisor o administrador la cierre."
+            ),
         )
 
     warehouse_id = task.get("warehouse_id")

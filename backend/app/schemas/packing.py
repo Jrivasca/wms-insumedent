@@ -15,3 +15,8 @@ class CreatePackageRequest(BaseModel):
 
 class ResetLineRequest(BaseModel):
     sku: str
+
+
+class CompletePackingRequest(BaseModel):
+    # Cerrar con faltantes respecto a lo pickeado. Sin esto la tarea queda pendiente.
+    force_close: bool = False

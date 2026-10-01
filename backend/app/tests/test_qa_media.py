@@ -112,7 +112,7 @@ async def test_packing_con_diferencias_queda_en_su_propio_estado():
     # Se empaca una unidad menos de la primera línea.
     for bc, q in zip(bcs, [4, 3]):
         await packing_service.scan(tenant_id, pk["id"], admin, bc, q, pkg)
-    cerrada = await packing_service.complete(tenant_id, pk["id"], admin)
+    cerrada = await packing_service.complete(tenant_id, pk["id"], admin, force_close=True)
 
     assert cerrada["status"] == PackingTaskStatus.COMPLETED_WITH_DIFFERENCES.value
     # Y sigue contando como empacada para el pedido (si no, no se podría despachar).
@@ -219,7 +219,7 @@ async def test_el_movimiento_de_packing_coincide_con_lo_que_hay_en_los_bultos():
     pkg = (await packing_service.create_package(tenant_id, pk["id"], admin, None))["package_id"]
     for bc, q in zip(bcs, [3, 2]):  # una unidad menos en la primera línea
         await packing_service.scan(tenant_id, pk["id"], admin, bc, q, pkg)
-    await packing_service.complete(tenant_id, pk["id"], admin)
+    await packing_service.complete(tenant_id, pk["id"], admin, force_close=True)
 
     db = tenant_db(tenant_id)
     tarea = await db[Collections.PACKING_TASKS].find_one({"_id": to_object_id(pk["id"])})

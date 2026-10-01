@@ -44,7 +44,13 @@ export async function resetPackingLine(
   return data;
 }
 
-export async function completePacking(id: string): Promise<PackingTask> {
-  const { data } = await http.post<PackingTask>(`/packing/tasks/${id}/complete`);
+/** Con faltantes la tarea queda pendiente; `forceClose` la cierra igual (solo supervisor/admin). */
+export async function completePacking(
+  id: string,
+  opts: { forceClose?: boolean } = {}
+): Promise<PackingTask> {
+  const { data } = await http.post<PackingTask>(`/packing/tasks/${id}/complete`, {
+    force_close: opts.forceClose ?? false,
+  });
   return data;
 }
