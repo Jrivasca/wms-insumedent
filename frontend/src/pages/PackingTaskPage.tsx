@@ -41,7 +41,9 @@ export default function PackingTaskPage() {
   const [activePackage, setActivePackage] = useState<string | null>(null);
   const [packageLabel, setPackageLabel] = useState('');
   const [busy, setBusy] = useState(false);
-  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  // Dos confirmaciones distintas: dejarla pendiente (cualquiera) o cerrarla con faltantes
+  // (solo supervisor/admin). Ver `packing_service.complete`.
+  const [confirmar, setConfirmar] = useState<'pendiente' | 'forzar' | null>(null);
 
   async function load() {
     setLoading(true);
@@ -202,38 +204,46 @@ export default function PackingTaskPage() {
     }
   }
 
-  /** Con diferencias se confirma primero, como en picking (ahí sí se pedía y acá no). */
+  /** Con faltantes se confirma primero: la tarea no sigue a Despacho, queda pendiente. */
   function pedirFinalizar() {
     if (hasPackDiff) {
-      setConfirmarCierre(true);
+      setConfirmar('pendiente');
       return;
     }
-    handleComplete();
+    handleComplete(false);
   }
 
-  async function handleComplete() {
-    setConfirmarCierre(false);
+  async function handleComplete(forceClose: boolean) {
+    setConfirmar(null);
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      const t = await completePacking(id);
+      const t = await completePacking(id, { forceClose });
       setTask(t);
-      showMsg('Packing finalizado. Continúa en Despacho.', 'success');
+      showMsg(
+        forceClose
+          ? 'Packing cerrado con faltantes. Continúa en Despacho.'
+          : 'Packing finalizado. Continúa en Despacho.',
+        'success'
+      );
       setTimeout(() => navigate('/dispatch'), 900);
     } catch (err) {
       const ax = err as { response?: { status?: number } };
       if (ax.response?.status === 409) {
-        // El backend devuelve 409 cuando lo empacado no coincide con lo pickeado: si el
-        // operario no es supervisor, la tarea ya quedó "Con observaciones". Recargamos para
-        // confirmar y explicamos qué pasó, en vez del genérico "líneas pendientes".
+        // 409 = lo empacado no coincide con lo pickeado y la tarea quedó "Con observaciones"
+        // (para todos, también supervisor). Es el resultado esperado de dejarla pendiente,
+        // así que se informa como aviso y no como error.
         try {
           const t = await getPackingTask(id);
           setTask(t);
           if (t.status === 'observed') {
-            setError(
-              'El empaque no coincide con lo pickeado. La tarea quedó «Con observaciones»: ' +
-                'un supervisor debe revisarla y aprobarla antes de que siga a Despacho.'
+            showMsg(
+              'La tarea quedó pendiente («Con observaciones») y no pasa a Despacho. ' +
+                (supervisor
+                  ? 'Puede seguir empacando o cerrarla con «Cerrar con faltantes».'
+                  : 'Puede seguir empacando; si falta mercadería, un supervisor o administrador decide si la cierra.'),
+              'warning'
             );
           } else {
             setError('Falta empacar líneas para poder finalizar.');
@@ -255,8 +265,8 @@ export default function PackingTaskPage() {
 
   const notStarted = task.status === 'pending' || task.status === 'assigned';
   // Diferencia = lo empacado no coincide con lo pickeado. Finalizar así deja la tarea "Con
-  // observaciones" (la aprueba un supervisor); un supervisor la cierra en el acto. Lo avisamos
-  // antes, para que el rol y la consecuencia sean visibles.
+  // observaciones" (pendiente) para todos; cerrarla con faltantes es un botón aparte, solo de
+  // supervisor/admin. Lo avisamos antes, para que la consecuencia sea visible.
   const packDiffUnits = task.lines.reduce(
     (a, l) => a + Math.max(l.quantity_required - l.quantity_packed, 0),
     0
@@ -309,7 +319,7 @@ export default function PackingTaskPage() {
         </h2>
         <div className="mb-3 flex flex-wrap gap-2">
           {task.packages.length === 0 && (
-            <p className="text-sm text-slate-500">Aún no hay bultos. Crea uno para comenzar.</p>
+            <p className="text-sm text-slate-500">Aún no hay bultos. Cree uno para comenzar.</p>
           )}
           {task.packages.map((p) => (
             <button
@@ -499,12 +509,11 @@ export default function PackingTaskPage() {
               }`}
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              {supervisor
-                ? `${packDiffUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
-                  'respecto a lo pickeado. Al finalizar, la diferencia queda aprobada a su nombre.'
-                : `${packDiffUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
-                  'respecto a lo pickeado. Al finalizar, la tarea quedará «Con observaciones» para ' +
-                  'que un supervisor la apruebe.'}
+              {`${packDiffUnits === 1 ? 'Falta' : 'Faltan'} ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
+                'respecto a lo pickeado. Al finalizar, la tarea queda pendiente («Con observaciones») ' +
+                (supervisor
+                  ? 'y no pasa a Despacho; si decide despachar sin lo que falta, use «Cerrar con faltantes».'
+                  : 'hasta que un supervisor o administrador la cierre.')}
             </p>
           )}
           <button
@@ -516,25 +525,47 @@ export default function PackingTaskPage() {
           >
             Finalizar packing
           </button>
+          {supervisor && hasPackDiff && (
+            <button
+              onClick={() => setConfirmar('forzar')}
+              className="btn-secondary w-full"
+              disabled={busy}
+            >
+              Cerrar con faltantes
+            </button>
+          )}
         </div>
       )}
 
       <ConfirmDialog
-        open={confirmarCierre}
+        open={confirmar === 'pendiente'}
         tone="primary"
-        title="¿Finalizar el packing con diferencias?"
+        title="¿Dejar el packing pendiente?"
         message={
           `Faltan ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} respecto a lo ` +
-          'pickeado. ' +
-          (supervisor
-            ? 'La tarea quedará «Completado con diferencias» y la diferencia queda aprobada a su nombre.'
-            : 'La tarea quedará «Con observaciones» hasta que un supervisor la revise y la apruebe.')
+          'pickeado. La tarea quedará «Con observaciones» y el pedido no pasará a Despacho ' +
+          'hasta que un supervisor o administrador la cierre.'
         }
-        confirmLabel="Finalizar igual"
+        confirmLabel="Dejar pendiente"
         cancelLabel="Seguir empacando"
         busy={busy}
-        onConfirm={handleComplete}
-        onCancel={() => setConfirmarCierre(false)}
+        onConfirm={() => handleComplete(false)}
+        onCancel={() => setConfirmar(null)}
+      />
+      <ConfirmDialog
+        open={confirmar === 'forzar'}
+        tone="danger"
+        title="¿Cerrar el packing con faltantes?"
+        message={
+          `El pedido pasará a Despacho sin ${fmtQty(packDiffUnits)} unidad${packDiffUnits === 1 ? '' : 'es'} ` +
+          'que sí se pickearon. La tarea quedará «Completado con diferencias» y la diferencia ' +
+          'queda aprobada a su nombre.'
+        }
+        confirmLabel="Cerrar con faltantes"
+        cancelLabel="Volver"
+        busy={busy}
+        onConfirm={() => handleComplete(true)}
+        onCancel={() => setConfirmar(null)}
       />
     </div>
   );

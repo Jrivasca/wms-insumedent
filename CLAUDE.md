@@ -188,7 +188,8 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
 - **Picking/packing**: se escanea antes de confirmar; un código que no corresponde se
   rechaza. El cierre con líneas pendientes requiere `allow_partial`; el backend todavía no
   exige rol supervisor para ese cierre (decisión abierta en `ROADMAP.md`). Una diferencia
-  en packing deja la tarea `observed` hasta que un supervisor la apruebe.
+  en packing deja la tarea `observed` **para todos, también supervisor y admin**; solo ellos
+  la cierran, con la acción explícita «Cerrar con faltantes» (`force_close`).
 - **Despacho**: solo desde `ready_to_dispatch`, y nunca dos veces sobre lo mismo.
 - **Secretos**: las credenciales de Defontana van cifradas (Fernet) y **nunca** se
   exponen al frontend ni se escriben en logs o auditoría.
