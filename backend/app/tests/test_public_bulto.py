@@ -43,8 +43,8 @@ async def _drive_to_packed_package():
 
     pk = (await packing_service.list_tasks(tenant_id, admin))["items"][0]
     pid = pk["id"]
-    await packing_service.start_task(tenant_id, pid, admin)
-    pkg = await packing_service.create_package(tenant_id, pid, admin, "Bulto 1")
+    # Iniciar crea «Bulto 1» solo.
+    pkg = (await packing_service.start_task(tenant_id, pid, admin))["packages"][0]
     bc0, q0 = plan[0]
     await packing_service.scan(tenant_id, pid, admin, bc0, q0, pkg["package_id"])
 

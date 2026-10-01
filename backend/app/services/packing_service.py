@@ -206,6 +206,7 @@ async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[st
         {"_id": to_object_id(task["order_id"]), "tenant_id": tenant_id},
         {"$set": {"status": OrderStatus.PACKING.value, "updated_at": now}},
     )
+    await _ensure_first_package(db, task)
     return serialize(await _load_task(tenant_id, task_id))
 
 
@@ -249,6 +250,11 @@ async def scan(
     # Un escaneo de packing SIEMPRE se guarda en un bulto. Sin bulto (o con un id que no existe) se
     # rechaza y NO se aplica nada: de lo contrario la unidad quedaría empacada pero huérfana (sumada
     # a quantity_packed sin ningún bulto que la contenga). El bulto es obligatorio, no opcional.
+    # Sin bulto indicado y sin ninguno creado (tareas iniciadas antes de que el primero se
+    # creara solo): va al «Bulto 1», que se crea ahora. Con bultos ya creados sí hay que
+    # elegir uno: no se adivina en cuál va la unidad.
+    if not package_id and not task.get("packages"):
+        package_id = (await _ensure_first_package(db, task) or {}).get("package_id")
     pkg = (
         next((p for p in task.get("packages", []) if p.get("package_id") == package_id), None)
         if package_id
@@ -259,7 +265,7 @@ async def scan(
             "status": "rejected",
             "feedback": "warning",
             "message": (
-                "Seleccione o cree un bulto antes de escanear."
+                "Seleccione en qué bulto va lo que escanee."
                 if not package_id
                 else "El bulto indicado no existe."
             ),
@@ -321,6 +327,40 @@ async def scan(
     }
 
 
+def _new_package(number: int, label: Optional[str] = None) -> Dict[str, Any]:
+    return {
+        "package_id": f"PKG-{number}",
+        "label": label or f"Bulto {number}",
+        "items": [],
+        "public_token": _new_public_token(),
+        "public_expires_at": _public_expiry(),
+        "created_at": now_utc(),
+    }
+
+
+async def _ensure_first_package(db, task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Crea «Bulto 1» si la tarea no tiene ninguno y lo devuelve.
+
+    Antes el operario tenía que crear el primer bulto a mano antes de poder escanear, y lo
+    único que lograba era un paso más: casi todo pedido cabe en uno. El filtro por
+    ``packages.0`` hace que dos llamadas simultáneas no creen dos «Bulto 1».
+    """
+    if task.get("packages"):
+        return None
+    package = _new_package(1)
+    res = await db[Collections.PACKING_TASKS].update_one(
+        {"_id": task["_id"], "packages.0": {"$exists": False}},
+        {"$push": {"packages": package}, "$set": {"updated_at": now_utc()}},
+    )
+    if res.modified_count:
+        task.setdefault("packages", []).append(package)
+        return package
+    # Otra llamada lo creó primero: se usa ese.
+    fresh = await db[Collections.PACKING_TASKS].find_one({"_id": task["_id"]})
+    task["packages"] = fresh.get("packages", [])
+    return task["packages"][0] if task["packages"] else None
+
+
 async def create_package(
     tenant_id: str, task_id: str, user: CurrentUser, label: Optional[str]
 ) -> Dict[str, Any]:
@@ -333,15 +373,7 @@ async def create_package(
     if task["status"] in CLOSED_PACKING_STATUSES:
         raise HTTPException(status_code=409, detail="La tarea de packing ya está cerrada")
 
-    package_number = len(task.get("packages", [])) + 1
-    package = {
-        "package_id": f"PKG-{package_number}",
-        "label": label or f"Bulto {package_number}",
-        "items": [],
-        "public_token": _new_public_token(),
-        "public_expires_at": _public_expiry(),
-        "created_at": now_utc(),
-    }
+    package = _new_package(len(task.get("packages", [])) + 1, label)
     await db[Collections.PACKING_TASKS].update_one(
         {"_id": task["_id"]},
         {"$push": {"packages": package}, "$set": {"updated_at": now_utc()}},

@@ -391,6 +391,8 @@ contratos de datos, pero no se ha mirado en pantalla.
   (`lib/labelRoll.ts`, `components/LabelRollSheet.tsx`). Validado a PDF y rasterizado a
   203 dpi; **falta**: medir márgenes/separaciones, imprimir la prueba de alineación, el avance
   de fila y la lectura con la pistola. Guía y limitaciones en `docs/etiquetas-zebra-zd220.md`.
+  **Desplegado en el droplet el 2026-10-01** (`198c061`, PR #45; respaldo
+  `/root/wms-backups/wms-2026-10-01-1505.*`) para la prueba física.
 
 - **Match probabilístico de productos:** el aviso de reposición por producto exacto ya funciona,
   pero siguen pendientes las sugerencias de sustitutos con porcentaje y la memoria de alias
@@ -422,6 +424,10 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **«Bulto 1» se crea solo (2026-10-01).** Antes había que crear el primer bulto a mano
+    para poder escanear. Ahora lo crea `start_task`, y el primer escaneo si la tarea no tiene
+    ninguno (tareas iniciadas antes del cambio); queda seleccionado. «Otro bulto» abre el 2.º
+    en adelante; con varios bultos, escanear sin elegir uno se sigue rechazando.
   - **Decidido (2026-10-01): un packing con faltantes queda pendiente.** «Finalizar packing»
     con faltantes respecto a lo pickeado deja la tarea «Con observaciones» **para todos**,
     también supervisor y admin (antes ellos la cerraban en el acto con el mismo botón). Cerrarla

@@ -88,7 +88,10 @@ export default function PackingTaskPage() {
     setBusy(true);
     setError(null);
     try {
-      setTask(await startPacking(id));
+      // Al iniciar, el backend crea «Bulto 1»: queda seleccionado para escanear de inmediato.
+      const t = await startPacking(id);
+      setTask(t);
+      if (!activePackage && t.packages.length > 0) setActivePackage(t.packages[0].package_id);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -118,10 +121,11 @@ export default function PackingTaskPage() {
   async function handleScan(barcode: string) {
     setError(null);
     setMessage(null);
-    // Sin bulto no se escanea: se evita empacar unidades huérfanas (el backend también lo rechaza).
-    if (!activePackage) {
+    // Sin bulto elegido solo se escanea si todavía no hay ninguno: el backend crea «Bulto 1».
+    // Con bultos ya creados hay que elegir en cuál va (el backend también lo exige).
+    if (!activePackage && task && task.packages.length > 0) {
       setFeedback('warning');
-      showMsg('Seleccione o cree un bulto antes de escanear.', 'warning');
+      showMsg('Seleccione en qué bulto va lo que escanee.', 'warning');
       setTimeout(() => setFeedback('idle'), 1500);
       return;
     }
@@ -129,7 +133,7 @@ export default function PackingTaskPage() {
       const res = await scanPacking(id, {
         barcode,
         quantity: quantity || 1,
-        package_id: activePackage,
+        package_id: activePackage ?? undefined,
       });
       let tone: 'success' | 'warning' | 'error';
       if (res.status === 'ok') tone = 'success';
@@ -145,6 +149,9 @@ export default function PackingTaskPage() {
           ? (res.task as PackingTask)
           : await getPackingTask(id);
       setTask(refreshed);
+      if (!activePackage && refreshed.packages.length > 0) {
+        setActivePackage(refreshed.packages[0].package_id);
+      }
     } catch (err) {
       setFeedback('error');
       setError(errorMessage(err));
@@ -319,7 +326,9 @@ export default function PackingTaskPage() {
         </h2>
         <div className="mb-3 flex flex-wrap gap-2">
           {task.packages.length === 0 && (
-            <p className="text-sm text-slate-500">Aún no hay bultos. Cree uno para comenzar.</p>
+            <p className="text-sm text-slate-500">
+              El «Bulto 1» se crea solo al iniciar o con el primer escaneo.
+            </p>
           )}
           {task.packages.map((p) => (
             <button
@@ -341,9 +350,9 @@ export default function PackingTaskPage() {
           <input
             value={packageLabel}
             onChange={(e) => setPackageLabel(e.target.value)}
-            placeholder="Etiqueta (opcional)"
+            placeholder="Nombre (opcional)"
             className="input"
-            aria-label="Etiqueta del nuevo bulto"
+            aria-label="Nombre del bulto nuevo"
           />
           <button
             onClick={handleCreatePackage}
@@ -351,7 +360,7 @@ export default function PackingTaskPage() {
             disabled={busy || notStarted}
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            Bulto
+            Otro bulto
           </button>
         </div>
         {task.packages.length > 0 && (
@@ -437,10 +446,10 @@ export default function PackingTaskPage() {
             </div>
           </div>
 
-          {!activePackage && (
+          {!activePackage && task.packages.length > 0 && (
             <div className="flex items-start gap-2 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              Seleccione o cree un bulto antes de escanear.
+              Seleccione en qué bulto va lo que escanee.
             </div>
           )}
 
