@@ -20,7 +20,7 @@ const PARITY: Record<string, string> = {
 };
 
 /** Return the 95-module bit string for a 13-digit EAN-13 code, or null if invalid. */
-function ean13Bits(code: string): string | null {
+export function ean13Bits(code: string): string | null {
   if (!/^\d{13}$/.test(code)) return null;
   const parity = PARITY[code[0]];
   const left = code.slice(1, 7);

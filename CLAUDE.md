@@ -251,6 +251,10 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
   monoespaciada. Las confirmaciones explican la consecuencia; nada de `window.confirm`.
 - **No tocar el marcado de las etiquetas impresas** (50×30 mm, saltos de página, QR de
   260 px): está calibrado para la impresora térmica y no se puede verificar sin imprimir.
+- El rollo **Zebra ZD220 de 3 × 30 × 10 mm** es otro formato, con su geometría en
+  `lib/labelRoll.ts` (milímetros ajustados a 8 puntos/mm, EAN-13 a 2 puntos por módulo) y
+  su guía en `docs/etiquetas-zebra-zd220.md`. Se verifica imprimiendo a PDF con Chrome
+  headless y rasterizando a 203 dpi; la lectura con escáner, solo con la impresora.
 
 ## Despliegue: cómo se hace de verdad
 

@@ -384,6 +384,14 @@ contratos de datos, pero no se ha mirado en pantalla.
 
 ## Pendiente (funcional)
 
+- **Etiquetas en Zebra ZD220, 3 columnas × 30 × 10 mm** *(construido 2026-10-01, sin probar
+  en la impresora)*. Perfil nuevo en Etiquetas: medidas editables (ancho del papel 95 mm
+  provisional; márgenes y separaciones **sin medir**), filas de 3 con huecos en la última,
+  cantidad por producto, total de etiquetas y filas, prueba de alineación y descarga en ZPL
+  (`lib/labelRoll.ts`, `components/LabelRollSheet.tsx`). Validado a PDF y rasterizado a
+  203 dpi; **falta**: medir márgenes/separaciones, imprimir la prueba de alineación, el avance
+  de fila y la lectura con la pistola. Guía y limitaciones en `docs/etiquetas-zebra-zd220.md`.
+
 - **Match probabilístico de productos:** el aviso de reposición por producto exacto ya funciona,
   pero siguen pendientes las sugerencias de sustitutos con porcentaje y la memoria de alias
   confirmados que pide `docs/levantamiento-alertas-recepcion-y-match.md`.
@@ -420,7 +428,8 @@ contratos de datos, pero no se ha mirado en pantalla.
     igual es un botón aparte, **«Cerrar con faltantes»**, solo de supervisor o administrador
     (`force_close` en `POST /packing/tasks/{id}/complete`; un operario recibe 403). Queda
     «Completado con diferencias» con `approved_by` y `force_close` en la auditoría. Cubierto por
-    `test_packing_cierre.py`.
+    `test_packing_cierre.py`. **Desplegado en el droplet el 2026-10-01** (`c270100`, PR #44;
+    respaldo `/root/wms-backups/wms-2026-10-01-1351.*`).
   - **No son defectos, aunque la QA los marcó:** "Reservado 0" en pedidos listos para
     despacho (el WMS nunca usa `quantity_reserved`: compromete stock moviéndolo de
     ubicación, que es el diseño) y el SKU duplicado (ya respondía 409 en español).
