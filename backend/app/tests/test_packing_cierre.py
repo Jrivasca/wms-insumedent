@@ -106,3 +106,62 @@ async def test_sin_faltantes_cierra_normal_sin_forzar():
 
     cerrada = await packing_service.complete(tenant_id, pk["id"], admin)
     assert cerrada["status"] == PackingTaskStatus.COMPLETED.value
+
+
+# ---------------------------------------------------------------------------
+# El primer bulto se crea solo (2026-10-01): antes había que crearlo a mano para escanear.
+# ---------------------------------------------------------------------------
+async def _packing_listo(tenant_id: str, admin, number: str) -> tuple[str, str]:
+    """Pedido de 2 unidades ya pickeado; devuelve (tarea de packing, código de barras)."""
+    order = await _make_order(tenant_id, [2], number=number)
+    bc = await _barcode_for(tenant_id, order["lines"][0]["product_id"])
+    pick = await order_service.create_picking_task(tenant_id, order["id"], admin.id)
+    await picking_service.scan(tenant_id, pick["id"], admin, bc, 2, None)
+    await picking_service.complete(tenant_id, pick["id"], admin)
+    return (await packing_service.list_tasks(tenant_id, admin))["items"][0]["id"], bc
+
+
+async def test_iniciar_packing_crea_bulto_1():
+    tenant_id = (await run_seed())["tenant_id"]
+    admin = await _admin()
+    tid, bc = await _packing_listo(tenant_id, admin, "9610")
+
+    tarea = await packing_service.start_task(tenant_id, tid, admin)
+    assert [p["label"] for p in tarea["packages"]] == ["Bulto 1"]
+    # Iniciar de nuevo (reanudar) no crea otro.
+    tarea = await packing_service.start_task(tenant_id, tid, admin)
+    assert len(tarea["packages"]) == 1
+
+    res = await packing_service.scan(tenant_id, tid, admin, bc, 2, tarea["packages"][0]["package_id"])
+    assert res["status"] == "ok"
+    # «Otro bulto» sigue numerando a partir del automático.
+    assert (await packing_service.create_package(tenant_id, tid, admin, None))["label"] == "Bulto 2"
+
+
+async def test_escaneo_sin_bultos_crea_bulto_1():
+    """Tareas iniciadas antes del cambio no tienen bultos: el primer escaneo crea el Bulto 1."""
+    tenant_id = (await run_seed())["tenant_id"]
+    admin = await _admin()
+    tid, bc = await _packing_listo(tenant_id, admin, "9611")
+    await packing_service.start_task(tenant_id, tid, admin)
+    await tenant_db(tenant_id)[Collections.PACKING_TASKS].update_one(
+        {"_id": to_object_id(tid)}, {"$set": {"packages": []}}
+    )
+
+    res = await packing_service.scan(tenant_id, tid, admin, bc, 2, None)
+    assert res["status"] == "ok"
+    tarea = await packing_service.get_task(tenant_id, tid, admin)
+    assert [p["label"] for p in tarea["packages"]] == ["Bulto 1"]
+    assert sum(it["quantity"] for it in tarea["packages"][0]["items"]) == 2
+
+
+async def test_con_varios_bultos_hay_que_elegir():
+    tenant_id = (await run_seed())["tenant_id"]
+    admin = await _admin()
+    tid, bc = await _packing_listo(tenant_id, admin, "9612")
+    await packing_service.start_task(tenant_id, tid, admin)
+
+    res = await packing_service.scan(tenant_id, tid, admin, bc, 1, None)
+    assert res["status"] == "rejected" and "bulto" in res["message"].lower()
+    tarea = await packing_service.get_task(tenant_id, tid, admin)
+    assert tarea["lines"][0]["quantity_packed"] == 0
