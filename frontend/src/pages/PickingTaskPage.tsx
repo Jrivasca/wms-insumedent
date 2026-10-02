@@ -18,6 +18,7 @@ import {
 } from '../api/picking';
 import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
+import QuantityStepper from '../components/QuantityStepper';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ProgressBar from '../components/ProgressBar';
@@ -400,7 +401,7 @@ export default function PickingTaskPage() {
     0
   );
   const isIncomplete = missingUnits > 0;
-  // Quedan líneas por pickear (no marcadas faltantes): controla el hint "Toca una línea".
+  // Quedan líneas por pickear (no marcadas faltantes): controla el hint "Toque una línea".
   const hasPending = task.lines.some(
     (l) => l.quantity_picked < l.quantity_required && l.status !== 'missing'
   );
@@ -674,34 +675,7 @@ export default function PickingTaskPage() {
             <label className="label mb-0" htmlFor="qty">
               Cantidad por escaneo
             </label>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="btn-secondary h-touch w-touch text-xl"
-                aria-label="Restar uno"
-              >
-                −
-              </button>
-              <span
-                id="qty"
-                className="w-12 text-center text-2xl font-bold tabular-nums"
-                aria-live="polite"
-              >
-                {quantity}
-              </span>
-              <button
-                type="button"
-                // Tope en lo que falta: el stepper llegaba a 31 con 13 pendientes, y el
-                // escaneo lo rechazaba después. Mejor no dejar llegar ahí.
-                onClick={() => setQuantity((q) => Math.min(q + 1, Math.max(remainingCurrent, 1)))}
-                disabled={quantity >= Math.max(remainingCurrent, 1)}
-                className="btn-secondary h-touch w-touch text-xl disabled:opacity-40"
-                aria-label="Sumar uno"
-              >
-                +
-              </button>
-            </div>
+            <QuantityStepper id="qty" value={quantity} onChange={setQuantity} max={remainingCurrent} />
           </div>
 
           <BarcodeScanner
@@ -731,7 +705,7 @@ export default function PickingTaskPage() {
           Líneas
         </h2>
         {!notStarted && hasPending && (
-          <p className="mb-2 text-xs text-slate-500">Toca una línea para pickearla.</p>
+          <p className="mb-2 text-xs text-slate-500">Toque una línea para pickearla.</p>
         )}
         <div className="space-y-2">
           {task.lines.map((l) => {
