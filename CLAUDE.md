@@ -186,8 +186,10 @@ El worker **no** se recarga solo (el backend sí, con HMR). Para que tome un `.e
   `get_database()` directo salvo en los casos ya exceptuados y documentados ahí
   (login, `get_current_user`, poll global del worker, `seed.py`).
 - **Picking/packing**: se escanea antes de confirmar; un código que no corresponde se
-  rechaza. El cierre con líneas pendientes requiere `allow_partial`; el backend todavía no
-  exige rol supervisor para ese cierre (decisión abierta en `ROADMAP.md`). Una diferencia
+  rechaza. Un escaneo de picking no puede pasar lo disponible de su ubicación/lote, y lo
+  escaneado en un picking abierto queda tomado para los demás (`picking_stock.py`). El
+  cierre con líneas pendientes requiere `allow_partial`; el backend todavía no exige rol
+  supervisor para ese cierre (decisión abierta en `ROADMAP.md`). Una diferencia
   en packing deja la tarea `observed` **para todos, también supervisor y admin**; solo ellos
   la cierran, con la acción explícita «Cerrar con faltantes» (`force_close`).
 - **Despacho**: solo desde `ready_to_dispatch`, y nunca dos veces sobre lo mismo.

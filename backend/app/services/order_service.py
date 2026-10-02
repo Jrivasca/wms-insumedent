@@ -13,7 +13,12 @@ from app.models.packing import DONE_PACKING_STATUSES, PackingTaskStatus
 from app.models.picking import PickingLineStatus, PickingTaskStatus
 from app.models.notification import NotificationType
 from app.models.sync_job import SyncJobType
-from app.services import notification_service, replenishment_alert_service, sync_job_service
+from app.services import (
+    notification_service,
+    picking_stock,
+    replenishment_alert_service,
+    sync_job_service,
+)
 
 
 async def _expected_barcodes(tenant_id: str, product_id: str, sku: str) -> List[str]:
@@ -378,6 +383,7 @@ async def create_picking_task(
         {"_id": order["_id"]},
         {"$set": {"status": OrderStatus.PENDING_PICKING.value, "updated_at": now}},
     )
+    await picking_stock.alert_shortage_on_new_task(tenant_id, task)
     return serialize(task)
 
 

@@ -33,6 +33,7 @@ const TYPE_ICON: Record<string, { Icon: ComponentType<{ className?: string }>; c
   erp_order_changed: { Icon: RefreshCw, className: 'text-amber-600' },
   sync_job_failed: { Icon: CircleAlert, className: 'text-red-600' },
   reconcile_review: { Icon: GitCompare, className: 'text-amber-600' },
+  stock_shortage: { Icon: AlertTriangle, className: 'text-red-600' },
 };
 
 const DEFAULT_ICON = { Icon: Bell, className: 'text-slate-400' };
@@ -50,14 +51,15 @@ function timeAgo(iso: string): string {
   return `hace ${d} d`;
 }
 
-/** Destination for a notification's entity (order list has no per-id detail page). */
+/** Destino de la notificación según su entidad. */
 function targetFor(n: AppNotification): string | null {
   // Pedidos listos para completar: la lista vive en "Mis tareas de picking".
   if (n.type === 'receipt_unblocks_order') return '/my/picking';
   if (n.type === 'sync_job_failed') return '/sync-jobs';
   if (n.type === 'reconcile_review') return '/inventory/erp-stock';
   if (n.entity_type === 'product' && n.entity_id) return `/products/${n.entity_id}`;
-  if (n.entity_type === 'order') return '/orders';
+  // Pedidos no tiene página propia por pedido: ?pedido= abre su detalle en la lista.
+  if (n.entity_type === 'order') return n.entity_id ? `/orders?pedido=${n.entity_id}` : '/orders';
   return null;
 }
 

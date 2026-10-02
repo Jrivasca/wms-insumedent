@@ -29,6 +29,9 @@ class NotificationType(str, Enum):
     # La conciliación diaria con Defontana dejó diferencias grandes que no aplica sola: un
     # supervisor tiene que revisarlas y aprobarlas una por una.
     RECONCILE_REVIEW = "reconcile_review"
+    # Un pedido pide más de lo que hay libre para pickear (al generar su picking) o su
+    # picking se cerró incompleto por falta de stock: hay que reponer o avisar al cliente.
+    STOCK_SHORTAGE = "stock_shortage"
 
 
 # Which roles receive each event. ``admin`` and ``supervisor`` always see
@@ -45,4 +48,6 @@ NOTIFICATION_AUDIENCE = {
     NotificationType.ERP_ORDER_CHANGED.value: {"admin", "supervisor"},
     NotificationType.SYNC_JOB_FAILED.value: {"admin", "supervisor"},
     NotificationType.RECONCILE_REVIEW.value: {"admin", "supervisor"},
+    # Ventas también: es quien le avisa al cliente que el pedido sale incompleto.
+    NotificationType.STOCK_SHORTAGE.value: {"admin", "supervisor", "sales"},
 }

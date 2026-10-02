@@ -424,10 +424,24 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **Picking contra el stock real + alertas de quiebre (2026-10-02, observaciones del dueño).**
+    Antes el escaneo no validaba stock (salvo lotes, y solo contra la propia tarea) y el cierre
+    movía con `allow_negative`: se podía escanear de más y dos pedidos tomaban las mismas
+    unidades, dejando saldos negativos en silencio. Ahora lo escaneado en un picking abierto
+    queda **tomado** (reserva derivada de los escaneos, `services/picking_stock.py`, sin
+    `quantity_reserved`): el escaneo se rechaza si no cabe en lo disponible de la ubicación/lote,
+    dice dónde hay (o que está en recepción sin ubicar) y, en productos sin lote, cambia la
+    ubicación sugerida a la que tiene stock. Sin stock, el pedido avanza con el cierre parcial.
+    Notificación nueva **`stock_shortage`** (admin, supervisor, ventas): al generar el picking si
+    el stock libre no alcanza, y al cerrarlo incompleto; lleva al pedido (`/orders?pedido=`).
+    Pendiente conocido: dos escaneos *simultáneos* de la última unidad podrían pasar ambos (no
+    hay bloqueo atómico); el cierre sigue con `allow_negative` como red de seguridad.
   - **Pedidos en móvil (2026-10-02).** En el iPhone, tocar un pedido «no hacía nada»: el
     detalle se abría **debajo de toda la lista** (grilla de una columna), fuera de la vista.
     Ahora en pantallas angostas el detalle reemplaza a la lista, sube al inicio y trae
     «Volver a pedidos». En escritorio sigue lado a lado.
+    **Desplegado en el droplet el 2026-10-02** (`8b1de2f`, PR #47; respaldo
+    `/root/wms-backups/wms-2026-10-02-2035.*`).
   - **«Bulto 1» se crea solo (2026-10-01).** Antes había que crear el primer bulto a mano
     para poder escanear. Ahora lo crea `start_task`, y el primer escaneo si la tarea no tiene
     ninguno (tareas iniciadas antes del cambio); queda seleccionado. «Otro bulto» abre el 2.º
