@@ -456,6 +456,13 @@ contratos de datos, pero no se ha mirado en pantalla.
     «Completado con diferencias» con `approved_by` y `force_close` en la auditoría. Cubierto por
     `test_packing_cierre.py`. **Desplegado en el droplet el 2026-10-01** (`c270100`, PR #44;
     respaldo `/root/wms-backups/wms-2026-10-01-1351.*`).
+  - **Escaneo en el celular (2026-10-02, observaciones del dueño).** La «cantidad por escaneo»
+    ahora también se escribe (solo dígitos; picking la topa en lo que falta), en picking y
+    packing (`components/QuantityStepper.tsx`). La cámara usa el lector nativo del navegador
+    (`BarcodeDetector`, Chrome en Android) con enfoque continuo: en un Android de gama básica
+    ZXing en JavaScript tardaba demasiado. Safari (iPhone) no lo trae y sigue con ZXing, ahora
+    con 100 ms entre intentos (antes 500). Probado el respaldo ZXing con cámara falsa; **el
+    lector nativo solo se puede probar en un Android real**.
   - **No son defectos, aunque la QA los marcó:** "Reservado 0" en pedidos listos para
     despacho (el WMS nunca usa `quantity_reserved`: compromete stock moviéndolo de
     ubicación, que es el diseño) y el SKU duplicado (ya respondía 409 en español).

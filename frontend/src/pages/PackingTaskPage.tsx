@@ -12,6 +12,7 @@ import {
 import { errorMessage } from '../api/http';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { ErrorBox, Loading } from '../components/Async';
+import QuantityStepper from '../components/QuantityStepper';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
@@ -419,31 +420,7 @@ export default function PackingTaskPage() {
             <label className="label mb-0" htmlFor="qty">
               Cantidad por escaneo
             </label>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="btn-secondary h-touch w-touch text-xl"
-                aria-label="Restar uno"
-              >
-                −
-              </button>
-              <span
-                id="qty"
-                className="w-12 text-center text-2xl font-bold tabular-nums"
-                aria-live="polite"
-              >
-                {quantity}
-              </span>
-              <button
-                type="button"
-                onClick={() => setQuantity((q) => q + 1)}
-                className="btn-secondary h-touch w-touch text-xl"
-                aria-label="Sumar uno"
-              >
-                +
-              </button>
-            </div>
+            <QuantityStepper id="qty" value={quantity} onChange={setQuantity} />
           </div>
 
           {!activePackage && task.packages.length > 0 && (
