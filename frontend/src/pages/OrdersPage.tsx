@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  ArrowLeft,
   ArrowRight,
   CheckCheck,
   ChevronRight,
@@ -236,6 +237,9 @@ export default function OrdersPage() {
     setNotice(null);
     try {
       setSelected(await getOrder(id));
+      // En móvil la lista y el detalle no caben lado a lado: el detalle reemplaza a la
+      // lista y hay que subir, o el toque "no hace nada" (el detalle quedaba bajo la lista).
+      if (window.matchMedia('(max-width: 1023px)').matches) window.scrollTo({ top: 0 });
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -542,7 +546,7 @@ export default function OrdersPage() {
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div>
+        <div className={selected ? 'hidden lg:block' : undefined}>
           <div className="mb-3 grid gap-2 sm:grid-cols-[13rem_1fr]">
             <div>
               <label className="label" htmlFor="order-status">
@@ -650,6 +654,15 @@ export default function OrdersPage() {
 
         <div>
           {selected ? (
+            <>
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              className="btn-ghost btn-sm -ml-2 mb-2 lg:hidden"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Volver a pedidos
+            </button>
             <div className="card lg:sticky lg:top-20">
               <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -817,8 +830,9 @@ export default function OrdersPage() {
                   </div>
                 )}
             </div>
+            </>
           ) : (
-            <div className="card">
+            <div className="card hidden lg:block">
               <Empty
                 label="Ningún pedido abierto"
                 hint="Seleccione un pedido de la lista para ver sus líneas y continuar el flujo."
