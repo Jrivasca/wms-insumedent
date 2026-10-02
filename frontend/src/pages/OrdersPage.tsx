@@ -222,6 +222,13 @@ export default function OrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ?pedido=<id> abre ese pedido (lo usan las notificaciones, p. ej. un quiebre de stock).
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('pedido');
+    if (id) openDetail(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   // El backend filtra por estado pero no busca por texto: esto filtra lo ya cargado.
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

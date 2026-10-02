@@ -26,6 +26,7 @@ export type NotificationType =
   | 'erp_order_changed'
   | 'sync_job_failed'
   | 'reconcile_review'
+  | 'stock_shortage'
   | string;
 
 export interface AppNotification {

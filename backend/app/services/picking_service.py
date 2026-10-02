@@ -16,6 +16,7 @@ from app.services import (
     inventory_service,
     order_service,
     packing_service,
+    picking_stock,
     replenishment_alert_service,
 )
 
@@ -120,6 +121,87 @@ async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[st
         {"$set": {"status": OrderStatus.PICKING.value, "updated_at": now}},
     )
     return serialize(await _load_task(tenant_id, task_id))
+
+
+async def _stock_check(
+    db,
+    task: Dict[str, Any],
+    line: Dict[str, Any],
+    product_id: str,
+    location_id: Optional[str],
+    lot_number: Optional[str],
+    quantity: float,
+) -> Optional[Dict[str, Any]]:
+    """Rechazo si ``quantity`` no cabe en lo disponible de esa ubicación (y lote); si no, None.
+
+    El mensaje dice dónde sí hay, para que el operario vaya a buscarlo, y que sin stock el
+    pedido sigue con el cierre parcial.
+    """
+    warehouse_id = task["warehouse_id"]
+    name = line.get("name") or line.get("sku")
+
+    def rejected(message: str) -> Dict[str, Any]:
+        return {
+            "status": "rejected",
+            "feedback": "warning",
+            "message": message,
+            "line": line,
+            "task": serialize(task),
+        }
+
+    rows = await picking_stock.available_by_location(db, product_id, warehouse_id)
+    if location_id and not await picking_stock.is_pickable_location(db, warehouse_id, location_id):
+        return rejected("Esa ubicación no es de picking (staging, packing, despacho o cuarentena).")
+    lot = lot_number or None
+    here = sum(
+        r["available"] for r in rows
+        if r["location_id"] == location_id and (r["lot_number"] or None) == lot
+    )
+    if location_id and quantity <= here:
+        return None
+
+    otras = [
+        r for r in rows
+        if r["available"] > 0 and not (r["location_id"] == location_id and (r["lot_number"] or None) == lot)
+    ]
+    codes = await picking_stock.location_codes(db, [r["location_id"] for r in otras] + [location_id])
+    donde = codes.get(location_id, "la ubicación sugerida") if location_id else "la bodega"
+    lote_txt = f" (lote «{lot}»)" if lot else ""
+    if here > 0:
+        msg = f"En {donde}{lote_txt} solo quedan {_qty(here)} disponibles de «{name}»."
+    else:
+        msg = f"No hay stock disponible de «{name}» en {donde}{lote_txt}."
+    # Producto sin lote: la pantalla escanea siempre desde la ubicación sugerida, así que
+    # mostrar "hay en B-02" no basta, el operario no tendría cómo elegirla. Se le cambia la
+    # sugerencia a la ubicación con más disponible y el próximo escaneo ya va ahí.
+    sin_lote = [r for r in otras if not r["lot_number"]]
+    if not lot and sin_lote and line.get("line_id"):
+        mejor = max(sin_lote, key=lambda r: r["available"])
+        line["suggested_location_id"] = mejor["location_id"]
+        await db[Collections.PICKING_TASKS].update_one(
+            {"_id": task["_id"], "lines.line_id": line["line_id"]},
+            {"$set": {"lines.$.suggested_location_id": mejor["location_id"]}},
+        )
+        return rejected(
+            msg + f" La ubicación sugerida cambió a {codes.get(mejor['location_id'])} "
+            f"(hay {_qty(mejor['available'])}): escanee desde ahí."
+        )
+    if otras:
+        detalle = ", ".join(
+            f"{codes.get(r['location_id'], r['location_id'])}"
+            + (f" lote {r['lot_number']}" if r["lot_number"] else "")
+            + f": {_qty(r['available'])}"
+            for r in otras[:3]
+        )
+        msg += f" Hay en: {detalle}."
+    else:
+        # Típico antes del corte: el stock existe pero sigue en recepción sin ubicar. Decir
+        # solo "no hay stock" mandaba a buscar un problema de inventario que no era.
+        sin_ubicar = await picking_stock.unplaced_quantity(db, product_id, warehouse_id)
+        if sin_ubicar > 0:
+            msg += f" Hay {_qty(sin_ubicar)} en recepción sin ubicar: ubíquelas para poder pickearlas."
+        msg += " Si falta, cierre el picking como parcial: el pedido sigue con lo que hay."
+    return rejected(msg)
 
 
 async def scan(
@@ -256,19 +338,18 @@ async def scan(
         scan_lot = lot_number
         scan_expiration = balance.get("expiration_date")
         location_id = balance["location_id"]
-        already_lot = sum(
-            s.get("quantity", 0) for s in line.get("scans", [])
-            if s.get("lot_number") == lot_number and s.get("location_id") == location_id
+    # Stock: no se escanea más de lo que hay en la ubicación (y lote), descontando lo que ya
+    # tomaron los pickings abiertos, incluido este. Sin esto se podía escanear de más y dos
+    # pedidos tomaban las mismas unidades; el cierre dejaba el saldo negativo en silencio.
+    # Sin stock la línea no se pickea, pero el pedido avanza con el cierre parcial.
+    if product_id:
+        loc = location_id or line.get("suggested_location_id")
+        rejected = await _stock_check(
+            db, task, line, product_id, loc, scan_lot, quantity
         )
-        if already_lot + quantity > (balance.get("quantity_on_hand") or 0):
-            quedan = max((balance.get("quantity_on_hand") or 0) - already_lot, 0)
-            return {
-                "status": "rejected",
-                "feedback": "warning",
-                "message": f"No hay suficiente del lote «{lot_number}» en esa ubicación: quedan {quedan:g}.",
-                "line": line,
-                "task": serialize(task),
-            }
+        if rejected:
+            return rejected
+        location_id = loc
 
     new_qty = already + quantity
     line["quantity_picked"] = new_qty
@@ -319,8 +400,9 @@ async def available_lots(
     tenant_id: str, task_id: str, line_id: str, user: CurrentUser
 ) -> Dict[str, Any]:
     """Lotes que el operario puede elegir para una línea: el stock pickeable ordenado FEFO,
-    restando lo ya escaneado en la línea para no comprometer el mismo lote de más. ``manages_lots``
-    dice si el producto maneja lotes (si es False, la pantalla sigue con el escaneo simple)."""
+    restando lo ya escaneado en cualquier picking abierto (este u otro pedido), para no
+    ofrecer unidades que ya tomó alguien. ``manages_lots`` dice si el producto maneja lotes
+    (si es False, la pantalla sigue con el escaneo simple)."""
     task = await _load_task(tenant_id, task_id)
     _assert_can_operate(task, user)
     line = next((l for l in task["lines"] if l.get("line_id") == line_id), None)
@@ -330,14 +412,16 @@ async def available_lots(
         await inventory_service.available_lots(tenant_id, line["product_id"], task["warehouse_id"])
         if line.get("product_id") else []
     )
-    picked: Dict[Any, float] = {}
-    for s in line.get("scans", []):
-        key = (s.get("location_id"), s.get("lot_number"))
-        picked[key] = picked.get(key, 0) + (s.get("quantity", 0) or 0)
+    taken = (
+        await picking_stock.taken_by_open_picking(
+            tenant_db(tenant_id), line["product_id"], task["warehouse_id"]
+        )
+        if line.get("product_id") else {}
+    )
     out = []
     for l in lots:
-        remaining = (l.get("quantity_on_hand") or 0) - picked.get(
-            (l.get("location_id"), l.get("lot_number")), 0
+        remaining = (l.get("quantity_on_hand") or 0) - taken.get(
+            (l.get("location_id"), l.get("lot_number") or None), 0
         )
         if remaining > 0:
             out.append({**l, "quantity_available": remaining})
@@ -507,7 +591,7 @@ async def complete(
     if pending and not allow_partial:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Hay líneas pendientes. Confirmá el cierre parcial para continuar.",
+            detail="Hay líneas pendientes. Confirme el cierre parcial para continuar.",
         )
 
     # Trazabilidad del faltante: toda línea sin pickear (0) que no esté ya marcada como
@@ -584,6 +668,9 @@ async def complete(
     )
     # Reconciliar cantidades pickeadas + fulfillment en el pedido (fuente de verdad).
     await order_service.reconcile_order_from_picking(tenant_id, task["order_id"], task)
+
+    if has_differences:
+        await picking_stock.alert_shortage_on_close(tenant_id, task)
 
     # Section 8.2: packing becomes available once picking is closed.
     task = await _load_task(tenant_id, task_id)
