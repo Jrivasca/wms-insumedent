@@ -6,6 +6,7 @@ On failure it increments ``attempts`` and reschedules with exponential backoff u
 ``max_attempts`` is exceeded, after which the job is marked ``failed``.
 """
 import asyncio
+import re
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
@@ -25,7 +26,7 @@ from app.integrations.defontana import (
     order_sync,
     product_sync,
 )
-from app.integrations.defontana.client import DefontanaConnector
+from app.integrations.defontana.client import DefontanaApiError, DefontanaConnector
 from app.integrations.defontana.mapper import DefontanaMapper
 
 logger = get_logger("app.workers.sync_worker")
@@ -92,23 +93,58 @@ async def _handle_dispatch_order(job: Dict[str, Any]) -> Dict[str, Any]:
         emission_date=now_utc().date(),
         gloss=(order or {}).get("customer") or "",
     )
-    response = await dispatch_sync.dispatch_save(tenant_id, dispatch_payload)
+    try:
+        response = await dispatch_sync.dispatch_save(tenant_id, dispatch_payload)
+    except DefontanaApiError as exc:
+        # La guía ya existe con este mismo ExternalDocumentID: un intento anterior SÍ la emitió
+        # (pasó el 2026-10-02 con el folio 3737: se reintentó a mano un envío que ya había
+        # salido). No es un error, es la misma guía; se toma su folio del mensaje.
+        existente = _guia_ya_emitida(str(exc))
+        if existente is None:
+            raise
+        response = {"success": True, "firstFolio": existente, "already_existed": True,
+                    "message": str(exc)}
 
+    folio = _folio(response)
     if dispatch_id:
+        cambios: Dict[str, Any] = {
+            "status": DispatchStatus.COMPLETED.value,
+            "erp_dispatch_response": response,
+            "erp_folio": folio,
+            "updated_at": now_utc(),
+        }
         await db[Collections.DISPATCHES].update_one(
             {"_id": to_object_id(dispatch_id), "tenant_id": tenant_id},
-            {
-                "$set": {
-                    "status": DispatchStatus.COMPLETED.value,
-                    "erp_dispatch_response": response,
-                    "updated_at": now_utc(),
-                }
-            },
+            {"$set": cambios},
         )
-    return {
-        "external_document_id": response.get("Folio") or response.get("DispatchGuide"),
-        "response": response,
-    }
+        # El folio que emitió Defontana es el número de guía, salvo que el operario haya
+        # escrito uno al confirmar (guía hecha a mano en el ERP): ese no se pisa.
+        if folio:
+            await db[Collections.DISPATCHES].update_one(
+                {"_id": to_object_id(dispatch_id), "tenant_id": tenant_id,
+                 "guide_number": {"$in": [None, ""]}},
+                {"$set": {"guide_number": folio}},
+            )
+    return {"external_document_id": folio, "response": response}
+
+
+_YA_INGRESADO = re.compile(r"ya fue ingresado.*?Folio:\s*(\d+)", re.IGNORECASE | re.DOTALL)
+
+
+def _guia_ya_emitida(message: str) -> Optional[str]:
+    """Folio de "El ID de documento externo '…' ya fue ingresado. … Folio: 3737", o None."""
+    m = _YA_INGRESADO.search(message)
+    return m.group(1) if m else None
+
+
+def _folio(response: Dict[str, Any]) -> Optional[str]:
+    # Dispatch/Save responde ``firstFolio``/``lastFolio`` (verificado con el folio 3737); el
+    # código leía ``Folio``, que no viene, así que la guía quedaba sin número en el WMS.
+    for key in ("firstFolio", "Folio", "folio", "DispatchGuide"):
+        valor = response.get(key)
+        if valor not in (None, ""):
+            return str(valor)
+    return None
 
 
 async def _handle_create_inventory_document(job: Dict[str, Any]) -> Dict[str, Any]:

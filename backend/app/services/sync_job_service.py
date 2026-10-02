@@ -59,6 +59,13 @@ async def retry(tenant_id: str, job_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Trabajo de sincronización no encontrado")
     if job["status"] == SyncJobStatus.PROCESSING.value:
         raise HTTPException(status_code=409, detail="El trabajo se está procesando actualmente")
+    # Reintentar algo que ya salió bien lo reenvía al ERP. Pasó con una guía: la pantalla
+    # seguía mostrando el error viejo, se reintentó y Defontana la rechazó por repetida.
+    if job["status"] == SyncJobStatus.SUCCESS.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Este envío ya se completó en Defontana: no se reintenta. Recargue la lista.",
+        )
 
     now = now_utc()
     await db[Collections.SYNC_JOBS].update_one(
