@@ -424,10 +424,16 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **Pedidos en móvil (2026-10-02).** En el iPhone, tocar un pedido «no hacía nada»: el
+    detalle se abría **debajo de toda la lista** (grilla de una columna), fuera de la vista.
+    Ahora en pantallas angostas el detalle reemplaza a la lista, sube al inicio y trae
+    «Volver a pedidos». En escritorio sigue lado a lado.
   - **«Bulto 1» se crea solo (2026-10-01).** Antes había que crear el primer bulto a mano
     para poder escanear. Ahora lo crea `start_task`, y el primer escaneo si la tarea no tiene
     ninguno (tareas iniciadas antes del cambio); queda seleccionado. «Otro bulto» abre el 2.º
     en adelante; con varios bultos, escanear sin elegir uno se sigue rechazando.
+    **Desplegado en el droplet el 2026-10-01** (`6f2cac1`, PR #46; respaldo
+    `/root/wms-backups/wms-2026-10-01-1652.*`).
   - **Decidido (2026-10-01): un packing con faltantes queda pendiente.** «Finalizar packing»
     con faltantes respecto a lo pickeado deja la tarea «Con observaciones» **para todos**,
     también supervisor y admin (antes ellos la cerraban en el acto con el mismo botón). Cerrarla
