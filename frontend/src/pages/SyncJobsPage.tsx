@@ -55,6 +55,21 @@ export default function SyncJobsPage() {
     load();
   }, []);
 
+  // Mientras haya envíos en curso, refrescar solo: el worker los procesa en segundo plano y
+  // la lista quedaba con el estado viejo. Así se reintentó una guía que ya se había emitido.
+  const enCurso = jobs.some((j) => ['pending', 'processing', 'retrying'].includes(j.status));
+  useEffect(() => {
+    if (!enCurso) return;
+    const t = window.setInterval(async () => {
+      try {
+        setJobs(await listSyncJobs());
+      } catch {
+        // Un refresco fallido no interrumpe: se reintenta en el siguiente ciclo.
+      }
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [enCurso]);
+
   async function handleRetry(id: string) {
     setBusy(id);
     setError(null);

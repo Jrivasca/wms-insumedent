@@ -424,6 +424,14 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **Folio de la guía y reintentos (2026-10-02, folio 3737 en DEV).** Defontana rechazó una
+    guía por falta de saldo (IVOCLAR017); se cargó el stock y se reintentó: la guía **salió**
+    (3737), pero el WMS no leyó el folio (`Dispatch/Save` responde `firstFolio`; se buscaba
+    `Folio`), el despacho quedó sin número y la cola siguió mostrando el error. Un segundo
+    reintento la reenvió y "ya fue ingresado" quedó como fallo. Ahora: el folio se guarda como
+    número de guía (`erp_folio`; no pisa una guía escrita a mano), "ya fue ingresado … Folio: N"
+    cuenta como la misma guía (éxito), no se puede reintentar un envío exitoso (409) y la Cola
+    de Sincronización se refresca sola mientras hay envíos en curso.
   - **Picking contra el stock real + alertas de quiebre (2026-10-02, observaciones del dueño).**
     Antes el escaneo no validaba stock (salvo lotes, y solo contra la propia tarea) y el cierre
     movía con `allow_negative`: se podía escanear de más y dos pedidos tomaban las mismas
@@ -436,6 +444,8 @@ contratos de datos, pero no se ha mirado en pantalla.
     el stock libre no alcanza, y al cerrarlo incompleto; lleva al pedido (`/orders?pedido=`).
     Pendiente conocido: dos escaneos *simultáneos* de la última unidad podrían pasar ambos (no
     hay bloqueo atómico); el cierre sigue con `allow_negative` como red de seguridad.
+    **#48 y #49 desplegados en el droplet el 2026-10-02** (`ac26eff`; respaldo
+    `/root/wms-backups/wms-2026-10-02-2201.*`).
   - **Pedidos en móvil (2026-10-02).** En el iPhone, tocar un pedido «no hacía nada»: el
     detalle se abría **debajo de toda la lista** (grilla de una columna), fuera de la vista.
     Ahora en pantallas angostas el detalle reemplaza a la lista, sube al inicio y trae
