@@ -215,7 +215,7 @@ export interface Order {
   quotation_number?: string | null;
   /** Código del vendedor en Defontana (sellerID). */
   seller_code?: string | null;
-  erp_comment?: string | null;
+  observations?: string | null;
   lines: OrderLine[];
   /** Estado del pedido en Defontana (p. ej. "EEX (EN_DESPACHO_EN_FACTURACION)"). */
   erp_status?: string | null;
@@ -388,7 +388,7 @@ export interface PickingTask {
     customer?: string | null;
     quotation_number?: string | null;
     seller_code?: string | null;
-    erp_comment?: string | null;
+    observations?: string | null;
   } | null;
   id: string;
   order_id: string;
@@ -460,7 +460,7 @@ export interface PackingTask {
     customer?: string | null;
     quotation_number?: string | null;
     seller_code?: string | null;
-    erp_comment?: string | null;
+    observations?: string | null;
   } | null;
   id: string;
   order_id: string;

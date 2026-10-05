@@ -124,7 +124,7 @@ def order_summary(order: Dict[str, Any]) -> Dict[str, Any]:
         "customer": o.get("customer"),
         "quotation_number": o.get("quotation_number"),
         "seller_code": o.get("seller_code"),
-        "erp_comment": o.get("erp_comment"),
+        "observations": o.get("observations"),
     }
 
 

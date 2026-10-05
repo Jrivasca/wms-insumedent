@@ -774,7 +774,7 @@ export default function OrdersPage() {
                 {selected.erp_status && (
                   <span> · Defontana: {erpOrderStatusLabel(selected.erp_status)}</span>
                 )}
-                <PedidoInfo info={selected} className="mt-1" />
+                <PedidoInfo info={selected} completo className="mt-1" />
               </div>
 
               {selected.erp_attention && (

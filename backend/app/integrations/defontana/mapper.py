@@ -176,13 +176,14 @@ class DefontanaMapper:
 
     @staticmethod
     def order_extra_fields(order: Dict[str, Any]) -> Dict[str, Any]:
-        """Cotización, vendedor y comentario del pedido de Defontana.
+        """Cotización, vendedor y observaciones del pedido de Defontana.
 
         - Cotización: ``referenceNumberPricingID`` es el número de la cotización de la que nace
           el pedido (no es una lista de precios: usarlo como ``priceList`` da "out of range").
         - Vendedor: ``sellerID`` es solo el código; el nombre vive en el módulo de Ventas, que
           no está contratado.
-        - Comentario: en compras públicas trae la referencia de Mercado Público ("…-COT26").
+        - Observaciones: el comentario del pedido. En compras públicas trae el código de lo que
+          se cotizó en Mercado Público ("525800-248-COT26"); interesa tanto como la cotización.
         """
         def limpio(v: Any) -> Optional[str]:
             texto = str(v or "").strip()
@@ -191,7 +192,7 @@ class DefontanaMapper:
         return {
             "quotation_number": limpio(order.get("referenceNumberPricingID")),
             "seller_code": limpio(order.get("sellerID")),
-            "erp_comment": limpio(order.get("comment")),
+            "observations": limpio(order.get("comment")),
         }
 
     @staticmethod

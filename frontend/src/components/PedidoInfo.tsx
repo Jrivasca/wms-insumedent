@@ -4,20 +4,24 @@ export interface PedidoInfoData {
   order_date?: string | null;
   quotation_number?: string | null;
   seller_code?: string | null;
-  erp_comment?: string | null;
+  observations?: string | null;
 }
 
 /**
- * Cotización y vendedor del pedido (y la fecha, si se pide), para las pantallas de detalle.
+ * Cotización, vendedor y observaciones del pedido (y la fecha, si se pide).
  * El vendedor es el código de Defontana: el nombre vive en el módulo de Ventas, no contratado.
+ * Las observaciones traen, en compras públicas, el código de Mercado Público de lo cotizado.
  */
 export default function PedidoInfo({
   info,
   conFecha = false,
+  completo = false,
   className = '',
 }: {
   info?: PedidoInfoData | null;
   conFecha?: boolean;
+  /** Observaciones completas (detalle del pedido); si no, en una línea recortada. */
+  completo?: boolean;
   className?: string;
 }) {
   if (!info) return null;
@@ -37,9 +41,12 @@ export default function PedidoInfo({
   return (
     <div className={`text-xs text-slate-500 ${className}`}>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5">{partes}</div>
-      {info.erp_comment && (
-        <div className="mt-0.5 truncate" title={info.erp_comment}>
-          Comentario: {info.erp_comment}
+      {info.observations && (
+        <div
+          className={completo ? 'mt-0.5 whitespace-pre-line' : 'mt-0.5 truncate'}
+          title={info.observations}
+        >
+          Observaciones: {info.observations}
         </div>
       )}
     </div>

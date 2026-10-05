@@ -21,9 +21,9 @@ RAW = {"number": 2815, "creationDate": "2026-07-07T00:00:00", "sellerID": "11678
 
 def test_mapper_saca_cotizacion_vendedor_y_comentario():
     assert DefontanaMapper.order_extra_fields(RAW) == {
-        "quotation_number": "7942", "seller_code": "11678885-3", "erp_comment": "525800-248-COT26"}
+        "quotation_number": "7942", "seller_code": "11678885-3", "observations": "525800-248-COT26"}
     vacio = DefontanaMapper.order_extra_fields({"referenceNumberPricingID": "", "sellerID": None})
-    assert vacio == {"quotation_number": None, "seller_code": None, "erp_comment": None}
+    assert vacio == {"quotation_number": None, "seller_code": None, "observations": None}
 
 
 async def test_pedidos_sincronizados_antes_los_derivan_del_dato_crudo():

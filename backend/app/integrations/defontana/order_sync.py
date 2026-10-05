@@ -191,7 +191,7 @@ async def sync_orders(
             "delivery_date": mapped.get("delivery_date"),
             "quotation_number": mapped.get("quotation_number"),
             "seller_code": mapped.get("seller_code"),
-            "erp_comment": mapped.get("erp_comment"),
+            "observations": mapped.get("observations"),
             "lines": lines,
             "raw_erp_data": mapped.get("raw_erp_data"),
             "updated_at": now,
