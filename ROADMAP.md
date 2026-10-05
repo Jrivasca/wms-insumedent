@@ -424,6 +424,15 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **Reinicio semanal de QA que también revierte el stock (2026-10-05).** Desde el 2026-09-28 un
+    cron del droplet (solo en el servidor, fuera del repo) borraba los lunes pedidos, tareas y
+    despachos y re-sincronizaba, **sin tocar el inventario**: lo movido por las pruebas quedaba en
+    STAGING/PACKING sin pedido, con saldos negativos (el 2026-10-05: 19 u en STAGING, 7 en
+    PACKING, 5 negativos). Además corrió a las 05:00 de Chile (`CRON_TZ` ignorado). Ahora
+    `app/maintenance/reiniciar_qa.py` revierte con movimientos auditables (mismo lote) los
+    movimientos de picking/packing/despacho antes de borrar, y en modo normal arregla solo los
+    huérfanos; el script está versionado en `deploy/qa/` y filtra la hora de Chile. Pendiente
+    aparte: el movimiento de packing no lleva lote (origen de los negativos en STAGING).
   - **Pedidos nuevos destacados, "no leídos" (2026-10-05, pedido del dueño).** Por usuario, como el
     correo: un pedido queda con punto azul y en negrita hasta que cada usuario lo abre
     (`orders.seen_by`, no sale en la API; la lista expone `unread` y `unread_total`). Los que

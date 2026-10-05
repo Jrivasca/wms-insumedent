@@ -318,6 +318,13 @@ del comando.
 **Encendido al 2026-09-20:** sincronización de pedidos (lun–vie 08:00–19:00) y de stock
 (03:30). Conciliación diaria **apagada** (ver Integración Defontana).
 
+**Reinicio semanal de pruebas (cron del droplet, lunes 08:00 Chile):** como Defontana restaura
+su QA los fines de semana, `/root/wms-reset-pedidos-qa.sh` (versionado en
+`deploy/qa/wms-reset-pedidos-qa.sh`) respalda, **revierte el stock** que movieron las pruebas,
+borra pedidos/tareas/despachos y re-sincroniza (`app/maintenance/reiniciar_qa.py`). El cron corre
+cada hora de los lunes y el script filtra la hora de Chile: `CRON_TZ` no se respeta en ese cron.
+**Quitarlo al terminar la etapa de pruebas.** Si se cambia el script, copiarlo al droplet.
+
 **Encendido al 2026-09-28:** `ERP_SYNC_ENABLED=true` en el droplet → **las guías de despacho
 emiten real** (consumen folio de QA, no se borran). El inventario sigue sin viajar
 (`DEFONTANA_INVENTORY_SYNC_ENABLED` en default `false`). Conciliación sigue apagada.
