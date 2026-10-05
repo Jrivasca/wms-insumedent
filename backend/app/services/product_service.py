@@ -204,6 +204,11 @@ async def create_product(
     if barcode:
         bc_type = BarcodeType.EAN13.value if barcode.isdigit() and len(barcode) == 13 else BarcodeType.INTERNAL.value
         await add_barcode(tenant_id, product_id, barcode, bc_type, actor)
+    else:
+        # Sin código escrito, el WMS le genera el suyo (los códigos son propios del WMS).
+        from app.services.product_import_service import ensure_internal_barcode
+
+        await ensure_internal_barcode(db, tenant_id, product_id, doc["sku"], actor, now_utc())
 
     if sync_erp and settings.erp_sync_enabled:
         await sync_job_service.enqueue(

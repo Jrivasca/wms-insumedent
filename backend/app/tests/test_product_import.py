@@ -38,7 +38,8 @@ async def test_import_creates_then_updates_and_adds_barcode():
          ["SKU-2", "Mascarillas", "", "Insumos"]],
     )
     rep = await product_import_service.import_xlsx(tid, data, actor="u1")
-    assert rep["applied"] and rep["created"] == 2 and rep["barcodes_added"] == 1
+    # SKU-1 trae el suyo; SKU-2 no trae y recibe el EAN-13 interno del WMS.
+    assert rep["applied"] and rep["created"] == 2 and rep["barcodes_added"] == 2
     assert await _product_count(tid) == 2
 
     # Re-import with a changed name and a new barcode -> update, not duplicate.
@@ -236,3 +237,52 @@ async def test_el_tabulador_escapado_de_excel_no_queda_en_el_nombre():
     assert (await db.find_one({"sku": "LIMASK3106"}))["name"] == "LIMAS K 31MM 06 ROGIN"
     # "_x005F_" es el escape del propio "_x": queda el texto literal.
     assert (await db.find_one({"sku": "LIT-1"}))["name"] == "A_x0009_B"
+
+
+# ---------------------------------------------------------------------------
+# Los códigos de barras son del WMS: todo producto recibe su EAN-13 interno
+# ---------------------------------------------------------------------------
+async def _codigos(tid, sku):
+    db = tenant_db(tid)
+    p = await db[Collections.PRODUCTS].find_one({"sku": sku})
+    return [b async for b in db[Collections.BARCODES].find({"product_id": str(p["_id"])})]
+
+
+async def test_el_excel_generico_sin_codigos_genera_el_interno():
+    """2026-10-05: el export de artículos (columnas) no traía códigos y no se generaban."""
+    tid = "tGen"
+    data = _xlsx(["Código", "Nombre"], [["GEN-1", "Producto uno"], ["GEN-2", "Producto dos"]])
+    rep = await product_import_service.import_xlsx(tid, data, actor="u1")
+    assert rep["barcodes_added"] == 2
+    bc = await _codigos(tid, "GEN-1")
+    assert len(bc) == 1 and bc[0]["type"] == "internal" and len(bc[0]["barcode"]) == 13
+    # Re-importar no duplica.
+    rep2 = await product_import_service.import_xlsx(tid, data, actor="u1")
+    assert rep2["barcodes_added"] == 0 and len(await _codigos(tid, "GEN-1")) == 1
+
+
+async def test_si_el_interno_choca_con_otro_usa_una_variante():
+    tid = "tChoque"
+    db = tenant_db(tid)
+    ocupado = product_import_service._internal_ean13("CHOCA")
+    otro = await db[Collections.PRODUCTS].insert_one({"tenant_id": tid, "sku": "OTRO", "name": "x"})
+    await db[Collections.BARCODES].insert_one(
+        {"tenant_id": tid, "product_id": str(otro.inserted_id), "barcode": ocupado})
+    p = await db[Collections.PRODUCTS].insert_one({"tenant_id": tid, "sku": "CHOCA", "name": "y"})
+    assert await product_import_service.ensure_internal_barcode(
+        db, tid, str(p.inserted_id), "CHOCA", "u1", now_utc())
+    bc = await _codigos(tid, "CHOCA")
+    assert len(bc) == 1 and bc[0]["barcode"] != ocupado
+
+
+async def test_mantencion_completa_los_que_no_tienen_codigo():
+    from app.maintenance import generar_codigos_internos
+
+    tid = "tMant"
+    db = tenant_db(tid)
+    for sku in ("M-1", "M-2"):
+        await db[Collections.PRODUCTS].insert_one({"tenant_id": tid, "sku": sku, "name": sku})
+    assert await generar_codigos_internos.main(tid, apply=False) == 0
+    assert len(await generar_codigos_internos.sin_codigo(tid)) == 2
+    assert await generar_codigos_internos.main(tid, apply=True) == 2
+    assert await generar_codigos_internos.sin_codigo(tid) == []

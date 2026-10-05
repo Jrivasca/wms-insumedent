@@ -431,6 +431,12 @@ contratos de datos, pero no se ha mirado en pantalla.
     del nombre quedaba como el texto `_x0009_` (14 productos). Ahora se aplica `unescape`; volver a
     importar el mismo Excel limpia los nombres. Los «181 productos de Defontana que faltaban»
     quedaron en 25, todos sin stock: ya no bloquean.
+    **Códigos de barras: son del WMS** (EAN-13 internos; Defontana no los entrega, confirmado por
+    el dueño). Solo se generaban con el «Informe de Artículos»: el Excel genérico, el alta manual y
+    la sincronización dejaron **126 productos sin código** (124 con stock en Defontana). Ahora todo
+    camino de alta llama a `ensure_internal_barcode` (si el interno choca con otro producto usa una
+    variante, en vez de dejarlo sin código) y `app/maintenance/generar_codigos_internos.py`
+    completa los que falten (dry-run por defecto).
   - **Fecha, cotización, vendedor y observaciones del pedido + paginación de 10 (2026-10-05, pedido
     del dueño).** De `Order/Get`: fecha = `creationDate` (`order_date`); cotización del ERP =
     `referenceNumberPricingID` (`quotation_number`; vacía en 4 de 35); vendedor = `sellerID`
