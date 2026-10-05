@@ -169,7 +169,13 @@ async def get_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str,
     task = await _load_task(tenant_id, task_id)
     user.assert_warehouse_allowed(task.get("warehouse_id"))
     await _ensure_public_tokens(task)  # backfill QR tokens for bultos created before this feature
-    return serialize(task)
+    data = serialize(task)
+    order = await tenant_db(tenant_id)[Collections.ORDERS].find_one(
+        {"_id": to_object_id(task.get("order_id"))}
+    ) if task.get("order_id") else None
+    # Fecha, cotización y vendedor del pedido, para la cabecera de la tarea.
+    data["order_info"] = order_service.order_summary(serialize(order)) if order else None
+    return data
 
 
 async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:

@@ -16,8 +16,11 @@ export async function markAllOrdersRead(): Promise<{ marked: number }> {
   return data;
 }
 
-export async function getOrder(id: string): Promise<Order> {
-  const { data } = await http.get<Order>(`/orders/${id}`);
+/** ``leido``: marcarlo leído para el usuario (solo al abrirlo en Pedidos). */
+export async function getOrder(id: string, opts: { leido?: boolean } = {}): Promise<Order> {
+  const { data } = await http.get<Order>(`/orders/${id}`, {
+    params: opts.leido ? { leido: true } : undefined,
+  });
   return data;
 }
 

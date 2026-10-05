@@ -89,7 +89,17 @@ async def list_tasks(
 async def get_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:
     task = await _load_task(tenant_id, task_id)
     user.assert_warehouse_allowed(task.get("warehouse_id"))
-    return serialize(task)
+    data = serialize(task)
+    data["order_info"] = await _order_info(tenant_id, task.get("order_id"))
+    return data
+
+
+async def _order_info(tenant_id: str, order_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Fecha, cotización y vendedor del pedido, para la cabecera de la tarea."""
+    if not order_id:
+        return None
+    order = await tenant_db(tenant_id)[Collections.ORDERS].find_one({"_id": to_object_id(order_id)})
+    return order_service.order_summary(serialize(order)) if order else None
 
 
 async def start_task(tenant_id: str, task_id: str, user: CurrentUser) -> Dict[str, Any]:

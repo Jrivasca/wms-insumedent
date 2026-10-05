@@ -211,6 +211,11 @@ export interface Order {
   fulfillment?: OrderFulfillment;
   order_date?: string;
   delivery_date?: string;
+  /** Cotización de Defontana de la que nace el pedido (referenceNumberPricingID). */
+  quotation_number?: string | null;
+  /** Código del vendedor en Defontana (sellerID). */
+  seller_code?: string | null;
+  erp_comment?: string | null;
   lines: OrderLine[];
   /** Estado del pedido en Defontana (p. ej. "EEX (EN_DESPACHO_EN_FACTURACION)"). */
   erp_status?: string | null;
@@ -377,6 +382,14 @@ export interface PickingLine {
 }
 
 export interface PickingTask {
+  /** Fecha, cotización y vendedor del pedido (solo en el detalle de la tarea). */
+  order_info?: {
+    order_date?: string | null;
+    customer?: string | null;
+    quotation_number?: string | null;
+    seller_code?: string | null;
+    erp_comment?: string | null;
+  } | null;
   id: string;
   order_id: string;
   erp_order_number?: string;
@@ -441,6 +454,14 @@ export interface PackingLine {
 }
 
 export interface PackingTask {
+  /** Fecha, cotización y vendedor del pedido (solo en el detalle de la tarea). */
+  order_info?: {
+    order_date?: string | null;
+    customer?: string | null;
+    quotation_number?: string | null;
+    seller_code?: string | null;
+    erp_comment?: string | null;
+  } | null;
   id: string;
   order_id: string;
   erp_order_number?: string | null;

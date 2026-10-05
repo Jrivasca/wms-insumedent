@@ -33,6 +33,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
 import { Field, ProductPicker } from '../components/Form';
 import Pager from '../components/Pager';
+import PedidoInfo from '../components/PedidoInfo';
 import ProgressBar from '../components/ProgressBar';
 import SearchInput from '../components/SearchInput';
 import StatusBadge from '../components/StatusBadge';
@@ -56,7 +57,8 @@ function NumeroPedido({ order }: { order: Order }) {
 }
 
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
-const PAGE = 50;
+// 10 por defecto (pedido del dueño): la lista de 50 obligaba a bajar mucho para encontrar algo.
+const TAMANOS_PAGINA = [10, 25, 50];
 
 /** Estados de pedido que acepta el backend para filtrar; los valores no cambian. */
 const ORDER_STATUSES = [
@@ -165,6 +167,7 @@ export default function OrdersPage() {
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState('');
   const [soloNoLeidos, setSoloNoLeidos] = useState(false);
+  const [porPagina, setPorPagina] = useState(10);
   const [noLeidos, setNoLeidos] = useState(0);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Order | null>(null);
@@ -200,7 +203,7 @@ export default function OrdersPage() {
       const [ords, tasks, packs] = await Promise.all([
         listOrders({
           status: status || undefined,
-          limit: PAGE,
+          limit: porPagina,
           offset: off,
           unread: soloNoLeidos || undefined,
         }),
@@ -231,7 +234,7 @@ export default function OrdersPage() {
   useEffect(() => {
     load(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, soloNoLeidos]);
+  }, [status, soloNoLeidos, porPagina]);
 
   async function marcarTodosLeidos() {
     try {
@@ -275,7 +278,7 @@ export default function OrdersPage() {
   async function openDetail(id: string) {
     setNotice(null);
     try {
-      setSelected(await getOrder(id));
+      setSelected(await getOrder(id, { leido: true }));
       // Abrirlo lo marca como leído en el backend: se refleja en la lista sin recargarla.
       if (orders.some((o) => o.id === id && o.unread)) {
         setNoLeidos((n) => Math.max(0, n - 1));
@@ -446,6 +449,13 @@ export default function OrdersPage() {
       key: 'number',
       header: 'N° ERP',
       render: (o) => <NumeroPedido order={o} />,
+    },
+    {
+      key: 'date',
+      header: 'Fecha',
+      render: (o) => (
+        <span className="whitespace-nowrap text-slate-600">{o.order_date ? fmtDate(o.order_date) : '—'}</span>
+      ),
     },
     {
       key: 'customer',
@@ -683,7 +693,7 @@ export default function OrdersPage() {
                             <ErpChangedPill order={o} />
                           </span>
                           <span className="mt-1 block truncate text-xs text-slate-500">
-                            {o.customer || 'Sin cliente'} · {o.lines.length} línea(s)
+                            {o.order_date ? `${fmtDate(o.order_date)} · ` : ''}{o.customer || 'Sin cliente'} · {o.lines.length} línea(s)
                           </span>
                           <span className="mt-1 block">
                             <ProgressBar value={picked} total={required} unit="u" />
@@ -710,12 +720,26 @@ export default function OrdersPage() {
           <div className="mt-3">
             <Pager
               offset={offset}
-              pageSize={PAGE}
+              pageSize={porPagina}
               count={orders.length}
               total={total}
-              onPrev={() => load(Math.max(0, offset - PAGE))}
-              onNext={() => load(offset + PAGE)}
+              onPrev={() => load(Math.max(0, offset - porPagina))}
+              onNext={() => load(offset + porPagina)}
             />
+            <label className="flex items-center justify-end gap-2 text-sm text-slate-500">
+              Pedidos por página
+              <select
+                value={porPagina}
+                onChange={(e) => setPorPagina(Number(e.target.value))}
+                className="input w-20 py-1"
+              >
+                {TAMANOS_PAGINA.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
@@ -750,11 +774,12 @@ export default function OrdersPage() {
                 {selected.erp_status && (
                   <span> · Defontana: {erpOrderStatusLabel(selected.erp_status)}</span>
                 )}
+                <PedidoInfo info={selected} className="mt-1" />
               </div>
 
               {selected.erp_attention && (
                 <div className="mb-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  {selected.erp_attention.reason}. El pedido ya está en preparación: revisa si hay
+                  {selected.erp_attention.reason}. El pedido ya está en preparación: revise si hay
                   que retrocederlo.
                 </div>
               )}
