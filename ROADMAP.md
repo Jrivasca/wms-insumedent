@@ -424,6 +424,13 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **Catálogo: importación del 2026-10-05 revisada.** El dueño importó el export de artículos de
+    Defontana (1428 filas): 0 creados, 1428 «actualizados», pero comparado contra el respaldo previo
+    solo cambiaron 7 campos (5 nombres, 1 categoría, 1 precio): no pisó datos buenos con vacíos.
+    **Bug corregido:** en modo `read_only` openpyxl no deshace los escapes de OOXML y un tabulador
+    del nombre quedaba como el texto `_x0009_` (14 productos). Ahora se aplica `unescape`; volver a
+    importar el mismo Excel limpia los nombres. Los «181 productos de Defontana que faltaban»
+    quedaron en 25, todos sin stock: ya no bloquean.
   - **Fecha, cotización, vendedor y observaciones del pedido + paginación de 10 (2026-10-05, pedido
     del dueño).** De `Order/Get`: fecha = `creationDate` (`order_date`); cotización del ERP =
     `referenceNumberPricingID` (`quotation_number`; vacía en 4 de 35); vendedor = `sellerID`
@@ -434,6 +441,8 @@ contratos de datos, pero no se ha mirado en pantalla.
     (observaciones completas), la cabecera de picking/packing (`order_info`) y Despachos. Pedidos
     pagina de a 10 (selector 10/25/50). Abrir un pedido lo marca leído solo desde Pedidos
     (`?leido=true`).
+    **Desplegado en el droplet el 2026-10-05** (`f55e709`, PR #54; respaldo
+    `/root/wms-backups/wms-2026-10-05-1518.*`): 31 de 35 pedidos con cotización.
   - **Reinicio semanal de QA que también revierte el stock (2026-10-05).** Desde el 2026-09-28 un
     cron del droplet (solo en el servidor, fuera del repo) borraba los lunes pedidos, tareas y
     despachos y re-sincronizaba, **sin tocar el inventario**: lo movido por las pruebas quedaba en

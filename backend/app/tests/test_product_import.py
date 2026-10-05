@@ -205,3 +205,34 @@ def test_internal_ean13_is_valid_and_deterministic():
     # Determinístico por SKU.
     assert f("3M-70-2014-1") == code
     assert f("OTRO-SKU") != code
+
+
+def _con_escape_crudo(data: bytes, marca: str, crudo: str) -> bytes:
+    """Reemplaza ``marca`` por ``crudo`` dentro del XML del .xlsx, como lo deja Excel."""
+    import zipfile
+
+    src = zipfile.ZipFile(io.BytesIO(data))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            contenido = src.read(item.filename)
+            if item.filename.endswith(".xml"):
+                contenido = contenido.replace(marca.encode(), crudo.encode())
+            dst.writestr(item, contenido)
+    return out.getvalue()
+
+
+async def test_el_tabulador_escapado_de_excel_no_queda_en_el_nombre():
+    """2026-10-05: el export de artículos de Defontana trae "_x0009_" (tabulador) y el nombre
+    quedaba "LIMAS K 31MM 06 ROGIN_x0009_"."""
+    tid = "tEsc"
+    data = _xlsx(["Código", "Nombre"], [["LIMASK3106", "LIMAS K 31MM 06 ROGINTABMARCA"],
+                                        ["LIT-1", "LITERALMARCA"]])
+    data = _con_escape_crudo(data, "TABMARCA", "_x0009_")
+    data = _con_escape_crudo(data, "LITERALMARCA", "A_x005F_x0009_B")
+    rep = await product_import_service.import_xlsx(tid, data, actor="u1")
+    assert rep["applied"] and rep["created"] == 2
+    db = tenant_db(tid)[Collections.PRODUCTS]
+    assert (await db.find_one({"sku": "LIMASK3106"}))["name"] == "LIMAS K 31MM 06 ROGIN"
+    # "_x005F_" es el escape del propio "_x": queda el texto literal.
+    assert (await db.find_one({"sku": "LIT-1"}))["name"] == "A_x0009_B"

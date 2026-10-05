@@ -335,10 +335,10 @@ El flujo está construido y desplegado en dev, pero **la bodega todavía no oper
 El procedimiento del corte está en `docs/entregables/Puesta-en-marcha-primera-vez.md`. Estos son
 los pendientes documentados para el corte; verificar su estado actual en el ambiente antes de actuar:
 
-- **181 productos que Defontana tenía y el WMS no en la comparación del 2026-09-19**
-  (`docs/entregables/Productos-Defontana-no-en-WMS-2026-09-19.csv`). Quedan **bloqueados en la
-  conciliación**: su stock no entra, así que no se puede ubicar ni pickear. **Es el primer
-  paso.** Tres tienen stock en camino (102152 CARISTOP 720, DNITTRESM y DNITTRESS, 500 c/u).
+- **Productos de Defontana que el WMS no tenía: resuelto (revisado 2026-10-05).** De la lista del
+  2026-09-19 (`docs/entregables/Productos-Defontana-no-en-WMS-2026-09-19.csv`) quedan 25 sin
+  cargar (fresas KERR y un ULTRA-ETCH), todos con stock 0 y nada por recibir; ningún SKU con stock
+  en la foto de Defontana falta en el WMS. Ya no bloquea la conciliación.
 - **282 filas de conciliación quedaron para revisión en la corrida del 2026-09-19** (más del
   95 % del volumen de esa corrida). La **aprobación en bloque o por selección ya está
   implementada** (2026-09-21); antes del corte hay que consultar de nuevo la vista previa y

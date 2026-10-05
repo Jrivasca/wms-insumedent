@@ -22,6 +22,7 @@ from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
+from openpyxl.utils.escape import unescape
 
 from app.core.logging import get_logger
 from app.core.tenant_db import tenant_db
@@ -146,7 +147,13 @@ def _rows_from_bytes(data: bytes) -> List[Tuple]:
         return _rows_from_html(data)
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb.active
-    rows = [tuple(row) for row in ws.iter_rows(values_only=True)]
+    # En modo read_only openpyxl no deshace los escapes de OOXML: un tabulador en el nombre
+    # llegaba como el texto literal "_x0009_" (14 productos así el 2026-10-05, con el export de
+    # artículos de Defontana). ``unescape`` respeta "_x005F_", el escape del propio "_x".
+    rows = [
+        tuple(unescape(v) if isinstance(v, str) else v for v in row)
+        for row in ws.iter_rows(values_only=True)
+    ]
     wb.close()
     return rows
 
