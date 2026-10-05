@@ -13,6 +13,7 @@ import { errorMessage } from '../api/http';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { ErrorBox, Loading } from '../components/Async';
 import QuantityStepper from '../components/QuantityStepper';
+import PedidoInfo from '../components/PedidoInfo';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
@@ -28,6 +29,7 @@ export default function PackingTaskPage() {
   const supervisor = isSupervisor(currentUser?.role);
 
   const [task, setTask] = useState<PackingTask | null>(null);
+  const [orderInfo, setOrderInfo] = useState<PackingTask['order_info']>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -51,6 +53,8 @@ export default function PackingTaskPage() {
     setError(null);
     try {
       const t = await getPackingTask(id);
+      // Las respuestas del escaneo no traen el pedido: se guarda aparte, una vez.
+      if (t.order_info) setOrderInfo(t.order_info);
       setTask(t);
       if (!activePackage && t.packages.length > 0) {
         setActivePackage(t.packages[t.packages.length - 1].package_id);
@@ -299,6 +303,7 @@ export default function PackingTaskPage() {
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">
         {task.erp_order_number ?? `Pedido ${task.order_id}`}
       </h1>
+      <PedidoInfo info={orderInfo} conFecha className="mt-0.5" />
       <p className="mt-1 text-sm text-slate-500">
         {progress.done} de {progress.lines} líneas empacadas · {task.packages.length} bulto(s)
       </p>

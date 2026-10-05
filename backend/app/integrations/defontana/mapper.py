@@ -169,8 +169,30 @@ class DefontanaMapper:
             "customer": client.get("name") if isinstance(client, dict) else None,
             "order_date": order.get("creationDate") or header.get("creationDate"),
             "delivery_date": order.get("expirationDate"),
+            **DefontanaMapper.order_extra_fields(order),
             "lines": lines,
             "raw_erp_data": {"header": header, "order": order},
+        }
+
+    @staticmethod
+    def order_extra_fields(order: Dict[str, Any]) -> Dict[str, Any]:
+        """Cotización, vendedor y observaciones del pedido de Defontana.
+
+        - Cotización: ``referenceNumberPricingID`` es el número de la cotización de la que nace
+          el pedido (no es una lista de precios: usarlo como ``priceList`` da "out of range").
+        - Vendedor: ``sellerID`` es solo el código; el nombre vive en el módulo de Ventas, que
+          no está contratado.
+        - Observaciones: el comentario del pedido. En compras públicas trae el código de lo que
+          se cotizó en Mercado Público ("525800-248-COT26"); interesa tanto como la cotización.
+        """
+        def limpio(v: Any) -> Optional[str]:
+            texto = str(v or "").strip()
+            return texto or None
+
+        return {
+            "quotation_number": limpio(order.get("referenceNumberPricingID")),
+            "seller_code": limpio(order.get("sellerID")),
+            "observations": limpio(order.get("comment")),
         }
 
     @staticmethod

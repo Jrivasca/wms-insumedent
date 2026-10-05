@@ -19,6 +19,7 @@ import {
 import { errorMessage } from '../api/http';
 import { ErrorBox, Loading } from '../components/Async';
 import QuantityStepper from '../components/QuantityStepper';
+import PedidoInfo from '../components/PedidoInfo';
 import BarcodeScanner, { ScanFeedback } from '../components/BarcodeScanner';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ProgressBar from '../components/ProgressBar';
@@ -33,6 +34,7 @@ export default function PickingTaskPage() {
   const navigate = useNavigate();
 
   const [task, setTask] = useState<PickingTask | null>(null);
+  const [orderInfo, setOrderInfo] = useState<PickingTask['order_info']>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -69,6 +71,8 @@ export default function PickingTaskPage() {
     setError(null);
     try {
       const t = await getPickingTask(id);
+      // Las respuestas del escaneo no traen el pedido: se guarda aparte, una vez.
+      if (t.order_info) setOrderInfo(t.order_info);
       setTask(t);
     } catch (err) {
       setError(errorMessage(err));
@@ -422,6 +426,7 @@ export default function PickingTaskPage() {
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">
         {task.erp_order_number ?? `Pedido ${task.order_id}`}
       </h1>
+      <PedidoInfo info={orderInfo} conFecha className="mt-0.5" />
       {task.is_backorder && (
         <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-amber-800">
           <BackorderBadge sequence={task.sequence} />

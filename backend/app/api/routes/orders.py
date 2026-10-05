@@ -213,8 +213,14 @@ async def update_order(
 
 
 @router.get("/{order_id}")
-async def get_order(order_id: str, user: CurrentUser = Depends(get_current_user)):
-    return await order_service.get_order(user.tenant_id, order_id, seen_by_user=user.id)
+async def get_order(
+    order_id: str, leido: bool = False, user: CurrentUser = Depends(get_current_user)
+):
+    # Solo abrir el pedido en Pedidos lo marca leído (``?leido=true``); otras pantallas que lo
+    # consultan (etiquetas de bulto, despacho) no deben quitarle el "nuevo".
+    return await order_service.get_order(
+        user.tenant_id, order_id, seen_by_user=user.id if leido else None
+    )
 
 
 @router.post("/{order_id}/create-picking", status_code=201)

@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from app.core.config import settings
 from app.core.tenant_db import tenant_db
 from app.core.utils import now_utc, page, serialize, to_object_id
+from app.integrations.defontana.mapper import DefontanaMapper
 from app.models import Collections
 from app.models.location import NON_PICKABLE_LOCATION_TYPES
 from app.models.order import OrderFulfillment, OrderLineStatus, OrderStatus
@@ -103,11 +104,28 @@ async def _default_warehouse_id(tenant_id: str) -> Optional[str]:
 
 
 def _with_unread(order: Dict[str, Any], user_id: Optional[str]) -> Dict[str, Any]:
-    """``unread`` para quien consulta; ``seen_by`` (ids de usuarios) no sale de la API."""
+    """``unread`` para quien consulta; ``seen_by`` (ids de usuarios) no sale de la API.
+    Completa también cotización/vendedor/comentario en pedidos sincronizados antes de que se
+    guardaran como campos propios."""
     seen = order.pop("seen_by", None) or []
     if user_id:
         order["unread"] = user_id not in seen
+    if "quotation_number" not in order:
+        raw = ((order.get("raw_erp_data") or {}).get("order")) or {}
+        order.update(DefontanaMapper.order_extra_fields(raw))
     return order
+
+
+def order_summary(order: Dict[str, Any]) -> Dict[str, Any]:
+    """Lo que las pantallas de picking/packing muestran del pedido."""
+    o = _with_unread(dict(order), None)
+    return {
+        "order_date": o.get("order_date"),
+        "customer": o.get("customer"),
+        "quotation_number": o.get("quotation_number"),
+        "seller_code": o.get("seller_code"),
+        "observations": o.get("observations"),
+    }
 
 
 async def list_orders(

@@ -9,6 +9,7 @@ import { Empty, ErrorBox, LoadingRows, PageHeader } from '../components/Async';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DataTable, { MobileCardList, type Column } from '../components/DataTable';
 import Pager from '../components/Pager';
+import PedidoInfo from '../components/PedidoInfo';
 import StatusBadge from '../components/StatusBadge';
 import { errorDeCantidad, unidadesEnteras } from '../lib/cantidades';
 import { useBanderasErp } from '../lib/erp';
@@ -293,6 +294,7 @@ export default function DispatchPage() {
                     </span>{' '}
                     ítems por despachar
                   </p>
+                  <PedidoInfo info={o} conFecha className="mt-0.5" />
                 </div>
                 {activeOrder === o.id ? null : (
                   <div className="flex flex-wrap gap-2">
