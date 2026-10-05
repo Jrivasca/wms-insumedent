@@ -424,6 +424,12 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **Pedidos nuevos destacados, "no leídos" (2026-10-05, pedido del dueño).** Por usuario, como el
+    correo: un pedido queda con punto azul y en negrita hasta que cada usuario lo abre
+    (`orders.seen_by`, no sale en la API; la lista expone `unread` y `unread_total`). Los que
+    llegan de Defontana quedan no leídos para todos; el que se crea a mano no le aparece como
+    nuevo a quien lo creó. En Pedidos: contador «N sin leer», filtro «Solo no leídos» y
+    «Marcar todos como leídos» (`POST /orders/mark-all-read`).
   - **Folio de la guía y reintentos (2026-10-02, folio 3737 en DEV).** Defontana rechazó una
     guía por falta de saldo (IVOCLAR017); se cargó el stock y se reintentó: la guía **salió**
     (3737), pero el WMS no leyó el folio (`Dispatch/Save` responde `firstFolio`; se buscaba
@@ -432,6 +438,8 @@ contratos de datos, pero no se ha mirado en pantalla.
     número de guía (`erp_folio`; no pisa una guía escrita a mano), "ya fue ingresado … Folio: N"
     cuenta como la misma guía (éxito), no se puede reintentar un envío exitoso (409) y la Cola
     de Sincronización se refresca sola mientras hay envíos en curso.
+    **Desplegado en el droplet el 2026-10-02** (`0e4f8bb`, PR #50; respaldo
+    `/root/wms-backups/wms-2026-10-02-2230.*`).
   - **Picking contra el stock real + alertas de quiebre (2026-10-02, observaciones del dueño).**
     Antes el escaneo no validaba stock (salvo lotes, y solo contra la propia tarea) y el cierre
     movía con `allow_negative`: se podía escanear de más y dos pedidos tomaban las mismas

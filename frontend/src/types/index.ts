@@ -204,6 +204,8 @@ export interface OrderLine {
 export interface Order {
   id: string;
   erp_order_number: string;
+  /** No abierto todavía por el usuario actual (como un correo no leído). */
+  unread?: boolean;
   customer: string;
   status: OrderStatus;
   fulfillment?: OrderFulfillment;

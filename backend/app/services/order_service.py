@@ -102,25 +102,53 @@ async def _default_warehouse_id(tenant_id: str) -> Optional[str]:
     return str(warehouse["_id"]) if warehouse else None
 
 
+def _with_unread(order: Dict[str, Any], user_id: Optional[str]) -> Dict[str, Any]:
+    """``unread`` para quien consulta; ``seen_by`` (ids de usuarios) no sale de la API."""
+    seen = order.pop("seen_by", None) or []
+    if user_id:
+        order["unread"] = user_id not in seen
+    return order
+
+
 async def list_orders(
     tenant_id: str,
     status_filter: Optional[str] = None,
     limit: int = 500,
     offset: int = 0,
+    user_id: Optional[str] = None,
+    unread_only: bool = False,
 ) -> Dict[str, Any]:
     db = tenant_db(tenant_id)
     query: Dict[str, Any] = {"tenant_id": tenant_id}
     if status_filter:
         query["status"] = status_filter
+    # "No leído" es por usuario, como el correo: un pedido sigue destacado para cada uno
+    # hasta que lo abre. La notificación sola se perdía entre las demás.
+    if unread_only and user_id:
+        query["seen_by"] = {"$ne": user_id}
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     total = await db[Collections.ORDERS].count_documents(query)
     cursor = (
         db[Collections.ORDERS].find(query).sort("created_at", -1).skip(offset).limit(limit)
     )
-    items = [serialize(o) for o in await cursor.to_list(length=limit)]
+    items = [_with_unread(serialize(o), user_id) for o in await cursor.to_list(length=limit)]
     await _add_live_progress(db, tenant_id, items)
-    return page(items, total, limit, offset)
+    result = page(items, total, limit, offset)
+    if user_id:
+        result["unread_total"] = await db[Collections.ORDERS].count_documents(
+            {"tenant_id": tenant_id, "seen_by": {"$ne": user_id}}
+        )
+    return result
+
+
+async def mark_all_read(tenant_id: str, user_id: str) -> Dict[str, Any]:
+    db = tenant_db(tenant_id)
+    res = await db[Collections.ORDERS].update_many(
+        {"tenant_id": tenant_id, "seen_by": {"$ne": user_id}},
+        {"$addToSet": {"seen_by": user_id}},
+    )
+    return {"marked": res.modified_count}
 
 
 async def _add_live_progress(
@@ -166,14 +194,23 @@ async def _add_live_progress(
                     ol[destino] = avance
 
 
-async def get_order(tenant_id: str, order_id: str) -> Dict[str, Any]:
+async def get_order(
+    tenant_id: str, order_id: str, seen_by_user: Optional[str] = None
+) -> Dict[str, Any]:
+    """``seen_by_user``: quien abre el pedido en pantalla; deja de estar "no leído" para él.
+    Los usos internos (servicios, tests) no lo pasan y no marcan nada."""
     db = tenant_db(tenant_id)
     order = await db[Collections.ORDERS].find_one(
         {"_id": to_object_id(order_id), "tenant_id": tenant_id}
     )
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
-    data = serialize(order)
+    if seen_by_user and seen_by_user not in (order.get("seen_by") or []):
+        await db[Collections.ORDERS].update_one(
+            {"_id": order["_id"]}, {"$addToSet": {"seen_by": seen_by_user}}
+        )
+        order["seen_by"] = [*(order.get("seen_by") or []), seen_by_user]
+    data = _with_unread(serialize(order), seen_by_user)
     await _add_live_progress(db, tenant_id, [data])
     return data
 
@@ -248,6 +285,8 @@ async def create_order_from_lines(
         "created_at": now,
         "updated_at": now,
         "created_by": created_by,
+        # Quien lo crea a mano ya lo conoce: no le aparece como nuevo.
+        "seen_by": [created_by],
     }
     result = await db[Collections.ORDERS].insert_one(doc)
     doc["_id"] = result.inserted_id

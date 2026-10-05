@@ -19,6 +19,7 @@ import {
   getOrder,
   listOrders,
   reopenPacking,
+  markAllOrdersRead,
   reopenPicking,
   updateOrder,
 } from '../api/orders';
@@ -41,6 +42,18 @@ import { ERP_CREATE_ENABLED, PDF_IMPORT_ENABLED } from '../config';
 import { can } from '../permissions';
 import { useAuth } from '../store/auth';
 import type { Order, PickingTask, Product } from '../types';
+
+/** N° de pedido; si el usuario no lo ha abierto, con el punto de "no leído". */
+function NumeroPedido({ order }: { order: Order }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {order.unread && (
+        <span className="h-2 w-2 shrink-0 rounded-full bg-sky-500" aria-label="No leído" title="No leído" />
+      )}
+      <span className="code-strong">{order.erp_order_number}</span>
+    </span>
+  );
+}
 
 const CLOSED_PICKING = ['completed', 'completed_with_differences', 'cancelled'];
 const PAGE = 50;
@@ -151,6 +164,8 @@ export default function OrdersPage() {
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState('');
+  const [soloNoLeidos, setSoloNoLeidos] = useState(false);
+  const [noLeidos, setNoLeidos] = useState(0);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -183,12 +198,18 @@ export default function OrdersPage() {
     setError(null);
     try {
       const [ords, tasks, packs] = await Promise.all([
-        listOrders({ status: status || undefined, limit: PAGE, offset: off }),
+        listOrders({
+          status: status || undefined,
+          limit: PAGE,
+          offset: off,
+          unread: soloNoLeidos || undefined,
+        }),
         listPickingTasks().catch(() => null),
         listPackingTasks().catch(() => null),
       ]);
       setOrders(ords.items);
       setTotal(ords.total);
+      setNoLeidos(ords.unread_total ?? 0);
       setOffset(off);
       const map: Record<string, PickingTask> = {};
       for (const t of tasks?.items ?? []) {
@@ -210,7 +231,18 @@ export default function OrdersPage() {
   useEffect(() => {
     load(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, soloNoLeidos]);
+
+  async function marcarTodosLeidos() {
+    try {
+      await markAllOrdersRead();
+      setOrders((os) => os.map((o) => ({ ...o, unread: false })));
+      setNoLeidos(0);
+      if (soloNoLeidos) load(0);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
 
   useEffect(() => {
     // Aviso de éxito traído desde el flujo de importación por PDF.
@@ -244,6 +276,11 @@ export default function OrdersPage() {
     setNotice(null);
     try {
       setSelected(await getOrder(id));
+      // Abrirlo lo marca como leído en el backend: se refleja en la lista sin recargarla.
+      if (orders.some((o) => o.id === id && o.unread)) {
+        setNoLeidos((n) => Math.max(0, n - 1));
+        setOrders((os) => os.map((o) => (o.id === id ? { ...o, unread: false } : o)));
+      }
       // En móvil la lista y el detalle no caben lado a lado: el detalle reemplaza a la
       // lista y hay que subir, o el toque "no hace nada" (el detalle quedaba bajo la lista).
       if (window.matchMedia('(max-width: 1023px)').matches) window.scrollTo({ top: 0 });
@@ -408,7 +445,7 @@ export default function OrdersPage() {
     {
       key: 'number',
       header: 'N° ERP',
-      render: (o) => <span className="code-strong">{o.erp_order_number}</span>,
+      render: (o) => <NumeroPedido order={o} />,
     },
     {
       key: 'customer',
@@ -581,6 +618,27 @@ export default function OrdersPage() {
             />
           </div>
 
+          {/* Como el correo: lo nuevo queda destacado hasta que cada usuario lo abre. */}
+          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <span className={noLeidos > 0 ? 'font-semibold text-sky-800' : 'text-slate-500'}>
+              {noLeidos > 0 ? `${noLeidos} sin leer` : 'Todo leído'}
+            </span>
+            <label className="flex items-center gap-2 text-slate-600">
+              <input
+                type="checkbox"
+                checked={soloNoLeidos}
+                onChange={(e) => setSoloNoLeidos(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-brand"
+              />
+              Solo no leídos
+            </label>
+            {noLeidos > 0 && (
+              <button onClick={marcarTodosLeidos} className="text-xs font-medium text-brand hover:underline">
+                Marcar todos como leídos
+              </button>
+            )}
+          </div>
+
           {loading ? (
             <LoadingRows />
           ) : shown.length === 0 ? (
@@ -600,7 +658,9 @@ export default function OrdersPage() {
                   rows={shown}
                   keyOf={(o) => o.id}
                   onRowClick={(o) => openDetail(o.id)}
-                  rowClassName={(o) => (selected?.id === o.id ? 'bg-brand-soft' : undefined)}
+                  rowClassName={(o) =>
+                    selected?.id === o.id ? 'bg-brand-soft' : o.unread ? 'bg-sky-50/60 font-semibold' : undefined
+                  }
                 />
               </div>
               <div className="lg:hidden">
@@ -617,7 +677,7 @@ export default function OrdersPage() {
                       >
                         <span className="min-w-0 flex-1">
                           <span className="flex flex-wrap items-center gap-2">
-                            <span className="code-strong">{o.erp_order_number}</span>
+                            <NumeroPedido order={o} />
                             <StatusBadge status={o.status} />
                             <PartialPill order={o} />
                             <ErpChangedPill order={o} />

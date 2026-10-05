@@ -5,8 +5,14 @@ export async function listOrders(params?: {
   status?: string;
   limit?: number;
   offset?: number;
-}): Promise<Page<Order>> {
-  const { data } = await http.get<Page<Order>>('/orders', { params });
+  unread?: boolean;
+}): Promise<Page<Order> & { unread_total?: number }> {
+  const { data } = await http.get<Page<Order> & { unread_total?: number }>('/orders', { params });
+  return data;
+}
+
+export async function markAllOrdersRead(): Promise<{ marked: number }> {
+  const { data } = await http.post<{ marked: number }>('/orders/mark-all-read');
   return data;
 }
 

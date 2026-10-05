@@ -29,9 +29,18 @@ async def list_orders(
     status: Optional[str] = None,
     limit: int = 500,
     offset: int = 0,
+    unread: bool = False,
     user: CurrentUser = Depends(get_current_user),
 ):
-    return await order_service.list_orders(user.tenant_id, status, limit, offset)
+    return await order_service.list_orders(
+        user.tenant_id, status, limit, offset, user_id=user.id, unread_only=unread
+    )
+
+
+# Antes de "/{order_id}" por la misma razón que "/completable".
+@router.post("/mark-all-read")
+async def mark_all_read(user: CurrentUser = Depends(get_current_user)):
+    return await order_service.mark_all_read(user.tenant_id, user.id)
 
 
 # Declarada antes de "/{order_id}" para que "completable" no se tome como un id.
@@ -205,7 +214,7 @@ async def update_order(
 
 @router.get("/{order_id}")
 async def get_order(order_id: str, user: CurrentUser = Depends(get_current_user)):
-    return await order_service.get_order(user.tenant_id, order_id)
+    return await order_service.get_order(user.tenant_id, order_id, seen_by_user=user.id)
 
 
 @router.post("/{order_id}/create-picking", status_code=201)
