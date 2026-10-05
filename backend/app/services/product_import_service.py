@@ -22,6 +22,7 @@ from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
+from openpyxl.utils.escape import unescape
 
 from app.core.logging import get_logger
 from app.core.tenant_db import tenant_db
@@ -146,7 +147,13 @@ def _rows_from_bytes(data: bytes) -> List[Tuple]:
         return _rows_from_html(data)
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb.active
-    rows = [tuple(row) for row in ws.iter_rows(values_only=True)]
+    # En modo read_only openpyxl no deshace los escapes de OOXML: un tabulador en el nombre
+    # llegaba como el texto literal "_x0009_" (14 productos así el 2026-10-05, con el export de
+    # artículos de Defontana). ``unescape`` respeta "_x005F_", el escape del propio "_x".
+    rows = [
+        tuple(unescape(v) if isinstance(v, str) else v for v in row)
+        for row in ws.iter_rows(values_only=True)
+    ]
     wb.close()
     return rows
 
@@ -292,16 +299,12 @@ async def import_xlsx(tenant_id: str, data: bytes, actor: str, source: str = "up
         if barcode not in (None, ""):
             if await _add_barcode(db, tenant_id, product_id, str(barcode).strip(), actor, now):
                 barcodes_added += 1
-        elif rec.get("_gen_barcode"):
-            # Solo si el producto aún no tiene NINGÚN código de barras (idempotente).
-            has_bc = await db[Collections.BARCODES].find_one(
-                {"tenant_id": tenant_id, "product_id": product_id}, {"_id": 1}
-            )
-            if not has_bc and await _add_barcode(
-                db, tenant_id, product_id, _internal_ean13(rec["sku"]), actor, now,
-                bc_type=BarcodeType.INTERNAL.value, barcode_source=BarcodeSource.GENERATED.value,
-            ):
-                barcodes_added += 1
+        elif await ensure_internal_barcode(db, tenant_id, product_id, rec["sku"], actor, now):
+            # Los códigos de barras son del WMS (Defontana no los entrega): todo producto sin
+            # ninguno recibe su EAN-13 interno, venga el Excel en el formato que venga. Antes
+            # solo se generaba con el "Informe de Artículos"; el export genérico dejó 126
+            # productos sin código (2026-10-05).
+            barcodes_added += 1
 
     report = {"applied": True, "rows": len(records), "created": created,
               "updated": updated, "barcodes_added": barcodes_added, "rejected": []}
@@ -348,6 +351,28 @@ async def _upsert_product(db, tenant_id: str, rec: Dict[str, Any], actor: str, n
     })
     result = await db[Collections.PRODUCTS].insert_one(doc)
     return "created", str(result.inserted_id)
+
+
+async def ensure_internal_barcode(db, tenant_id: str, product_id: str, sku: str, actor: str,
+                                  now) -> bool:
+    """Da al producto su EAN-13 interno si no tiene ningún código. Idempotente.
+
+    El interno sale del SKU (determinístico: re-importar no duplica). Si ese número ya es de
+    otro producto, se prueba una variante ("sku#1", "sku#2"…) en vez de dejarlo sin código,
+    que es lo que pasaba: ``_add_barcode`` descartaba el repetido en silencio.
+    """
+    if await db[Collections.BARCODES].find_one(
+        {"tenant_id": tenant_id, "product_id": product_id}, {"_id": 1}
+    ):
+        return False
+    for intento in range(20):
+        semilla = sku if intento == 0 else f"{sku}#{intento}"
+        if await _add_barcode(
+            db, tenant_id, product_id, _internal_ean13(semilla), actor, now,
+            bc_type=BarcodeType.INTERNAL.value, barcode_source=BarcodeSource.GENERATED.value,
+        ):
+            return True
+    return False
 
 
 async def _add_barcode(db, tenant_id: str, product_id: str, barcode: str, actor: str, now,

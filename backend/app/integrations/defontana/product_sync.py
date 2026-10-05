@@ -84,8 +84,14 @@ async def sync_products(tenant_id: str, actor: str = "system") -> Dict[str, Any]
         else:
             doc["created_at"] = now
             doc["created_by"] = actor
-            await db[Collections.PRODUCTS].insert_one(doc)
+            res = await db[Collections.PRODUCTS].insert_one(doc)
             created += 1
+            # Los códigos de barras son del WMS: el producto nace con su EAN-13 interno.
+            from app.services.product_import_service import ensure_internal_barcode
+
+            await ensure_internal_barcode(
+                db, tenant_id, str(res.inserted_id), doc.get("sku") or "", actor, now
+            )
 
     await db[Collections.ERP_BATCHES].delete_many({})
     if batches:
