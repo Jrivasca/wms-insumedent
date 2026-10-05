@@ -132,3 +132,76 @@ async def test_con_lote_tambien_vuelve_y_no_quedan_negativos():
     despues = await _saldos(s.tenant_id)
     assert _iguales(antes, despues)
     assert all(q >= 0 for q in despues.values())
+
+
+# ---------------------------------------------------------------------------
+# Vaciar operativas (el caso del 2026-10-05, con correcciones manuales entre medio)
+# ---------------------------------------------------------------------------
+async def _ubic(db, warehouse_id, tipo):
+    loc = await db[Collections.LOCATIONS].find_one({"warehouse_id": warehouse_id, "type": tipo})
+    return str(loc["_id"])
+
+
+async def _poner(db, tenant_id, pid, wh, loc, lot, q):
+    await db[Collections.INVENTORY_BALANCES].insert_one(
+        {"tenant_id": tenant_id, "product_id": pid, "warehouse_id": wh, "location_id": loc,
+         "lot_number": lot, "quantity_on_hand": q, "quantity_reserved": 0, "quantity_blocked": 0}
+    )
+
+
+async def test_vaciar_operativas_deja_todo_en_cero():
+    tenant_id = (await run_seed())["tenant_id"]
+    db = tenant_db(tenant_id)
+    wh = str((await db[Collections.WAREHOUSES].find_one({}))["_id"])
+    staging = await _ubic(db, wh, "staging")
+    packing = await _ubic(db, wh, "packing")
+    origen = await _ubic(db, wh, "storage")
+    prods = [str(p["_id"]) async for p in db[Collections.PRODUCTS].find({}).limit(4)]
+    for pid in prods:
+        await db[Collections.INVENTORY_BALANCES].delete_many({"product_id": pid})
+    a, b, c, d = prods
+    # a: el bug del lote (+30 con lote / −30 sin lote): se cuadra sin mover cantidades.
+    await _poner(db, tenant_id, a, wh, staging, "L1", 30)
+    await _poner(db, tenant_id, a, wh, staging, None, -30)
+    # b: quedó pickeado sin pedido: vuelve al origen.
+    await _poner(db, tenant_id, b, wh, staging, "L2", 6)
+    await _poner(db, tenant_id, b, wh, origen, "L2", 10)
+    # c: quedó empacado sin pedido: vuelve al origen.
+    await _poner(db, tenant_id, c, wh, packing, None, 2)
+    # d: negativo suelto (la corrección manual ya devolvió de más): se repone desde el origen.
+    await _poner(db, tenant_id, d, wh, staging, None, -1)
+    await _poner(db, tenant_id, d, wh, origen, "L4", 3)
+
+    plan = await reiniciar_qa.plan_vaciar(tenant_id)
+    assert plan["sin_resolver"] == []
+    await reiniciar_qa.vaciar(tenant_id, plan["acciones"])
+
+    s = await _saldos(tenant_id)
+    for (loc, pid, _lot), q in s.items():
+        if loc in (staging, packing) and pid in prods:
+            assert abs(q) < 1e-9, (loc, pid, _lot, q)
+    assert s[(origen, b, "L2")] == 16
+    assert s[(origen, c, None)] == 2
+    assert s[(origen, d, "L4")] == 2  # repuso 1
+    # Todo quedó con movimiento (nada de cambios de saldo sin rastro).
+    assert await db[Collections.INVENTORY_MOVEMENTS].count_documents(
+        {"reference_type": "mantencion"}) >= 6
+    # Idempotente: una segunda pasada no tiene nada que hacer.
+    assert (await reiniciar_qa.plan_vaciar(tenant_id))["acciones"] == []
+
+
+async def test_no_revierte_si_dejaria_negativos():
+    """Caso DAGUJA011: el despacho se corrigió a mano después; revertir daría −18."""
+    tenant_id = (await run_seed())["tenant_id"]
+    admin = await _admin()
+    oid, (sku0, sku1) = await _drive_to_ready(tenant_id, admin, [2, 1])
+    db = tenant_db(tenant_id)
+    # Corrección manual: alguien vació a mano el packing (sin pasar por la reversa).
+    await db[Collections.INVENTORY_BALANCES].update_many(
+        {"location_id": await _ubic(db, (await db[Collections.WAREHOUSES].find_one({}))["_id"].__str__(), "packing")},
+        {"$set": {"quantity_on_hand": 0}},
+    )
+    for col in reiniciar_qa.COLECCIONES_PEDIDOS:
+        await db[col].delete_many({})
+    movs = await reiniciar_qa.movimientos_a_revertir(tenant_id, solo_huerfanos=True)
+    assert await reiniciar_qa.negativos_tras_revertir(tenant_id, movs)
