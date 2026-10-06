@@ -13,7 +13,7 @@ from app.models.notification import NotificationType
 from app.models.order import OrderStatus
 from app.models.packing import PackingTaskStatus
 from app.models.sync_job import SyncJobType
-from app.services import inventory_service, notification_service, sync_job_service
+from app.services import inventory_service, notification_service, packing_service, sync_job_service
 
 
 async def list_dispatches(
@@ -264,18 +264,25 @@ async def confirm_dispatch(
     packing_loc = await _location_id_by_type(tenant_id, warehouse_id, "packing")
     for dl in dispatch["lines"]:
         if dl["product_id"] and dl["quantity"] > 0 and warehouse_id:
-            await inventory_service.register_operational_move(
-                tenant_id=tenant_id,
-                movement_type=MovementType.DISPATCH.value,
-                product_id=dl["product_id"],
-                warehouse_id=warehouse_id,
-                quantity=dl["quantity"],
-                from_location_id=packing_loc,
-                to_location_id=None,
-                reference_type=ReferenceType.DISPATCH.value,
-                reference_id=dispatch_id,
-                created_by=user.id,
-            )
+            # Con el lote de la guía (``dl["lots"]``, FEFO desde lo pickeado): el packing deja
+            # cada unidad en PACKING con su lote; sacarla sin lote dejaba la fila con lote
+            # inflada y la sin lote negativa. Lo que no tenga lote sale sin lote.
+            lotes = [(l.get("lot_number"), l.get("expiration_date"), l.get("quantity", 0) or 0)
+                     for l in (dl.get("lots") or [])]
+            for lot, _exp, q in packing_service._repartir_por_lote(dl["quantity"], lotes):
+                await inventory_service.register_operational_move(
+                    tenant_id=tenant_id,
+                    movement_type=MovementType.DISPATCH.value,
+                    product_id=dl["product_id"],
+                    warehouse_id=warehouse_id,
+                    quantity=q,
+                    from_location_id=packing_loc,
+                    to_location_id=None,
+                    reference_type=ReferenceType.DISPATCH.value,
+                    reference_id=dispatch_id,
+                    created_by=user.id,
+                    lot_number=lot,
+                )
 
     # Acumular lo despachado en el pedido (cantidad y desglose de lote, para que una segunda
     # guía del mismo pedido consuma los lotes que quedan sin repetir los ya despachados).
