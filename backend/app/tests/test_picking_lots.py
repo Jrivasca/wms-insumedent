@@ -183,3 +183,49 @@ async def test_erp_lots_lista_los_lotes_de_referencia_de_defontana():
     ])
     res = await picking_service.erp_lots(s.tenant_id, s.task_id, s.line_id, s.picker)
     assert [l["lot_number"] for l in res["lots"]] == ["ERP-1", "ERP-2"]  # FEFO
+
+
+async def _saldos_de(s, tipo):
+    loc = await s.db[Collections.LOCATIONS].find_one({"warehouse_id": s.warehouse_id, "type": tipo})
+    return {
+        b.get("lot_number"): b.get("quantity_on_hand", 0)
+        async for b in s.db[Collections.INVENTORY_BALANCES].find(
+            {"product_id": s.product_id, "location_id": str(loc["_id"])})
+        if b.get("quantity_on_hand")
+    }
+
+
+async def test_el_lote_viaja_en_el_stock_por_staging_packing_y_despacho():
+    """2026-10-05: packing y despacho movían sin lote y quedaban +q con lote / −q sin lote."""
+    s = await _setup()
+    admin = make_user({"_id": "admin-1", "tenant_id": s.tenant_id, "role": "admin"})
+    order = await s.db[Collections.ORDERS].find_one({"erp_order_number": "9101"})
+
+    await picking_service.scan(s.tenant_id, s.task_id, s.picker, s.bc, 3, s.loc_id, "LOTE-B")
+    await picking_service.complete(s.tenant_id, s.task_id, s.picker)
+    assert await _saldos_de(s, "staging") == {"LOTE-B": 3}
+
+    pk = (await packing_service.list_tasks(s.tenant_id, admin))["items"][0]
+    await packing_service.start_task(s.tenant_id, pk["id"], admin)
+    pkg = (await packing_service.create_package(s.tenant_id, pk["id"], admin, None))["package_id"]
+    await packing_service.scan(s.tenant_id, pk["id"], admin, s.bc, 3, pkg)
+    await packing_service.complete(s.tenant_id, pk["id"], admin)
+    assert await _saldos_de(s, "staging") == {}          # nada de +3 lote / −3 sin lote
+    assert await _saldos_de(s, "packing") == {"LOTE-B": 3}
+
+    await dispatch_service.confirm_dispatch(s.tenant_id, str(order["_id"]), admin)
+    assert await _saldos_de(s, "packing") == {}
+
+
+async def test_packing_parcial_deja_en_staging_el_mismo_lote():
+    s = await _setup()
+    admin = make_user({"_id": "admin-1", "tenant_id": s.tenant_id, "role": "admin"})
+    await picking_service.scan(s.tenant_id, s.task_id, s.picker, s.bc, 3, s.loc_id, "LOTE-B")
+    await picking_service.complete(s.tenant_id, s.task_id, s.picker)
+    pk = (await packing_service.list_tasks(s.tenant_id, admin))["items"][0]
+    await packing_service.start_task(s.tenant_id, pk["id"], admin)
+    pkg = (await packing_service.create_package(s.tenant_id, pk["id"], admin, None))["package_id"]
+    await packing_service.scan(s.tenant_id, pk["id"], admin, s.bc, 2, pkg)
+    await packing_service.complete(s.tenant_id, pk["id"], admin, force_close=True)
+    assert await _saldos_de(s, "staging") == {"LOTE-B": 1}
+    assert await _saldos_de(s, "packing") == {"LOTE-B": 2}

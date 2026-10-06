@@ -424,6 +424,12 @@ contratos de datos, pero no se ha mirado en pantalla.
     borró en el droplet los 8 movimientos y los 2 saldos del `product_id` inexistente
     (`000000000000000000000000`); no tenían jobs de sincronización asociados. Respaldo previo
     en `/root/wms-backups/wms-2026-09-30-1538-pre-limpieza.dump`.
+  - **El lote viaja también en packing y despacho (2026-10-06).** El picking dejaba cada unidad en
+    STAGING con su lote, pero el packing (STAGING→PACKING) y el despacho (PACKING→salida) movían
+    **sin lote**: quedaba +q en la fila con lote y −q en la sin lote (los negativos de STAGING del
+    2026-10-05). Ahora el packing reparte lo empacado FEFO entre los lotes que pickeó su tarea de
+    picking de origen (`picking_task_id`), y el despacho mueve según los lotes de la guía
+    (`lines[].lots`); lo que no tenga lote sale sin lote. Reabrir/anular revierte con el mismo lote.
   - **Catálogo: importación del 2026-10-05 revisada.** El dueño importó el export de artículos de
     Defontana (1428 filas): 0 creados, 1428 «actualizados», pero comparado contra el respaldo previo
     solo cambiaron 7 campos (5 nombres, 1 categoría, 1 precio): no pisó datos buenos con vacíos.
@@ -437,6 +443,8 @@ contratos de datos, pero no se ha mirado en pantalla.
     camino de alta llama a `ensure_internal_barcode` (si el interno choca con otro producto usa una
     variante, en vez de dejarlo sin código) y `app/maintenance/generar_codigos_internos.py`
     completa los que falten (dry-run por defecto).
+    **Desplegado el 2026-10-05** (`48ba29e`, PR #55; respaldo `/root/wms-backups/wms-2026-10-05-1728.*`)
+    y mantención aplicada: 126 códigos generados, 3493 productos con código, 0 repetidos.
   - **Fecha, cotización, vendedor y observaciones del pedido + paginación de 10 (2026-10-05, pedido
     del dueño).** De `Order/Get`: fecha = `creationDate` (`order_date`); cotización del ERP =
     `referenceNumberPricingID` (`quotation_number`; vacía en 4 de 35); vendedor = `sellerID`
@@ -459,7 +467,7 @@ contratos de datos, pero no se ha mirado en pantalla.
     manuales del 28/09 y revertir daba −18 en DISPATCH; (2) **vacía las ubicaciones operativas**
     mirando el saldo actual: cuadra los pares del bug de lote, devuelve lo positivo al origen del
     pick y repone lo negativo desde ahí. Script versionado en `deploy/qa/`, filtra la hora de
-    Chile. Pendiente aparte: el movimiento de packing no lleva lote (origen de los pares).
+    Chile. El movimiento de packing sin lote (origen de los pares) se corrigió aparte (2026-10-06).
   - **Pedidos nuevos destacados, "no leídos" (2026-10-05, pedido del dueño).** Por usuario, como el
     correo: un pedido queda con punto azul y en negrita hasta que cada usuario lo abre
     (`orders.seen_by`, no sale en la API; la lista expone `unread` y `unread_total`). Los que

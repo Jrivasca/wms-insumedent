@@ -1,6 +1,6 @@
 import secrets
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
 
@@ -432,6 +432,42 @@ async def reset_line(
     return serialize(await _load_task(tenant_id, task_id))
 
 
+async def _lotes_pickeados(db, picking_task_id: Optional[str]) -> Dict[Any, List[Tuple[Any, Any, float]]]:
+    """Lotes que pickeó la tarea de picking de origen, por línea: [(lote, vencimiento, cantidad)]
+    en orden FEFO. Es lo que está en STAGING para este packing."""
+    if not picking_task_id:
+        return {}
+    pt = await db[Collections.PICKING_TASKS].find_one({"_id": to_object_id(picking_task_id)})
+    out: Dict[Any, List[Tuple[Any, Any, float]]] = {}
+    for line in (pt or {}).get("lines", []):
+        grupos: Dict[Tuple[Any, Any], float] = {}
+        for s in line.get("scans", []):
+            q = s.get("quantity", 0) or 0
+            if q > 0 and s.get("lot_number"):
+                k = (s["lot_number"], s.get("expiration_date"))
+                grupos[k] = grupos.get(k, 0) + q
+        out[line.get("line_id")] = sorted(
+            ((lot, exp, q) for (lot, exp), q in grupos.items()),
+            key=lambda g: order_service._fefo_key(g[1]),
+        )
+    return out
+
+
+def _repartir_por_lote(qty: float, lotes: List[Tuple[Any, Any, float]]) -> List[Tuple[Any, Any, float]]:
+    """Reparte ``qty`` sobre ``lotes`` en orden; lo que sobre va sin lote."""
+    partes, resto = [], qty
+    for lot, exp, disponible in lotes:
+        if resto <= 1e-9:
+            break
+        q = min(resto, disponible)
+        if q > 0:
+            partes.append((lot, exp, q))
+            resto -= q
+    if resto > 1e-9:
+        partes.append((None, None, resto))
+    return partes
+
+
 async def complete(
     tenant_id: str, task_id: str, user: CurrentUser, force_close: bool = False
 ) -> Dict[str, Any]:
@@ -483,22 +519,30 @@ async def complete(
     warehouse_id = task.get("warehouse_id")
     staging_id = await _location_id_by_type(tenant_id, warehouse_id, "staging") if warehouse_id else None
     packing_id = await _location_id_by_type(tenant_id, warehouse_id, "packing") if warehouse_id else None
+    lots_by_line = await _lotes_pickeados(db, task.get("picking_task_id"))
 
     for line in task["lines"]:
         qty = line.get("quantity_packed", 0)
         if qty and qty > 0 and line.get("product_id"):
-            await inventory_service.register_operational_move(
-                tenant_id=tenant_id,
-                movement_type=MovementType.PACK.value,
-                product_id=line["product_id"],
-                warehouse_id=warehouse_id,
-                quantity=qty,
-                from_location_id=staging_id,
-                to_location_id=packing_id,
-                reference_type=ReferenceType.PACKING_TASK.value,
-                reference_id=task_id,
-                created_by=user.id,
-            )
+            # Con su lote: el picking dejó cada unidad en STAGING con el lote elegido, y mover
+            # sin lote dejaba +q en la fila con lote y −q en la sin lote (saldos negativos en
+            # STAGING, vistos en DEV el 2026-10-05). Lo empacado se reparte FEFO entre los lotes
+            # que pickeó la tarea de picking de origen; lo que no tenga lote sale sin lote.
+            for lot, exp, q in _repartir_por_lote(qty, lots_by_line.get(line.get("line_id"), [])):
+                await inventory_service.register_operational_move(
+                    tenant_id=tenant_id,
+                    movement_type=MovementType.PACK.value,
+                    product_id=line["product_id"],
+                    warehouse_id=warehouse_id,
+                    quantity=q,
+                    from_location_id=staging_id,
+                    to_location_id=packing_id,
+                    reference_type=ReferenceType.PACKING_TASK.value,
+                    reference_id=task_id,
+                    created_by=user.id,
+                    lot_number=lot,
+                    expiration_date=exp,
+                )
 
     await db[Collections.PACKING_TASKS].update_one(
         {"_id": task["_id"]},
